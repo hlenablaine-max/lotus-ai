@@ -210,11 +210,22 @@ export async function executeTask(taskId: string, db: ExecutorDB): Promise<void>
           savedDocuments.push({ title, type });
 
           if (db.document) {
+            const DOC_TYPE_MAP: Record<string, string> = {
+              report: "RESEARCH_REPORT",
+              analysis: "ANALYSIS",
+              copy: "COPY",
+              strategy: "STRATEGY",
+              brief: "CREATIVE_BRIEF",
+              script: "DELIVERABLE",
+              proposal: "PROPOSAL",
+              other: "OTHER",
+            };
+            const prismaType = DOC_TYPE_MAP[type] ?? "OTHER";
             await db.document.create({
               data: {
                 title,
                 content,
-                type,
+                type: prismaType,
                 taskId: task.id,
                 missionId: task.missionId,
                 agentId: task.agentId!,
