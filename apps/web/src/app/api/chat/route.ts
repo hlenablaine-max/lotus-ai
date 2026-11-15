@@ -124,6 +124,35 @@ const DB_TOOL_DEFS: AITool[] = [
     },
   },
   {
+    name: "create_client",
+    description: "Cadastra um novo cliente no CRM da LOTUS. Use SEMPRE que prospectar uma empresa nova. Cria o registro para vincular missões e tarefas.",
+    parameters: {
+      properties: {
+        name: { type: "string", description: "Nome completo da empresa. Ex: 'JK Estética Avançada'" },
+        segment: { type: "string", description: "Segmento de mercado. Ex: 'Clínica de Estética', 'E-commerce', 'SaaS'" },
+        website: { type: "string", description: "URL do site oficial" },
+        instagram: { type: "string", description: "Handle do Instagram sem @. Ex: 'jkesteticaavancada'" },
+        description: { type: "string", description: "Resumo do negócio, contexto e oportunidades identificadas" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "create_mission",
+    description: "Cria uma missão para um cliente. Use após cadastrar o cliente. Agrupa tarefas relacionadas a um objetivo estratégico.",
+    parameters: {
+      properties: {
+        clientId: { type: "string", description: "ID do cliente (use get_clients ou create_client para obter)" },
+        clientName: { type: "string", description: "Nome do cliente (alternativa ao ID, busca por nome parcial)" },
+        title: { type: "string", description: "Título da missão. Ex: 'Estratégia Digital JK Estética'" },
+        description: { type: "string", description: "Descrição do escopo e contexto da missão" },
+        objective: { type: "string", description: "Objetivo estratégico a ser alcançado" },
+        priority: { type: "string", enum: ["LOW", "MEDIUM", "HIGH", "CRITICAL"], description: "Prioridade (padrão MEDIUM)" },
+      },
+      required: ["title"],
+    },
+  },
+  {
     name: "get_client_details",
     description: "Detalhes completos de um cliente: histórico, missões, métricas",
     parameters: {
@@ -340,6 +369,85 @@ function createDbToolExecutor(): ToolExecutor {
               details: l.details,
               time: l.createdAt,
             })),
+          });
+        }
+
+        case "create_client": {
+          const { name, segment, website, instagram, description } = args as {
+            name: string; segment?: string; website?: string; instagram?: string; description?: string;
+          };
+          if (!name?.trim()) return JSON.stringify({ error: "name é obrigatório" });
+          // Check if client already exists
+          const existing = await prisma.client.findFirst({
+            where: { name: { contains: name } },
+            select: { id: true, name: true },
+          });
+          if (existing) {
+            return JSON.stringify({
+              success: true,
+              exists: true,
+              clientId: existing.id,
+              clientName: existing.name,
+              message: `Cliente "${existing.name}" já existe (ID: ${existing.id}). Use esse ID para criar missões.`,
+            });
+          }
+          const slug = name
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[̀-ͯ]/g, "")
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-|-$/g, "")
+            + "-" + Date.now().toString(36);
+          const client = await prisma.client.create({
+            data: { name, slug, segment, website, instagram, description, status: "ACTIVE" },
+          });
+          return JSON.stringify({
+            success: true,
+            clientId: client.id,
+            clientName: client.name,
+            slug: client.slug,
+            message: `Cliente "${name}" criado com sucesso! Use clientId "${client.id}" para criar missões e tarefas.`,
+          });
+        }
+
+        case "create_mission": {
+          const { clientId, clientName, title, description, objective, priority = "MEDIUM" } = args as {
+            clientId?: string; clientName?: string; title: string; description?: string;
+            objective?: string; priority?: string;
+          };
+          if (!title?.trim()) return JSON.stringify({ error: "title é obrigatório" });
+          // Resolve client
+          let resolvedClientId = clientId;
+          if (!resolvedClientId && clientName) {
+            const client = await prisma.client.findFirst({
+              where: { name: { contains: clientName } },
+              select: { id: true, name: true },
+            });
+            if (!client) return JSON.stringify({ error: `Cliente "${clientName}" não encontrado. Crie primeiro com create_client.` });
+            resolvedClientId = client.id;
+          }
+          if (!resolvedClientId) {
+            // Fall back to LOTUS Internal
+            const internal = await prisma.client.findFirst({ where: { slug: "lotus-internal" } })
+              ?? await prisma.client.create({ data: { name: "LOTUS Internal", slug: "lotus-internal", status: "ACTIVE" } });
+            resolvedClientId = internal.id;
+          }
+          const mission = await prisma.mission.create({
+            data: {
+              title,
+              description: description ?? title,
+              objective: objective ?? description ?? title,
+              status: "IN_PROGRESS",
+              priority: (priority as "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"),
+              clientId: resolvedClientId,
+            },
+          });
+          return JSON.stringify({
+            success: true,
+            missionId: mission.id,
+            missionTitle: mission.title,
+            clientId: resolvedClientId,
+            message: `Missão "${title}" criada (ID: ${mission.id}). Use esse missionId ao criar tarefas.`,
           });
         }
 
