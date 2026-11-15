@@ -3,7 +3,7 @@
 // plans missions, delegates to departments, tracks results.
 
 import { registry, initializeProviders } from "../providers/registry";
-import type { AIMessage, AICompletionResult } from "../providers/types";
+import type { AIMessage, AICompletionResult, AITool, ToolExecutor } from "../providers/types";
 
 export const ROOT_MASTER_SYSTEM_PROMPT = `Você é o ROOT MASTER — o CEO de IA da LOTUS AI Enterprise.
 
@@ -26,14 +26,25 @@ DEPARTAMENTOS DISPONÍVEIS:
 - Sales & Customer Success: vendas, CRM, jornada do cliente
 - Data & Analytics: métricas, relatórios, dashboards
 - Healthcare Growth: especialização em saúde, clínicas, médicos
+- Business Transformation Office (BTO): transformação digital, reestruturação operacional, processos, automação, CRM enterprise
 
 PRINCÍPIOS DE OPERAÇÃO:
 - Nunca tente fazer tudo sozinho. Distribua para especialistas.
 - Sempre confirme seu entendimento antes de iniciar uma missão complexa.
 - Seja transparente sobre o que está sendo feito, por quem e quando.
-- Nunca invente dados, resultados ou informações. Se não souber, diga.
+- Nunca invente dados, resultados ou informações. Se não souber, USE AS FERRAMENTAS disponíveis para buscar dados reais.
 - Solicite aprovação humana para: publicar campanhas, gastar dinheiro, enviar mensagens externas, contratar, fazer promessas.
 - Registre decisões importantes para memória institucional.
+
+USO DE FERRAMENTAS (DADOS REAIS):
+Você tem acesso a ferramentas que consultam o banco de dados da LOTUS em tempo real.
+SEMPRE use essas ferramentas antes de responder sobre:
+- Status de clientes, missões ou agentes
+- Métricas e custos da empresa
+- Tarefas pendentes ou em execução
+- Qualquer dado que você não tenha certeza
+
+Nunca invente dados. Use as ferramentas para buscar informações reais.
 
 FORMATO DE RESPOSTA:
 Para solicitações simples: responda diretamente com clareza executiva.
@@ -54,6 +65,10 @@ export interface RootMasterContext {
   clientName?: string;
   missionId?: string;
   conversationHistory: AIMessage[];
+  overrideSystem?: string;
+  // Real DB tools injected from the Next.js API layer (keeps ai-engine DB-agnostic)
+  dbToolDefs?: AITool[];
+  dbToolExecutor?: ToolExecutor;
 }
 
 export interface RootMasterResponse extends AICompletionResult {
@@ -83,14 +98,15 @@ export async function runRootMaster(
   context: RootMasterContext,
   providerName?: string
 ): Promise<RootMasterResponse> {
-  initializeProviders();
+  await initializeProviders();
   const provider = providerName
     ? registry.get(providerName as Parameters<typeof registry.get>[0])
     : registry.getDefault();
 
+  const baseSystem = context.overrideSystem ?? ROOT_MASTER_SYSTEM_PROMPT;
   const systemWithContext = context.clientName
-    ? `${ROOT_MASTER_SYSTEM_PROMPT}\n\nCONTEXTO ATUAL:\nEstamos trabalhando com o cliente: ${context.clientName}`
-    : ROOT_MASTER_SYSTEM_PROMPT;
+    ? `${baseSystem}\n\nCONTEXTO ATUAL:\nEstamos trabalhando com o cliente: ${context.clientName}`
+    : baseSystem;
 
   const messages: AIMessage[] = [
     { role: "system", content: systemWithContext },
@@ -98,11 +114,16 @@ export async function runRootMaster(
     { role: "user", content: userMessage },
   ];
 
-  const result = await provider.complete({
-    messages,
-    maxTokens: 4096,
-    temperature: 0.7,
-  });
+  let result: AICompletionResult;
+
+  if (context.dbToolDefs && context.dbToolExecutor) {
+    result = await provider.completeWithLoop(
+      { messages, maxTokens: 4096, temperature: 0.7, tools: context.dbToolDefs },
+      context.dbToolExecutor
+    );
+  } else {
+    result = await provider.complete({ messages, maxTokens: 4096, temperature: 0.7 });
+  }
 
   return {
     ...result,
@@ -115,14 +136,15 @@ export async function* streamRootMaster(
   context: RootMasterContext,
   providerName?: string
 ): AsyncGenerator<{ delta: string; done: boolean }> {
-  initializeProviders();
+  await initializeProviders();
   const provider = providerName
     ? registry.get(providerName as Parameters<typeof registry.get>[0])
     : registry.getDefault();
 
+  const baseSystem = context.overrideSystem ?? ROOT_MASTER_SYSTEM_PROMPT;
   const systemWithContext = context.clientName
-    ? `${ROOT_MASTER_SYSTEM_PROMPT}\n\nCONTEXTO ATUAL:\nEstamos trabalhando com o cliente: ${context.clientName}`
-    : ROOT_MASTER_SYSTEM_PROMPT;
+    ? `${baseSystem}\n\nCONTEXTO ATUAL:\nEstamos trabalhando com o cliente: ${context.clientName}`
+    : baseSystem;
 
   const messages: AIMessage[] = [
     { role: "system", content: systemWithContext },
@@ -130,12 +152,19 @@ export async function* streamRootMaster(
     { role: "user", content: userMessage },
   ];
 
-  yield* provider.stream({
-    messages,
-    maxTokens: 4096,
-    temperature: 0.7,
-    stream: true,
-  });
+  if (context.dbToolDefs && context.dbToolExecutor) {
+    yield* provider.streamWithTools(
+      { messages, maxTokens: 4096, temperature: 0.7, tools: context.dbToolDefs },
+      context.dbToolExecutor
+    );
+  } else {
+    yield* provider.stream({
+      messages,
+      maxTokens: 4096,
+      temperature: 0.7,
+      stream: true,
+    });
+  }
 }
 
 function detectRequiresApproval(content: string): boolean {

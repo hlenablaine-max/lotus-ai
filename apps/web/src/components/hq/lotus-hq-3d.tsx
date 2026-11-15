@@ -5,7 +5,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, Text, Html } from '@react-three/drei'
 import * as THREE from 'three'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, MessageCircle, Building2, Layers, Eye, ChevronRight } from 'lucide-react'
+import { X, MessageCircle, Building2, Layers, Eye, ChevronRight, Activity, BarChart2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // ============================================================
@@ -64,87 +64,87 @@ const STATUS_LABEL: Record<AgentStatus, string> = {
 const DEMO_AGENTS: Agent[] = [
   {
     id: 'agent-ceo', name: 'Aurora Mendes', role: 'CEO & Estrategista-chefe',
-    departmentId: 'ceo', status: 'working',
-    currentMission: 'Revisando OKRs Q4 e alinhamento estratégico',
-    tasksCompleted: 47, tasksPending: 3,
-    lastActivity: ['Aprovou campanha Black Friday', 'Revisou métricas de crescimento', 'Reunião com board'],
+    departmentId: 'ceo', status: 'idle',
+    currentMission: undefined,
+    tasksCompleted: 0, tasksPending: 0,
+    lastActivity: [],
   },
   {
     id: 'agent-root', name: 'Luna', role: 'Root Master (IA Central)',
-    departmentId: 'root-master', status: 'working',
-    currentMission: 'Orquestrando ciclo completo de campanha',
-    tasksCompleted: 312, tasksPending: 11,
-    lastActivity: ['Disparou 3 missões em paralelo', 'Monitorando KPIs em tempo real', 'Atualizou banco de memória'],
+    departmentId: 'root-master', status: 'idle',
+    currentMission: undefined,
+    tasksCompleted: 0, tasksPending: 0,
+    lastActivity: [],
   },
   {
     id: 'agent-bi', name: 'Marcos Andrade', role: 'Analista de BI',
-    departmentId: 'bi', status: 'working',
-    currentMission: 'Análise competitiva nicho saúde e bem-estar',
-    tasksCompleted: 23, tasksPending: 5,
-    lastActivity: ['Mapeou 12 concorrentes', 'Identificou gap de mercado', 'Gerou relatório de tendências'],
+    departmentId: 'bi', status: 'idle',
+    currentMission: undefined,
+    tasksCompleted: 0, tasksPending: 0,
+    lastActivity: [],
   },
   {
     id: 'agent-copy1', name: 'Beatriz Carvalho', role: 'Copywriter Sênior',
-    departmentId: 'copywriting', status: 'working',
-    currentMission: 'Copy VSL produto digital — saúde feminina',
-    tasksCompleted: 89, tasksPending: 2,
-    lastActivity: ['Finalizou sequência de e-mails', 'Criou 5 headlines de alto impacto', 'Revisou script de VSL'],
+    departmentId: 'copywriting', status: 'idle',
+    currentMission: undefined,
+    tasksCompleted: 0, tasksPending: 0,
+    lastActivity: [],
   },
   {
     id: 'agent-copy2', name: 'Rafael Nunes', role: 'Copywriter de Roteiros',
-    departmentId: 'copywriting', status: 'thinking',
-    currentMission: 'Roteiro para webinar de lançamento',
-    tasksCompleted: 34, tasksPending: 4,
-    lastActivity: ['Pesquisou ICP do produto', 'Rascunhou estrutura do webinar', 'Revisou objeções do público'],
+    departmentId: 'copywriting', status: 'idle',
+    currentMission: undefined,
+    tasksCompleted: 0, tasksPending: 0,
+    lastActivity: [],
   },
   {
     id: 'agent-creative', name: 'Camila Dias', role: 'Diretora de Criação',
-    departmentId: 'creative', status: 'working',
-    currentMission: 'Identidade visual campanha Black Friday',
-    tasksCompleted: 56, tasksPending: 7,
-    lastActivity: ['Criou 8 variações de criativos', 'Definiu paleta da campanha', 'Aprovou mockups finais'],
+    departmentId: 'creative', status: 'idle',
+    currentMission: undefined,
+    tasksCompleted: 0, tasksPending: 0,
+    lastActivity: [],
   },
   {
     id: 'agent-perf', name: 'Lucas Rodrigues', role: 'Gestor de Tráfego',
-    departmentId: 'performance', status: 'meeting',
-    currentMission: 'Otimização ROAS campanha Meta — produto X',
-    tasksCompleted: 112, tasksPending: 8,
-    lastActivity: ['Ajustou lances por horário', 'Pausou criativos com CTR baixo', 'Escalou conjunto vencedor'],
+    departmentId: 'performance', status: 'idle',
+    currentMission: undefined,
+    tasksCompleted: 0, tasksPending: 0,
+    lastActivity: [],
   },
   {
     id: 'agent-web', name: 'Pedro Alves', role: 'Desenvolvedor Full-Stack',
-    departmentId: 'web-dev', status: 'working',
-    currentMission: 'Landing page produto X — versão mobile',
-    tasksCompleted: 29, tasksPending: 3,
-    lastActivity: ['Deploy da LP versão 2.1', 'Corrigiu bug de formulário', 'Integrou pixel Meta'],
+    departmentId: 'web-dev', status: 'idle',
+    currentMission: undefined,
+    tasksCompleted: 0, tasksPending: 0,
+    lastActivity: [],
   },
   {
     id: 'agent-data', name: 'Ana Souza', role: 'Analista de Dados',
-    departmentId: 'data-analytics', status: 'working',
-    currentMission: 'Dashboard ROI campanhas — atribuição multi-touch',
-    tasksCompleted: 18, tasksPending: 6,
-    lastActivity: ['Modelou atribuição multi-touch', 'Criou pipeline de dados', 'Validou métricas de conversão'],
+    departmentId: 'data-analytics', status: 'idle',
+    currentMission: undefined,
+    tasksCompleted: 0, tasksPending: 0,
+    lastActivity: [],
   },
   {
     id: 'agent-sales', name: 'Rodrigo Castro', role: 'Head de Vendas',
     departmentId: 'sales', status: 'idle',
     currentMission: undefined,
-    tasksCompleted: 203, tasksPending: 0,
-    lastActivity: ['Fechou deal R$12k', 'Onboarding 3 novos clientes', 'Revisou pipeline de prospecção'],
+    tasksCompleted: 0, tasksPending: 0,
+    lastActivity: [],
   },
   {
     id: 'agent-strat', name: 'Felipe Costa', role: 'Estrategista de Growth',
-    departmentId: 'strategy', status: 'thinking',
-    currentMission: 'Plano de crescimento Q1 2027',
-    tasksCompleted: 44, tasksPending: 2,
-    lastActivity: ['Mapeou alavancas de crescimento', 'Analisou benchmarks de mercado', 'Definiu hipóteses de teste'],
+    departmentId: 'strategy', status: 'idle',
+    currentMission: undefined,
+    tasksCompleted: 0, tasksPending: 0,
+    lastActivity: [],
   },
   {
     id: 'agent-mc', name: 'Julia Ferreira', role: 'Coord. de Operações',
-    departmentId: 'mission-control', status: 'working',
-    currentMission: 'Supervisão e validação de missões ativas',
-    tasksCompleted: 67, tasksPending: 11,
-    lastActivity: ['Validou entrega de campanha', 'Atribuiu nova missão ao time', 'Atualizou status do projeto'],
+    departmentId: 'mission-control', status: 'idle',
+    currentMission: undefined,
+    tasksCompleted: 0, tasksPending: 0,
+    lastActivity: [],
   },
 ]
 
@@ -166,28 +166,58 @@ const HAIR_COLORS = ['#1a0a00', '#3b1f0a', '#8B4513', '#c8a96e', '#2c2c2c', '#1a
 const getSkinTone = (id: string) => SKIN_TONES[Math.floor(seededVal(id, 1) * SKIN_TONES.length)]
 const getHairColor = (id: string) => HAIR_COLORS[Math.floor(seededVal(id, 2) * HAIR_COLORS.length)]
 
+// Cadeiras por departamento [x, z] — referência bx=0 (centro do prédio)
+// Espelha as posições reais do DeptFurniture (que também usa bx=0)
+const DEPT_CHAIRS: Record<string, Array<[number, number]>> = {
+  'mission-control': [[-8, -4.8], [-4, -4.8], [0, -4.8], [4, -4.8], [8, -4.8]],
+  'web-dev':         [[-10, -4.8], [-7, -4.8], [-10, -1.3]],
+  'data-analytics':  [[4, -4.8], [7.5, -4.8], [4, -1.3]],
+  'sales':           [[-8, -4.8], [-4, -4.8], [0, -4.8], [4, -4.8], [8, -4.8]],
+  'performance':     [[-7, -4.8], [-3.5, -4.8], [0, -4.8], [3.5, -4.8], [7, -4.8]],
+  'copywriting':     [[-10, -4.8], [-7, -4.8], [-10, -1.3]],
+  'creative':        [[4, -4.8], [7.5, -4.8], [4, -1.3]],
+  'bi':              [[-10, -4.8], [-7, -4.8], [-10, -1.3]],
+  'strategy':        [[4, -4.8], [7.5, -3.3]],
+  'root-master':     [[-10, -0.8], [-7, -0.8]],
+  'ceo':             [[8, -1.6]],
+}
+
+// Centro das mesas de reunião [x, z]
+const DEPT_MEETING_CENTERS: Record<string, [number, number]> = {
+  'mission-control': [0, -0.5],
+  'sales':           [0, 4.5],
+  'performance':     [0, 4.5],
+  'strategy':        [6, 3.5],
+  'ceo':             [5, 4],
+}
+
 function getAgentWorldPos(agent: Agent): THREE.Vector3 {
   const dept = DEPTS.find(d => d.id === agent.departmentId)
   if (!dept) return new THREE.Vector3(0, getFloorY(0), 0)
   const floorY = getFloorY(dept.floor)
+  const isSitting = agent.status === 'working' || agent.status === 'meeting'
+  // Y na altura da cadeira (floorY + 0.44) para animação sitting ficar correta
+  const seatY = floorY + (isSitting ? 0.44 : 0.1)
 
   if (agent.status === 'meeting') {
-    const deptAgents = DEMO_AGENTS.filter(a => a.departmentId === agent.departmentId && a.status === 'meeting')
-    const idx = deptAgents.findIndex(a => a.id === agent.id)
-    const ang = (idx / Math.max(deptAgents.length, 1)) * Math.PI * 2
-    const xBase = dept.side === 'right' ? 6 : dept.side === 'left' ? -6 : 0
-    return new THREE.Vector3(xBase + Math.cos(ang) * 2.0, floorY, Math.sin(ang) * 2.0)
+    const mc = DEPT_MEETING_CENTERS[agent.departmentId]
+    if (mc) {
+      const deptAgents = DEMO_AGENTS.filter(a => a.departmentId === agent.departmentId && a.status === 'meeting')
+      const idx = deptAgents.findIndex(a => a.id === agent.id)
+      const ang = (idx / Math.max(deptAgents.length, 1)) * Math.PI * 2
+      return new THREE.Vector3(mc[0] + Math.cos(ang) * 2.0, seatY, mc[1] + Math.sin(ang) * 2.0)
+    }
   }
 
-  const isFull = dept.side === 'full'
-  const isLeft = dept.side === 'left'
-  const xBase = isFull ? -9 : isLeft ? -11 : 1
-  const cols = isFull ? 4 : 2
-  const deptAgents = DEMO_AGENTS.filter(a => a.departmentId === agent.departmentId)
-  const idx = deptAgents.findIndex(a => a.id === agent.id)
-  const col = idx % cols
-  const row = Math.floor(idx / cols)
-  return new THREE.Vector3(xBase + col * 4.5, floorY, -5 + row * 3.5)
+  const chairs = DEPT_CHAIRS[agent.departmentId]
+  if (chairs) {
+    const deptAgents = DEMO_AGENTS.filter(a => a.departmentId === agent.departmentId)
+    const idx = deptAgents.findIndex(a => a.id === agent.id)
+    const pos = chairs[Math.min(idx, chairs.length - 1)]
+    return new THREE.Vector3(pos[0], seatY, pos[1])
+  }
+
+  return new THREE.Vector3(0, floorY, 0)
 }
 
 // ============================================================
@@ -803,8 +833,8 @@ function DeptRoom({ dept, floorY }: { dept: DeptDef; floorY: number }) {
       <WallArt pos={[xOff - floorW * 0.28, floorY + 2.4, -BD / 2 + 0.16]} w={1.1} h={0.75} bgColor={c} />
       <WallArt pos={[xOff + floorW * 0.28, floorY + 2.4, -BD / 2 + 0.16]} w={1.1} h={0.75} bgColor={c} />
 
-      {/* MÓVEIS do departamento */}
-      <DeptFurniture dept={dept} bx={xOff} by={floorY} />
+      {/* MÓVEIS do departamento — bx=0 para alinhar com DEPT_CHAIRS lookup table */}
+      <DeptFurniture dept={dept} bx={0} by={floorY} />
     </group>
   )
 }
@@ -836,7 +866,9 @@ function Character3D({ agent, targetPos, onSelect, selected }: CharProps) {
   const shirt = useMemo(() => getDeptColor(agent.departmentId), [agent.departmentId])
   const statusC = STATUS_COLOR[agent.status]
 
-  const isSitting = agent.status === 'working' || agent.status === 'meeting'
+  // Agent sits at desk if their department has chairs AND they aren't offline/thinking
+  const hasDesk = !!DEPT_CHAIRS[agent.departmentId]
+  const isSitting = hasDesk && agent.status !== 'offline' && agent.status !== 'thinking'
 
   useFrame(state => {
     if (!root.current) return
@@ -858,6 +890,9 @@ function Character3D({ agent, targetPos, onSelect, selected }: CharProps) {
         const angle = Math.atan2(dir.x, dir.z)
         root.current.rotation.y = THREE.MathUtils.lerp(root.current.rotation.y, angle, 0.12)
       }
+    } else if (isSitting) {
+      // Face the monitor (toward -Z in local desk space, which is rotation.y = Math.PI)
+      root.current.rotation.y = THREE.MathUtils.lerp(root.current.rotation.y, Math.PI, 0.04)
     }
 
     if (agent.status === 'offline') return
@@ -873,11 +908,14 @@ function Character3D({ agent, targetPos, onSelect, selected }: CharProps) {
       if (rLegGroup.current) rLegGroup.current.rotation.x = THREE.MathUtils.lerp(rLegGroup.current.rotation.x, 0.95, 0.06)
 
       if (agent.status === 'working') {
+        // Typing animation
         if (lArmGroup.current) lArmGroup.current.rotation.x = THREE.MathUtils.lerp(lArmGroup.current.rotation.x, -1.1 + Math.sin(t * 6) * 0.07, 0.05)
         if (rArmGroup.current) rArmGroup.current.rotation.x = THREE.MathUtils.lerp(rArmGroup.current.rotation.x, -1.1 + Math.sin(t * 6 + 1) * 0.07, 0.05)
         if (head.current) head.current.rotation.x = THREE.MathUtils.lerp(head.current.rotation.x, -0.2, 0.05)
       } else {
-        if (head.current) head.current.rotation.y = Math.sin(t * 0.7) * 0.3
+        // Idle at desk — relaxed arms, slight head bob
+        if (head.current) head.current.rotation.y = Math.sin(t * 0.4) * 0.08
+        if (head.current) head.current.rotation.x = THREE.MathUtils.lerp(head.current.rotation.x, -0.1, 0.03)
         if (lArmGroup.current) lArmGroup.current.rotation.x = THREE.MathUtils.lerp(lArmGroup.current.rotation.x, -0.6, 0.05)
         if (rArmGroup.current) rArmGroup.current.rotation.x = THREE.MathUtils.lerp(rArmGroup.current.rotation.x, -0.6, 0.05)
       }
@@ -995,21 +1033,34 @@ function Character3D({ agent, targetPos, onSelect, selected }: CharProps) {
         <meshStandardMaterial color={statusC} emissive={statusC} emissiveIntensity={1.6} />
       </mesh>
 
-      {/* Label do nome — Html sem occlude: sempre visível, tamanho escala com câmera */}
-      <Html position={[0, 2.55, 0]} center distanceFactor={14} zIndexRange={[100, 0]}>
+      {/* Tooltip flutuante — nome, cargo, status e missão atual */}
+      <Html position={[0, 2.65, 0]} center distanceFactor={14} zIndexRange={[100, 0]} prepend>
         <div style={{
-          background: 'rgba(6,6,20,0.88)', color: '#fff',
-          fontSize: '11px', fontWeight: 700, lineHeight: 1.3,
-          padding: '3px 8px 2px', borderRadius: '5px', whiteSpace: 'nowrap',
+          background: 'rgba(6,6,20,0.92)', color: '#fff',
+          fontSize: '11px', fontWeight: 700, lineHeight: 1.4,
+          padding: '5px 9px 4px', borderRadius: '7px',
           border: `1px solid ${shirt}88`, pointerEvents: 'none',
           fontFamily: 'Inter, system-ui, sans-serif',
-          textShadow: '0 1px 3px #000',
-          userSelect: 'none',
+          textShadow: '0 1px 3px #000', userSelect: 'none',
+          maxWidth: '160px',
         }}>
+          {/* Nome */}
           {agent.name.split(' ')[0]}
-          <span style={{ display: 'block', fontSize: '9px', color: shirt, fontWeight: 600, opacity: 0.9 }}>
+          {/* Cargo */}
+          <span style={{ display: 'block', fontSize: '9px', color: shirt, fontWeight: 600, opacity: 0.85 }}>
             {agent.role.split(' ').slice(0, 3).join(' ')}
           </span>
+          {/* Status */}
+          <span style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '3px' }}>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: statusC, flexShrink: 0, boxShadow: `0 0 4px ${statusC}` }} />
+            <span style={{ fontSize: '9px', color: statusC, fontWeight: 600 }}>{STATUS_LABEL[agent.status]}</span>
+          </span>
+          {/* Missão atual */}
+          {agent.currentMission && (
+            <span style={{ display: 'block', fontSize: '9px', color: '#d1d5db', fontWeight: 400, marginTop: '2px', opacity: 0.9, whiteSpace: 'normal', lineHeight: 1.3 }}>
+              {agent.currentMission.length > 40 ? agent.currentMission.slice(0, 40) + '…' : agent.currentMission}
+            </span>
+          )}
         </div>
       </Html>
     </group>
@@ -1202,7 +1253,7 @@ function Scene({ viewMode, activeFloor, ...rest }: BuildingProps) {
       {/* Luz ambiente mais forte para realçar interiores */}
       <ambientLight intensity={1.1} />
       <directionalLight position={[22, 42, 14]} intensity={1.4} castShadow
-        shadow-mapSize={[2048, 2048]}
+        shadow-mapSize={[1024, 1024]}
         shadow-camera-far={120}
         shadow-camera-left={-30} shadow-camera-right={30}
         shadow-camera-top={45} shadow-camera-bottom={-10}
@@ -1406,6 +1457,159 @@ function ControlsHint() {
 }
 
 // ============================================================
+// ACTIVITY FEED + AGENCY EVALUATION
+// ============================================================
+
+type FeedEvent = {
+  id: number
+  agentName: string
+  role: string
+  deptId: string
+  action: string
+  color: string
+  time: string
+}
+
+const ALL_FEED_EVENTS: Omit<FeedEvent, 'id' | 'time'>[] = DEMO_AGENTS.flatMap(agent =>
+  agent.lastActivity.map(action => ({
+    agentName: agent.name.split(' ')[0],
+    role: agent.role,
+    deptId: agent.departmentId,
+    action,
+    color: getDeptColor(agent.departmentId),
+  }))
+)
+
+const MISSING_ROLES = [
+  { role: 'PR & Relações Públicas', icon: '📣' },
+  { role: 'Influencer Marketing', icon: '🌟' },
+  { role: 'Editor de Vídeo', icon: '🎬' },
+  { role: 'Motion Designer', icon: '🎨' },
+  { role: 'Social Media Manager', icon: '📱' },
+  { role: 'Especialista em SEO', icon: '🔍' },
+  { role: 'Email Marketing', icon: '📧' },
+  { role: 'UX/UI Designer', icon: '🖌' },
+  { role: 'Especialista em CRO', icon: '📊' },
+  { role: 'Customer Success', icon: '🤝' },
+  { role: 'WhatsApp / CRM', icon: '💬' },
+]
+
+function getTimeStr() {
+  return new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+}
+
+function ActivityFeed({ events, onClose }: { events: FeedEvent[]; onClose: () => void }) {
+  return (
+    <motion.div
+      initial={{ x: -300, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: -300, opacity: 0 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+      className="absolute left-16 top-14 w-64 z-30 pointer-events-auto"
+      style={{ bottom: '3.5rem' }}
+    >
+      <div className="h-full rounded-xl border border-white/10 bg-black/85 backdrop-blur-xl flex flex-col overflow-hidden">
+        <div className="p-3 border-b border-white/5 flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            <span className="text-[11px] font-semibold text-white/60 uppercase tracking-wider">Feed ao Vivo</span>
+          </div>
+          <button onClick={onClose} className="text-white/30 hover:text-white/80 transition-colors"><X size={13} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+          <AnimatePresence initial={false}>
+            {events.map(ev => (
+              <motion.div
+                key={ev.id}
+                initial={{ opacity: 0, x: -12, height: 0 }}
+                animate={{ opacity: 1, x: 0, height: 'auto' }}
+                transition={{ duration: 0.2 }}
+                className="flex gap-2 p-2 rounded-lg bg-white/4 border border-white/5"
+              >
+                <div
+                  className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5"
+                  style={{ background: `${ev.color}25`, color: ev.color }}
+                >
+                  {ev.agentName.charAt(0)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-[11px] font-semibold text-white/75 truncate">{ev.agentName}</span>
+                    <span className="text-[9px] text-white/22 flex-shrink-0">{ev.time}</span>
+                  </div>
+                  <p className="text-[10px] text-white/40 mt-0.5 leading-snug line-clamp-2">{ev.action}</p>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+function AgencyEvalPanel({ onClose }: { onClose: () => void }) {
+  const coverage = Math.round((DEMO_AGENTS.length / (DEMO_AGENTS.length + MISSING_ROLES.length)) * 100)
+  return (
+    <motion.div
+      initial={{ y: 32, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      exit={{ y: 32, opacity: 0 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+      className="absolute left-16 right-4 bottom-16 z-30 pointer-events-auto"
+    >
+      <div className="rounded-xl border border-white/10 bg-black/90 backdrop-blur-xl overflow-hidden">
+        <div className="p-4 border-b border-white/5 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-bold text-white">Avaliação da Agência</h3>
+            <p className="text-xs text-white/35 mt-0.5">{coverage}% de cobertura para uma agência completa</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className="h-1.5 w-28 bg-white/10 rounded-full overflow-hidden">
+                <div className="h-full bg-pink-500 rounded-full" style={{ width: `${coverage}%` }} />
+              </div>
+              <span className="text-sm font-bold text-pink-400">{coverage}%</span>
+            </div>
+            <button onClick={onClose} className="text-white/30 hover:text-white/80 p-1"><X size={16} /></button>
+          </div>
+        </div>
+        <div className="p-4 max-h-64 overflow-y-auto">
+          <div className="grid grid-cols-2 gap-6">
+            <div>
+              <p className="text-[10px] font-semibold text-green-400 uppercase tracking-wider mb-2">
+                ✅ Contratado — {DEMO_AGENTS.length} agentes
+              </p>
+              <div className="space-y-1">
+                {DEMO_AGENTS.map((a, i) => (
+                  <div key={i} className="flex items-center gap-1.5 py-0.5 border-b border-white/4 last:border-0">
+                    <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: getDeptColor(a.departmentId) }} />
+                    <span className="text-[11px] text-white/55 truncate">{a.role}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold text-amber-400 uppercase tracking-wider mb-2">
+                🔜 Próxima contratação — {MISSING_ROLES.length} vagas
+              </p>
+              <div className="space-y-1">
+                {MISSING_ROLES.map((r, i) => (
+                  <div key={i} className="flex items-center gap-1.5 py-0.5 border-b border-white/4 last:border-0">
+                    <span className="text-sm flex-shrink-0">{r.icon}</span>
+                    <span className="text-[11px] text-amber-300/50">{r.role}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+// ============================================================
 // EXPORT PRINCIPAL
 // ============================================================
 export function LotusHQ3D() {
@@ -1414,30 +1618,85 @@ export function LotusHQ3D() {
   const [viewMode, setViewMode] = useState<ViewMode>('exterior')
   const [activeFloor, setActiveFloor] = useState<number | null>(null)
   const [connected, setConnected] = useState(false)
+  const [showFeed, setShowFeed] = useState(false)
+  const [showEval, setShowEval] = useState(false)
+  const [feedEvents, setFeedEvents] = useState<FeedEvent[]>([])
+  const eventCounterRef = useRef(0)
+  const feedIndexRef = useRef(0)
 
+  // Prime activity feed and cycle every 2.5s
   useEffect(() => {
-    const es = new EventSource('/api/agents/events')
-    es.onmessage = e => {
+    const initial = ALL_FEED_EVENTS.slice(0, 8).map((ev, i) => ({ ...ev, id: i, time: getTimeStr() }))
+    setFeedEvents(initial)
+    eventCounterRef.current = 8
+    feedIndexRef.current = 8
+    const timer = setInterval(() => {
+      const ev = ALL_FEED_EVENTS[feedIndexRef.current % ALL_FEED_EVENTS.length]
+      feedIndexRef.current++
+      setFeedEvents(prev => [{ ...ev, id: eventCounterRef.current++, time: getTimeStr() }, ...prev.slice(0, 24)])
+    }, 2500)
+    return () => clearInterval(timer)
+  }, [])
+
+  // Poll real DB agent states and merge into DEMO_AGENTS (preserves 3D positions/roles)
+  useEffect(() => {
+    let cancelled = false
+
+    const pollAgents = async () => {
       try {
-        const d = JSON.parse(e.data)
-        if (d.type === 'init') { setAgents(d.agents); setConnected(true) }
-        else if (d.type === 'update') setAgents(p => p.map(a => a.id === d.agent.id ? d.agent : a))
-      } catch { /* ignore */ }
+        const res = await fetch('/api/hq/agents')
+        if (!res.ok) return
+        const data = await res.json() as { agents: Array<{ id: string; name: string; status: string; department: string; tasksCompleted: number; tasksTotal: number; currentTask: string | null; currentMission: string | null }> }
+        if (cancelled) return
+
+        setConnected(true)
+        setAgents(prev => {
+          // Merge real statuses into existing agent list by department
+          const dbByDept = new Map(data.agents.map(a => [a.department?.toLowerCase(), a]))
+          return prev.map(a => {
+            // Try to match by department ID
+            const dbAgent = dbByDept.get(a.departmentId)
+            if (!dbAgent) return a
+            const dbStatus = dbAgent.status as AgentStatus
+            const validStatuses: AgentStatus[] = ['idle', 'working', 'meeting', 'thinking', 'offline']
+            return {
+              ...a,
+              status: validStatuses.includes(dbStatus) ? dbStatus : a.status,
+              tasksCompleted: dbAgent.tasksCompleted ?? a.tasksCompleted,
+              currentMission: dbAgent.currentMission ?? dbAgent.currentTask ?? a.currentMission,
+            }
+          })
+        })
+      } catch {
+        // Keep demo data on error — don't break the 3D scene
+        setConnected(false)
+      }
     }
-    es.onerror = () => setConnected(false)
-    return () => es.close()
+
+    pollAgents()
+    const timer = setInterval(pollAgents, 15000)
+    return () => { cancelled = true; clearInterval(timer) }
   }, [])
 
   const handleSelect = useCallback((a: Agent) => {
     setSelected(p => p?.id === a.id ? null : a)
   }, [])
 
+  // Ao entrar no modo interior sem andar selecionado, auto-seleciona andar 0
+  const handleViewChange = useCallback((mode: ViewMode) => {
+    setViewMode(mode)
+    if (mode === 'interior' && activeFloor === null) {
+      setActiveFloor(0)
+    }
+  }, [activeFloor])
+
   return (
     <div className="relative w-full h-full bg-[#060614] overflow-hidden">
       <TopBar agents={agents} connected={connected} />
       <Canvas
         shadows
-        dpr={[1, 2]}
+        dpr={[1, 1.5]}
+        performance={{ min: 0.5 }}
         camera={{ position: [32, 28, 32], fov: 52, near: 0.1, far: 500 }}
         style={{ position: 'absolute', inset: 0 }}
         onPointerMissed={() => setSelected(null)}
@@ -1454,9 +1713,38 @@ export function LotusHQ3D() {
       </Canvas>
       <div className="absolute inset-0 pointer-events-none">
         <FloorSelector active={activeFloor} onChange={setActiveFloor} />
-        <ViewToggle mode={viewMode} onChange={setViewMode} />
+        <ViewToggle mode={viewMode} onChange={handleViewChange} />
         <ControlsHint />
+
+        {/* Feed + Eval toggle buttons */}
+        <div className="absolute bottom-4 left-16 flex gap-2 pointer-events-auto z-20">
+          <button
+            onClick={() => setShowFeed(p => !p)}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all',
+              showFeed
+                ? 'bg-green-500/20 border-green-500/40 text-green-400'
+                : 'bg-black/55 border-white/10 text-white/45 hover:text-white hover:border-white/20'
+            )}
+          >
+            <Activity size={12} /> Feed
+          </button>
+          <button
+            onClick={() => setShowEval(p => !p)}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all',
+              showEval
+                ? 'bg-pink-500/20 border-pink-500/40 text-pink-400'
+                : 'bg-black/55 border-white/10 text-white/45 hover:text-white hover:border-white/20'
+            )}
+          >
+            <BarChart2 size={12} /> Avaliação
+          </button>
+        </div>
+
         <AnimatePresence>
+          {showFeed && <ActivityFeed events={feedEvents} onClose={() => setShowFeed(false)} />}
+          {showEval && <AgencyEvalPanel onClose={() => setShowEval(false)} />}
           {selected && <AgentPanel agent={selected} onClose={() => setSelected(null)} />}
         </AnimatePresence>
       </div>

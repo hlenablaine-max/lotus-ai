@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
-import { getAgentStore, type AgentStatus } from '@/lib/agent-store'
+import { type AgentStatus } from '@/lib/agent-store'
+import { getAllAgents, updateAgentStatus } from '@/lib/agent-service'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
-  const store = getAgentStore()
-  return NextResponse.json({ agents: store.getAll() })
+  const agents = await getAllAgents()
+  return NextResponse.json({ agents })
 }
 
 export async function PATCH(req: Request) {
@@ -17,14 +18,13 @@ export async function PATCH(req: Request) {
       currentMission?: string
     }
 
-    const store = getAgentStore()
-    const success = store.updateStatus(id, status, currentMission)
+    const success = await updateAgentStatus(id, status, currentMission)
 
     if (!success) {
       return NextResponse.json({ error: `Agent '${id}' not found` }, { status: 404 })
     }
 
-    return NextResponse.json({ success: true, agent: store.get(id) })
+    return NextResponse.json({ success: true })
   } catch {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
   }

@@ -1,12 +1,14 @@
-// LOTUS AI Enterprise — Database Schema
+// LOTUS AI Enterprise Ã¢â‚¬â€ Database Schema
 // PostgreSQL via Prisma ORM
 
 generator client {
   provider = "prisma-client-js"
 }
 
+// Seed configurado em package.json: pnpm db:seed
+
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -94,11 +96,14 @@ model Client {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  contacts    ClientContact[]
-  missions    Mission[]
-  documents   Document[]
-  memories    Memory[]
-  activityLogs ActivityLog[]
+  contacts         ClientContact[]
+  missions         Mission[]
+  documents        Document[]
+  memories         Memory[]
+  activityLogs     ActivityLog[]
+  clientSolutions  ClientSolution[]
+  assessments      ClientAssessment[]
+  salesCalls       SalesCall[]
 
   @@map("clients")
 }
@@ -139,10 +144,10 @@ model Agent {
   avatar           String?       // URL to avatar image
   model            String        @default("claude-sonnet-4-5")
   provider         AIProvider    @default(ANTHROPIC)
-  systemPrompt     String        @db.Text
-  tools            Json          @default("[]")
-  permissions      Json          @default("[]")
-  knowledgeBase    String?       @db.Text
+  systemPrompt     String
+  tools            Json?
+  permissions      Json?
+  knowledgeBase    String?
   status           AgentStatus   @default(IDLE)
   isActive         Boolean       @default(true)
   autonomyLevel    Int           @default(1) // 1=supervised, 2=conditional, 3=requires_approval
@@ -158,6 +163,7 @@ model Agent {
   tasks            Task[]
   memories         Memory[]
   activityLogs     ActivityLog[]
+  assessmentsCreated ClientAssessment[]
 
   @@map("agents")
 }
@@ -173,6 +179,7 @@ enum AgentStatus {
   EXECUTING
   REVIEWING
   IN_MEETING
+  IN_CALL
   WAITING_APPROVAL
   BLOCKED
   COMPLETED
@@ -196,10 +203,11 @@ model Mission {
   id          String        @id @default(cuid())
   clientId    String
   title       String
-  description String        @db.Text
-  objective   String        @db.Text
+  description String
+  objective   String
   priority    Priority      @default(MEDIUM)
   status      MissionStatus @default(PENDING)
+  type        MissionType   @default(GROWTH)
 
   // Context
   context     Json?         // Additional data passed to agents
@@ -217,8 +225,17 @@ model Mission {
   approvals   Approval[]
   memories    Memory[]
   activityLogs ActivityLog[]
+  clientSolutions ClientSolution[]
 
   @@map("missions")
+}
+
+enum MissionType {
+  GROWTH
+  TRANSFORMATION
+  INTELLIGENCE
+  HYBRID
+  INTERNAL
 }
 
 enum MissionStatus {
@@ -248,8 +265,8 @@ model Task {
   missionId    String
   agentId      String?
   title        String
-  description  String     @db.Text
-  instructions String     @db.Text
+  description  String
+  instructions String
 
   // Input/Output
   input        Json?
@@ -261,7 +278,7 @@ model Task {
   maxRetries   Int        @default(3)
 
   // Dependencies
-  dependsOn    String[]   // Task IDs this task depends on
+  dependsOn    Json? // Task IDs this task depends on
 
   // Timing
   startedAt    DateTime?
@@ -300,14 +317,14 @@ model Document {
 
   title      String
   type       DocumentType
-  content    String       @db.Text
+  content    String
   metadata   Json?
   version    Int          @default(1)
 
   // Audit
   status     DocStatus    @default(DRAFT)
   auditedBy  String?      // Agent ID that audited
-  auditNotes String?      @db.Text
+  auditNotes String?
 
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
@@ -342,7 +359,7 @@ enum DocStatus {
 }
 
 // ============================================================
-// MEMORY — Persistent context per scope
+// MEMORY Ã¢â‚¬â€ Persistent context per scope
 // ============================================================
 
 model Memory {
@@ -355,7 +372,7 @@ model Memory {
   agentId   String?
 
   key       String     // e.g., "competitor_analysis", "client_preferences"
-  content   String     @db.Text
+  content   String
   metadata  Json?
 
   createdAt DateTime   @default(now())
@@ -378,7 +395,7 @@ enum MemoryScope {
 }
 
 // ============================================================
-// APPROVALS — Human approval required actions
+// APPROVALS Ã¢â‚¬â€ Human approval required actions
 // ============================================================
 
 model Approval {
@@ -388,12 +405,12 @@ model Approval {
 
   type        ApprovalType
   title       String
-  description String         @db.Text
+  description String
   payload     Json           // The action to approve
 
   status      ApprovalStatus @default(PENDING)
   decidedBy   String?        // User ID
-  decisionNote String?       @db.Text
+  decisionNote String?
 
   createdAt   DateTime       @default(now())
   decidedAt   DateTime?
@@ -411,6 +428,8 @@ enum ApprovalType {
   CREATE_AGENT
   GRANT_PERMISSION
   EXTERNAL_ACTION
+  IMPLEMENT_IN_PRODUCTION
+  SEND_PROPOSAL
   OTHER
 }
 
@@ -422,13 +441,13 @@ enum ApprovalStatus {
 }
 
 // ============================================================
-// CHAT — CEO Chat messages
+// CHAT Ã¢â‚¬â€ CEO Chat messages
 // ============================================================
 
 model ChatMessage {
   id        String      @id @default(cuid())
   role      ChatRole
-  content   String      @db.Text
+  content   String
   metadata  Json?       // agent info, mission references, etc.
 
   clientId  String?     // If the conversation is about a specific client
@@ -446,7 +465,7 @@ enum ChatRole {
 }
 
 // ============================================================
-// ACTIVITY LOGS — Full audit trail
+// ACTIVITY LOGS Ã¢â‚¬â€ Full audit trail
 // ============================================================
 
 model ActivityLog {
@@ -524,3 +543,170 @@ enum IntegrationStatus {
   ERROR
   PENDING
 }
+
+// ============================================================
+// SOLUTION INTELLIGENCE CATALOG
+// ============================================================
+
+model Solution {
+  id                  String              @id @default(cuid())
+  name                String
+  slug                String              @unique
+  description         String
+  problemSolved       String
+  category            String
+  complexity          SolutionComplexity
+  features            Json?
+  components          Json?
+  requiredDepartments Json?
+  minHours            Int                 @default(10)
+  maxHours            Int                 @default(40)
+  baseSetupPrice      Float             @default(0)
+  baseMonthlyPrice    Float             @default(0)
+  deliveryWeeks       Int                 @default(4)
+  implementationModel ImplementationModel @default(TURNKEY)
+  templateProposal    String?
+  templateSOW         String?
+  isActive            Boolean             @default(true)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  clientSolutions ClientSolution[]
+
+  @@map("solutions")
+}
+
+model ClientSolution {
+  id                 String               @id @default(cuid())
+  clientId           String
+  solutionId         String
+  missionId          String?
+  status             ClientSolutionStatus @default(PROPOSED)
+  customScope        String?
+  quotedSetupPrice   Float?
+  quotedMonthlyPrice Float?
+  notes              String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  client   Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  solution Solution  @relation(fields: [solutionId], references: [id])
+  mission  Mission?  @relation(fields: [missionId], references: [id])
+
+  @@map("client_solutions")
+}
+
+enum SolutionComplexity {
+  LOW
+  MEDIUM
+  HIGH
+  ENTERPRISE
+}
+
+enum ImplementationModel {
+  TURNKEY
+  CO_IMPLEMENTATION
+  MAINTENANCE
+}
+
+enum ClientSolutionStatus {
+  PROPOSED
+  APPROVED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// ============================================================
+// CLIENT VALUE ASSESSMENT
+// ============================================================
+
+model ClientAssessment {
+  id                      String   @id @default(cuid())
+  clientId                String
+  createdByAgentId        String?
+
+  complexityScore         Int      @default(0)
+  valueScore              Int      @default(0)
+  effortScore             Int      @default(0)
+  riskScore               Int      @default(0)
+
+  estimatedTotalHours     Int      @default(0)
+  estimatedToolsCost      Float  @default(0)
+  recommendedSetupPrice   Float  @default(0)
+  recommendedMonthlyPrice Float  @default(0)
+  estimatedMonthlyROI     Float  @default(0)
+  paybackMonths           Int      @default(0)
+
+  pricingRationale        String
+  reasoning               String
+  factors                 Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  agent  Agent?  @relation(fields: [createdByAgentId], references: [id])
+
+  @@map("client_assessments")
+}
+
+// ============================================================
+// LIVE SALES COPILOT
+// ============================================================
+
+model SalesCall {
+  id              String          @id @default(cuid())
+  clientId        String
+  title           String
+  platform        MeetingPlatform @default(OTHER)
+  externalMeetingId String?
+  startedAt       DateTime?
+  endedAt         DateTime?
+  transcript      String?
+  participants    Json?
+  summary         String?
+  keyInsights     Json?
+  suggestionsCount Int            @default(0)
+  status          SalesCallStatus @default(SCHEDULED)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  client      Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  suggestions CallSuggestion[]
+
+  @@map("sales_calls")
+}
+
+model CallSuggestion {
+  id             String   @id @default(cuid())
+  callId         String
+  triggerText    String
+  suggestion     String
+  suggestionType String
+  confidence     Float    @default(0.8)
+  wasUsed        Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  call SalesCall @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@map("call_suggestions")
+}
+
+enum MeetingPlatform {
+  GOOGLE_MEET
+  ZOOM
+  TEAMS
+  MANUAL
+  OTHER
+}
+
+enum SalesCallStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+
+

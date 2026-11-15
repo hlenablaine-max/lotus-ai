@@ -1,0 +1,23 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: lotus_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: lotusai
+      POSTGRES_USER: lotus
+      POSTGRES_PASSWORD: lotus_dev_2026
+    ports:
+      - '5432:5432'
+    volumes:
+      - lotus_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U lotus -d lotusai']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  lotus_postgres_data:

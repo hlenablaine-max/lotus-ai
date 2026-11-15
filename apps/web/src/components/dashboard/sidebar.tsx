@@ -12,6 +12,10 @@ import {
   Plug,
   Settings,
   Sparkles,
+  Activity,
+  Brain,
+  Package,
+  Zap,
 } from "lucide-react";
 
 const navItems = [
@@ -19,7 +23,19 @@ const navItems = [
     label: "CEO Chat",
     href: "/ceo",
     icon: MessageSquare,
-    description: "Converse com o Root Master",
+    description: "Root Master — ops de clientes",
+  },
+  {
+    label: "Advisor",
+    href: "/advisor",
+    icon: Brain,
+    description: "Estratégia da LOTUS",
+  },
+  {
+    label: "Sales Copilot",
+    href: "/copilot",
+    icon: Zap,
+    description: "Sugestões em tempo real",
   },
   {
     label: "Missões",
@@ -32,6 +48,12 @@ const navItems = [
     href: "/clients",
     icon: Users,
     description: "Empresas atendidas",
+  },
+  {
+    label: "Soluções",
+    href: "/solutions",
+    icon: Package,
+    description: "Catálogo de serviços",
   },
   {
     label: "Workforce",
@@ -50,6 +72,12 @@ const navItems = [
     href: "/integrations",
     icon: Plug,
     description: "APIs e serviços",
+  },
+  {
+    label: "Atividade",
+    href: "/activity",
+    icon: Activity,
+    description: "Logs e auditoria",
   },
 ];
 

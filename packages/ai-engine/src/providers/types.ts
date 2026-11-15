@@ -45,10 +45,14 @@ export interface AIStreamChunk {
   toolCall?: AIToolCall;
 }
 
+export type ToolExecutor = (name: string, args: Record<string, unknown>) => Promise<string>;
+
 export interface AIProvider {
   name: string;
   complete(options: AICompletionOptions): Promise<AICompletionResult>;
+  completeWithLoop(options: AICompletionOptions, toolExecutor: ToolExecutor): Promise<AICompletionResult>;
   stream(options: AICompletionOptions): AsyncGenerator<AIStreamChunk>;
+  streamWithTools(options: AICompletionOptions, toolExecutor: ToolExecutor): AsyncGenerator<AIStreamChunk>;
   isAvailable(): boolean;
 }
 

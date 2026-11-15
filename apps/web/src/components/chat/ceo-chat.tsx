@@ -13,24 +13,55 @@ interface Message {
   isStreaming?: boolean;
 }
 
-export function CeoChat() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      content: `Bom dia. Sou o Root Master — CEO de IA da LOTUS AI Enterprise.
+const WELCOME_MESSAGE: Message = {
+  id: "welcome",
+  role: "assistant",
+  content: `Bom dia. Sou o Root Master — CEO de IA da LOTUS AI Enterprise.
 
 Estou pronto para coordenar operações, iniciar missões, gerenciar nossa equipe de agentes e executar trabalho para nossos clientes.
 
 Como posso ajudar você hoje? Pode me enviar o link de uma empresa para investigar, solicitar desenvolvimento de uma estratégia, ou iniciar qualquer missão que precisar.`,
-      timestamp: new Date(),
-    },
-  ]);
+  timestamp: new Date(),
+};
+
+export function CeoChat() {
+  const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [currentClientId, setCurrentClientId] = useState<string | undefined>();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Load persisted conversation history from DB on mount
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        const res = await fetch("/api/chat?limit=50");
+        if (!res.ok) return;
+        const data = await res.json() as { messages: Array<{ id: string; role: string; content: string; createdAt: string; clientId?: string }> };
+        if (!data.messages?.length) return;
+
+        const loaded: Message[] = data.messages.map((m) => ({
+          id: m.id,
+          role: m.role.toLowerCase() as "user" | "assistant",
+          content: m.content,
+          timestamp: new Date(m.createdAt),
+        }));
+
+        // Determine clientId from last message that has one
+        const lastWithClient = [...data.messages].reverse().find((m) => m.clientId);
+        if (lastWithClient?.clientId) setCurrentClientId(lastWithClient.clientId);
+
+        setMessages([WELCOME_MESSAGE, ...loaded]);
+      } catch {
+        // Keep welcome message on error
+      } finally {
+        setHistoryLoaded(true);
+      }
+    };
+    loadHistory();
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

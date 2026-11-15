@@ -1,6 +1,7 @@
 "use client";
 
-import { Bell, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
+import { NotificationBell } from "@/components/dashboard/notification-bell";
 
 export function TopBar() {
   return (
@@ -12,10 +13,8 @@ export function TopBar() {
       </div>
 
       <div className="flex items-center gap-3">
-        {/* Notifications */}
-        <button className="relative p-2 rounded-lg hover:bg-muted/50 transition-colors">
-          <Bell className="w-4 h-4 text-muted-foreground" />
-        </button>
+        {/* Smart Notifications */}
+        <NotificationBell />
 
         {/* User */}
         <button className="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-muted/50 transition-colors">
