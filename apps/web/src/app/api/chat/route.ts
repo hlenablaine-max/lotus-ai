@@ -81,6 +81,49 @@ const DB_TOOL_DEFS: AITool[] = [
     },
   },
   {
+    name: "search_web",
+    description: "Faz uma busca na web via DuckDuckGo. Use para pesquisar empresas, concorrentes, notícias, encontrar sites, perfis e qualquer informação pública. SEMPRE use antes de dizer que não encontrou algo.",
+    parameters: {
+      properties: {
+        query: { type: "string", description: "Termo de busca. Ex: 'JK Estética Avançada clínica estética site' ou '@jkesteticaavancada Instagram'" },
+        maxResults: { type: "number", description: "Número de resultados (padrão 8)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "check_facebook_ads",
+    description: "Verifica se uma empresa ou pessoa está rodando anúncios no Facebook/Instagram via Facebook Ad Library (público, sem login). Essencial para análise de prospects. Sempre use em prospecções.",
+    parameters: {
+      properties: {
+        query: { type: "string", description: "Nome da empresa, clínica ou pessoa para buscar nos anúncios. Ex: 'JK Estética' ou 'Clínica JK'" },
+        country: { type: "string", description: "País (padrão BR)" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "search_instagram",
+    description: "Tenta buscar dados públicos de um perfil do Instagram: bio, número de posts, seguindo/seguidores (quando acessível). Use handle com ou sem @.",
+    parameters: {
+      properties: {
+        handle: { type: "string", description: "Handle do Instagram, com ou sem @. Ex: 'jkesteticaavancada'" },
+      },
+      required: ["handle"],
+    },
+  },
+  {
+    name: "search_google_maps",
+    description: "Busca a presença de um negócio no Google Maps / Google Business. Verifica se tem perfil, avaliações, endereço, horário. Essencial para diagnóstico de presença digital local.",
+    parameters: {
+      properties: {
+        businessName: { type: "string", description: "Nome do negócio. Ex: 'JK Estética Avançada'" },
+        city: { type: "string", description: "Cidade para refinar a busca. Ex: 'São Paulo'" },
+      },
+      required: ["businessName"],
+    },
+  },
+  {
     name: "get_client_details",
     description: "Detalhes completos de um cliente: histórico, missões, métricas",
     parameters: {
@@ -339,8 +382,12 @@ function createDbToolExecutor(): ToolExecutor {
           const { url } = args as { url: string };
           try {
             const res = await fetch(url, {
-              headers: { "User-Agent": "Mozilla/5.0 (compatible; LOTUS-AI/1.0; +https://lotus.ai)" },
-              signal: AbortSignal.timeout(10_000),
+              headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+              },
+              signal: AbortSignal.timeout(12_000),
             });
             const contentType = res.headers.get("content-type") ?? "";
             if (!contentType.includes("text")) {
@@ -352,11 +399,212 @@ function createDbToolExecutor(): ToolExecutor {
               .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, " ")
               .replace(/<[^>]+>/g, " ")
               .replace(/\s+/g, " ")
-              .slice(0, 6_000)
+              .slice(0, 8_000)
               .trim();
             return JSON.stringify({ url, status: res.status, content: text });
           } catch (err) {
             return JSON.stringify({ error: `Não foi possível acessar ${url}: ${err instanceof Error ? err.message : String(err)}` });
+          }
+        }
+
+        case "search_web": {
+          const { query, maxResults = 8 } = args as { query: string; maxResults?: number };
+          try {
+            const encoded = encodeURIComponent(query);
+            // DuckDuckGo HTML scrape
+            const res = await fetch(`https://html.duckduckgo.com/html/?q=${encoded}`, {
+              headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8",
+              },
+              signal: AbortSignal.timeout(15_000),
+            });
+            const html = await res.text();
+            // Extract result titles, URLs and snippets
+            const results: Array<{ title: string; url: string; snippet: string }> = [];
+            const linkRe = /<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+            const snippetRe = /<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
+            const snippets: string[] = [];
+            let sm: RegExpExecArray | null;
+            while ((sm = snippetRe.exec(html)) !== null && snippets.length < 15) {
+              snippets.push(sm[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim());
+            }
+            let m: RegExpExecArray | null;
+            let idx = 0;
+            while ((m = linkRe.exec(html)) !== null && results.length < Number(maxResults)) {
+              const rawUrl = m[1];
+              const title = m[2].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+              // DuckDuckGo wraps URLs in redirect — extract uddg param
+              const urlMatch = rawUrl.match(/uddg=([^&]+)/);
+              const cleanUrl = urlMatch ? decodeURIComponent(urlMatch[1]) : rawUrl;
+              if (title && cleanUrl && !cleanUrl.startsWith("//duckduckgo")) {
+                results.push({ title, url: cleanUrl, snippet: snippets[idx] ?? "" });
+                idx++;
+              }
+            }
+            if (results.length === 0) {
+              return JSON.stringify({ query, results: [], message: "Sem resultados encontrados. Tente refinar a busca." });
+            }
+            return JSON.stringify({ query, total: results.length, results });
+          } catch (err) {
+            return JSON.stringify({ error: `Erro ao buscar "${query}": ${err instanceof Error ? err.message : String(err)}` });
+          }
+        }
+
+        case "check_facebook_ads": {
+          const { query, country = "BR" } = args as { query: string; country?: string };
+          try {
+            const encoded = encodeURIComponent(query);
+            const libUrl = `https://www.facebook.com/ads/library/?active_status=all&ad_type=all&country=${country}&q=${encoded}&search_type=keyword_unordered`;
+            const res = await fetch(libUrl, {
+              headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+                "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.7",
+                "sec-fetch-site": "none",
+                "sec-fetch-mode": "navigate",
+              },
+              signal: AbortSignal.timeout(12_000),
+            });
+            const html = await res.text();
+            const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 5_000);
+            // Check common signals
+            const hasAds = /anúncio|anuncio|ad result|resultado de anúncio/i.test(text);
+            const noAds = /nenhum anúncio|no ads found|sem anúncios/i.test(text);
+            return JSON.stringify({
+              query,
+              country,
+              library_url: libUrl,
+              status: res.status,
+              signal: hasAds ? "tem_anuncios" : noAds ? "sem_anuncios_encontrados" : "verificar_manualmente",
+              content_preview: text.slice(0, 2_000),
+              note: "Acesse a URL acima para ver os anúncios completos. O Facebook Ad Library é público — verifique também manualmente.",
+            });
+          } catch (err) {
+            return JSON.stringify({ error: `Erro ao acessar Facebook Ad Library: ${err instanceof Error ? err.message : String(err)}` });
+          }
+        }
+
+        case "search_instagram": {
+          const { handle } = args as { handle: string };
+          const cleanHandle = handle.replace(/^@/, "").trim();
+          try {
+            // Try multiple endpoints for public Instagram data
+            const results: Record<string, unknown> = { handle: cleanHandle };
+
+            // 1. Try oEmbed (public, no auth)
+            try {
+              const oembedRes = await fetch(
+                `https://www.instagram.com/api/v1/oembed/?url=https://www.instagram.com/${cleanHandle}/&format=json`,
+                {
+                  headers: { "User-Agent": "Mozilla/5.0 (compatible; bot/1.0)" },
+                  signal: AbortSignal.timeout(8_000),
+                }
+              );
+              if (oembedRes.ok) {
+                const data = await oembedRes.json() as Record<string, unknown>;
+                results.oembed = data;
+              }
+            } catch {}
+
+            // 2. Try public profile page (some data visible without login)
+            try {
+              const profileRes = await fetch(`https://www.instagram.com/${cleanHandle}/`, {
+                headers: {
+                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+                  "Accept": "text/html,application/xhtml+xml,*/*;q=0.9",
+                  "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.7",
+                },
+                signal: AbortSignal.timeout(10_000),
+              });
+              const html = await profileRes.text();
+              // Extract meta tags (og:description, og:title etc.)
+              const ogTitle = html.match(/<meta property="og:title" content="([^"]+)"/)?.[1] ?? "";
+              const ogDesc = html.match(/<meta property="og:description" content="([^"]+)"/)?.[1] ?? "";
+              const ogImg = html.match(/<meta property="og:image" content="([^"]+)"/)?.[1] ?? "";
+              // Try to extract follower count from JSON-LD or page data
+              const followerMatch = html.match(/"edge_followed_by":\{"count":(\d+)\}/) ??
+                                    html.match(/(\d[\d,.]+)\s*(seguidores|followers)/i);
+              const postMatch = html.match(/"edge_owner_to_timeline_media":\{"count":(\d+)\}/);
+              results.profile = {
+                url: `https://www.instagram.com/${cleanHandle}/`,
+                title: ogTitle,
+                description: ogDesc,
+                image: ogImg,
+                followers: followerMatch?.[1] ?? "não disponível (login wall)",
+                posts: postMatch?.[1] ?? "não disponível",
+                loginWall: html.includes("Log In") || html.includes("Fazer login"),
+              };
+            } catch (e) {
+              results.profile_error = String(e);
+            }
+
+            // 3. DuckDuckGo search for more info
+            try {
+              const searchRes = await fetch(
+                `https://html.duckduckgo.com/html/?q=${encodeURIComponent(`@${cleanHandle} instagram`)}`,
+                { headers: { "User-Agent": "Mozilla/5.0 Chrome/120" }, signal: AbortSignal.timeout(8_000) }
+              );
+              const html = await searchRes.text();
+              const snippet = html
+                .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+                .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+                .replace(/<[^>]+>/g, " ")
+                .replace(/\s+/g, " ")
+                .slice(0, 1_500);
+              results.web_search_snippet = snippet;
+            } catch {}
+
+            return JSON.stringify(results);
+          } catch (err) {
+            return JSON.stringify({ error: `Erro ao buscar Instagram @${cleanHandle}: ${err instanceof Error ? err.message : String(err)}` });
+          }
+        }
+
+        case "search_google_maps": {
+          const { businessName, city = "" } = args as { businessName: string; city?: string };
+          try {
+            const query = city ? `${businessName} ${city}` : businessName;
+            const encoded = encodeURIComponent(query);
+            const mapsUrl = `https://www.google.com/maps/search/${encoded}`;
+            // Search DuckDuckGo for Google Maps presence
+            const searchRes = await fetch(
+              `https://html.duckduckgo.com/html/?q=${encodeURIComponent(`${query} site:google.com/maps OR "google meu negócio" OR "google business"`)}`,
+              {
+                headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0" },
+                signal: AbortSignal.timeout(10_000),
+              }
+            );
+            const html = await searchRes.text();
+            const text = html
+              .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+              .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+              .replace(/<[^>]+>/g, " ")
+              .replace(/\s+/g, " ")
+              .slice(0, 3_000);
+
+            // Also search for reviews/avaliações
+            const reviewSearch = await fetch(
+              `https://html.duckduckgo.com/html/?q=${encodeURIComponent(`"${businessName}" avaliações google OR doctoralia OR boa consulta`)}`,
+              {
+                headers: { "User-Agent": "Mozilla/5.0 Chrome/120" },
+                signal: AbortSignal.timeout(8_000),
+              }
+            );
+            const reviewHtml = await reviewSearch.text();
+            const reviewText = reviewHtml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 1_500);
+
+            return JSON.stringify({
+              businessName,
+              city,
+              maps_url: mapsUrl,
+              search_results: text,
+              review_search: reviewText,
+              note: `Busca por presença no Google Maps de "${query}". Verifique também: ${mapsUrl}`,
+            });
+          } catch (err) {
+            return JSON.stringify({ error: `Erro ao buscar no Google Maps: ${err instanceof Error ? err.message : String(err)}` });
           }
         }
 
