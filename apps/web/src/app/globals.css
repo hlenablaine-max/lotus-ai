@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 10% 6%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 10% 6%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 322 100% 60%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 5% 15%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 5% 12%;
+    --muted-foreground: 240 5% 55%;
+    --accent: 240 5% 15%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5% 15%;
+    --input: 240 5% 15%;
+    --ring: 322 100% 60%;
+    --radius: 0.75rem;
+    --chart-1: 322 100% 60%;
+    --chart-2: 262 100% 70%;
+    --chart-3: 199 100% 60%;
+    --chart-4: 43 100% 60%;
+    --chart-5: 142 100% 60%;
+
+    /* LOTUS custom variables */
+    --lotus-primary: 322 100% 60%;
+    --lotus-gold: 43 100% 60%;
+    --lotus-surface: 240 10% 6%;
+    --lotus-surface-2: 240 10% 8%;
+    --lotus-border: 240 5% 15%;
+    --lotus-glow: 322 100% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground;
+  }
+}
+
+@layer components {
+  /* LOTUS glass effect */
+  .lotus-glass {
+    @apply bg-card/60 backdrop-blur-xl border border-border/50;
+  }
+
+  /* LOTUS glow effect */
+  .lotus-glow {
+    box-shadow: 0 0 20px hsl(var(--lotus-glow) / 0.15);
+  }
+
+  .lotus-glow-strong {
+    box-shadow: 0 0 40px hsl(var(--lotus-glow) / 0.3);
+  }
+
+  /* Status indicator */
+  .status-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+
+  .status-idle {
+    @apply bg-zinc-500;
+  }
+
+  .status-active {
+    @apply bg-emerald-400 animate-pulse;
+  }
+
+  .status-working {
+    @apply bg-blue-400 animate-pulse;
+  }
+
+  .status-error {
+    @apply bg-red-400;
+  }
+
+  .status-waiting {
+    @apply bg-amber-400 animate-pulse;
+  }
+
+  /* Agent card */
+  .agent-card {
+    @apply lotus-glass rounded-xl p-4 hover:border-primary/40 transition-all duration-200;
+  }
+
+  /* Mission card */
+  .mission-card {
+    @apply lotus-glass rounded-xl p-5 hover:border-primary/30 transition-all duration-200 cursor-pointer;
+  }
+}

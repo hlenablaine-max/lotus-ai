@@ -1,0 +1,526 @@
+// LOTUS AI Enterprise — Database Schema
+// PostgreSQL via Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// AUTH
+// ============================================================
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  role          UserRole  @default(OWNER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  approvals     Approval[]
+  activityLogs  ActivityLog[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  VIEWER
+}
+
+// ============================================================
+// CLIENTS
+// ============================================================
+
+model Client {
+  id          String       @id @default(cuid())
+  name        String
+  slug        String       @unique
+  segment     String?
+  website     String?
+  instagram   String?
+  description String?
+  status      ClientStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  contacts    ClientContact[]
+  missions    Mission[]
+  documents   Document[]
+  memories    Memory[]
+  activityLogs ActivityLog[]
+
+  @@map("clients")
+}
+
+model ClientContact {
+  id        String   @id @default(cuid())
+  clientId  String
+  name      String
+  role      String?
+  email     String?
+  phone     String?
+  createdAt DateTime @default(now())
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("client_contacts")
+}
+
+enum ClientStatus {
+  ACTIVE
+  PAUSED
+  CHURNED
+  PROSPECT
+}
+
+// ============================================================
+// AGENTS
+// ============================================================
+
+model Agent {
+  id               String        @id @default(cuid())
+  name             String
+  slug             String        @unique
+  title            String
+  department       String
+  specialty        String
+  description      String?
+  avatar           String?       // URL to avatar image
+  model            String        @default("claude-sonnet-4-5")
+  provider         AIProvider    @default(ANTHROPIC)
+  systemPrompt     String        @db.Text
+  tools            Json          @default("[]")
+  permissions      Json          @default("[]")
+  knowledgeBase    String?       @db.Text
+  status           AgentStatus   @default(IDLE)
+  isActive         Boolean       @default(true)
+  autonomyLevel    Int           @default(1) // 1=supervised, 2=conditional, 3=requires_approval
+
+  // Performance metrics
+  tasksCompleted   Int           @default(0)
+  tasksTotal       Int           @default(0)
+  avgQualityScore  Float?
+
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  tasks            Task[]
+  memories         Memory[]
+  activityLogs     ActivityLog[]
+
+  @@map("agents")
+}
+
+enum AgentStatus {
+  IDLE
+  AVAILABLE
+  PLANNING
+  RESEARCHING
+  WRITING
+  DESIGNING
+  CODING
+  EXECUTING
+  REVIEWING
+  IN_MEETING
+  WAITING_APPROVAL
+  BLOCKED
+  COMPLETED
+  OFFLINE
+  ERROR
+}
+
+enum AIProvider {
+  ANTHROPIC
+  OPENAI
+  GOOGLE
+  GROQ
+  CUSTOM
+}
+
+// ============================================================
+// MISSIONS
+// ============================================================
+
+model Mission {
+  id          String        @id @default(cuid())
+  clientId    String
+  title       String
+  description String        @db.Text
+  objective   String        @db.Text
+  priority    Priority      @default(MEDIUM)
+  status      MissionStatus @default(PENDING)
+
+  // Context
+  context     Json?         // Additional data passed to agents
+
+  // Timing
+  startedAt   DateTime?
+  completedAt DateTime?
+  dueAt       DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  client      Client        @relation(fields: [clientId], references: [id])
+  tasks       Task[]
+  documents   Document[]
+  approvals   Approval[]
+  memories    Memory[]
+  activityLogs ActivityLog[]
+
+  @@map("missions")
+}
+
+enum MissionStatus {
+  PENDING
+  PLANNING
+  IN_PROGRESS
+  WAITING_APPROVAL
+  IN_REVIEW
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+// ============================================================
+// TASKS
+// ============================================================
+
+model Task {
+  id           String     @id @default(cuid())
+  missionId    String
+  agentId      String?
+  title        String
+  description  String     @db.Text
+  instructions String     @db.Text
+
+  // Input/Output
+  input        Json?
+  output       Json?
+
+  // Execution
+  status       TaskStatus @default(PENDING)
+  retryCount   Int        @default(0)
+  maxRetries   Int        @default(3)
+
+  // Dependencies
+  dependsOn    String[]   // Task IDs this task depends on
+
+  // Timing
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  mission      Mission    @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  agent        Agent?     @relation(fields: [agentId], references: [id])
+  documents    Document[]
+  activityLogs ActivityLog[]
+
+  @@map("tasks")
+}
+
+enum TaskStatus {
+  PENDING
+  QUEUED
+  IN_PROGRESS
+  WAITING_DEPENDENCY
+  COMPLETED
+  FAILED
+  CANCELLED
+  SKIPPED
+}
+
+// ============================================================
+// DOCUMENTS
+// ============================================================
+
+model Document {
+  id         String       @id @default(cuid())
+  clientId   String?
+  missionId  String?
+  taskId     String?
+
+  title      String
+  type       DocumentType
+  content    String       @db.Text
+  metadata   Json?
+  version    Int          @default(1)
+
+  // Audit
+  status     DocStatus    @default(DRAFT)
+  auditedBy  String?      // Agent ID that audited
+  auditNotes String?      @db.Text
+
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  client     Client?      @relation(fields: [clientId], references: [id])
+  mission    Mission?     @relation(fields: [missionId], references: [id])
+  task       Task?        @relation(fields: [taskId], references: [id])
+
+  @@map("documents")
+}
+
+enum DocumentType {
+  RESEARCH_REPORT
+  STRATEGY
+  COPY
+  CAMPAIGN_STRUCTURE
+  CREATIVE_BRIEF
+  PROPOSAL
+  ANALYSIS
+  AUDIT_REPORT
+  MEETING_NOTES
+  DELIVERABLE
+  OTHER
+}
+
+enum DocStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  REJECTED
+  DELIVERED
+}
+
+// ============================================================
+// MEMORY — Persistent context per scope
+// ============================================================
+
+model Memory {
+  id        String     @id @default(cuid())
+  scope     MemoryScope
+
+  // Scope references (one must be set based on scope)
+  clientId  String?
+  missionId String?
+  agentId   String?
+
+  key       String     // e.g., "competitor_analysis", "client_preferences"
+  content   String     @db.Text
+  metadata  Json?
+
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  client    Client?    @relation(fields: [clientId], references: [id])
+  mission   Mission?   @relation(fields: [missionId], references: [id])
+  agent     Agent?     @relation(fields: [agentId], references: [id])
+
+  @@unique([scope, clientId, missionId, agentId, key])
+  @@map("memories")
+}
+
+enum MemoryScope {
+  GLOBAL       // Company-wide institutional memory
+  CLIENT       // Per-client context
+  MISSION      // Per-mission context
+  AGENT        // Per-agent operational memory
+  DEPARTMENT   // Per-department knowledge
+}
+
+// ============================================================
+// APPROVALS — Human approval required actions
+// ============================================================
+
+model Approval {
+  id          String         @id @default(cuid())
+  missionId   String?
+  requestedBy String         // Agent ID
+
+  type        ApprovalType
+  title       String
+  description String         @db.Text
+  payload     Json           // The action to approve
+
+  status      ApprovalStatus @default(PENDING)
+  decidedBy   String?        // User ID
+  decisionNote String?       @db.Text
+
+  createdAt   DateTime       @default(now())
+  decidedAt   DateTime?
+
+  mission     Mission?       @relation(fields: [missionId], references: [id])
+  user        User?          @relation(fields: [decidedBy], references: [id])
+
+  @@map("approvals")
+}
+
+enum ApprovalType {
+  PUBLISH_CAMPAIGN
+  SPEND_BUDGET
+  SEND_EXTERNAL_MESSAGE
+  CREATE_AGENT
+  GRANT_PERMISSION
+  EXTERNAL_ACTION
+  OTHER
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+// ============================================================
+// CHAT — CEO Chat messages
+// ============================================================
+
+model ChatMessage {
+  id        String      @id @default(cuid())
+  role      ChatRole
+  content   String      @db.Text
+  metadata  Json?       // agent info, mission references, etc.
+
+  clientId  String?     // If the conversation is about a specific client
+  missionId String?     // If linked to a mission
+
+  createdAt DateTime    @default(now())
+
+  @@map("chat_messages")
+}
+
+enum ChatRole {
+  USER       // The owner (Icaro)
+  ASSISTANT  // Root Master / LOTUS AI
+  SYSTEM
+}
+
+// ============================================================
+// ACTIVITY LOGS — Full audit trail
+// ============================================================
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+
+  // Actor
+  userId    String?
+  agentId   String?
+
+  // Context
+  clientId  String?
+  missionId String?
+  taskId    String?
+
+  action    String
+  details   Json?
+  level     LogLevel @default(INFO)
+
+  createdAt DateTime @default(now())
+
+  user      User?    @relation(fields: [userId], references: [id])
+  agent     Agent?   @relation(fields: [agentId], references: [id])
+  client    Client?  @relation(fields: [clientId], references: [id])
+  mission   Mission? @relation(fields: [missionId], references: [id])
+  task      Task?    @relation(fields: [taskId], references: [id])
+
+  @@map("activity_logs")
+}
+
+enum LogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+  CRITICAL
+}
+
+// ============================================================
+// INTEGRATIONS
+// ============================================================
+
+model Integration {
+  id          String            @id @default(cuid())
+  name        String
+  type        IntegrationType
+  status      IntegrationStatus @default(DISCONNECTED)
+  config      Json?             // Non-sensitive config
+  lastSyncAt  DateTime?
+  errorMessage String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@map("integrations")
+}
+
+enum IntegrationType {
+  ANTHROPIC
+  OPENAI
+  GOOGLE_AI
+  META_ADS
+  GOOGLE_ADS
+  TIKTOK_ADS
+  ANALYTICS
+  CRM
+  WHATSAPP
+  IMAGE_GENERATION
+  VIDEO_GENERATION
+  BROWSER_AUTOMATION
+  CUSTOM
+}
+
+enum IntegrationStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+  PENDING
+}

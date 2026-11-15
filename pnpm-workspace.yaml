@@ -1,0 +1,14 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+dangerouslyAllowAllBuilds: true
+
+onlyBuiltDependencies:
+  - "@prisma/client"
+  - "@prisma/engines"
+  - "prisma"
+  - "sharp"
+  - "esbuild"
+  - "@next/swc-win32-x64-msvc"
+  - "@img/sharp-win32-x64"
