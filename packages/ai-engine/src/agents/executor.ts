@@ -228,7 +228,6 @@ export async function executeTask(taskId: string, db: ExecutorDB): Promise<void>
                 type: prismaType,
                 taskId: task.id,
                 missionId: task.missionId,
-                agentId: task.agentId!,
               },
             });
           }
