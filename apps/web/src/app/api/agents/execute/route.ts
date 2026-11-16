@@ -41,7 +41,8 @@ export async function POST(request: NextRequest) {
     const agentName = task.agent.name;
 
     // Fire-and-forget — route returns 202 immediately
-    executeTask(taskId, prisma)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    executeTask(taskId, prisma as any)
       .then(() => updateAgentStatus(agentId, "idle"))
       .catch((err) => {
         console.error(`[execute] Task ${taskId} failed:`, err);
