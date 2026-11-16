@@ -36,3 +36,6 @@ pnpm dev
 ```
 
 Acesse: http://localhost:3000
+
+
+deploy-trigger: 2026-11-16
