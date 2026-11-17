@@ -6,6 +6,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   // Sem PrismaAdapter por enquanto — usa JWT puro (Phase 1)
   // Phase 2: adicionar PrismaAdapter(prisma) para persistir sessões no banco
   session: { strategy: 'jwt' },
+  trustHost: true,
   pages: {
     signIn: '/login',
   },
@@ -29,21 +30,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           credentials.email === OWNER_EMAIL &&
           credentials.password === OWNER_PASSWORD
         ) {
-          // Tenta sincronizar com o banco (best-effort, não bloqueia login)
+          // Sync DB sem bloquear o login (fire-and-forget)
           if (process.env.DATABASE_URL) {
-            try {
-              await prisma.user.upsert({
-                where: { email: OWNER_EMAIL },
-                update: {},
-                create: {
-                  email: OWNER_EMAIL,
-                  name: 'Ícaro',
-                  role: 'OWNER',
-                },
-              })
-            } catch {
-              // Silencioso — banco pode estar iniciando
-            }
+            prisma.user.upsert({
+              where: { email: OWNER_EMAIL },
+              update: {},
+              create: { email: OWNER_EMAIL, name: 'Ícaro', role: 'OWNER' },
+            }).catch(() => {/* silencioso */})
           }
 
           return {
