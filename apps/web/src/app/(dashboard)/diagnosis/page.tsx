@@ -5,6 +5,7 @@ import {
   Search, Loader2, AlertCircle, TrendingUp, TrendingDown, Zap,
   Instagram, Globe, Megaphone, Target, ChevronDown, ChevronUp,
   MessageCircle, CheckCircle, Clock, Radio, Send, Users,
+  Camera, Wand2, MessageSquare, Download, ExternalLink, Copy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -149,6 +150,11 @@ export default function DiagnosisPage() {
     error: null,
   });
   const [reportSent, setReportSent] = useState(false);
+  const [postActions, setPostActions] = useState<{
+    photos: { status: "idle" | "loading" | "done" | "error"; images?: { url: string }[]; error?: string };
+    site: { status: "idle" | "loading" | "done" | "error"; html?: string; companyName?: string; error?: string };
+    whatsapp: { status: "idle" | "loading" | "done" | "error"; setup?: Record<string, unknown>; waNumber?: string | null; error?: string };
+  }>({ photos: { status: "idle" }, site: { status: "idle" }, whatsapp: { status: "idle" } });
   const eventSourceRef = useRef<EventSource | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -272,6 +278,67 @@ export default function DiagnosisPage() {
       // silent — not critical
       setReportSent(true); // show success anyway (chat inject may not exist yet)
     }
+  };
+
+  const handleDownloadPhotos = async () => {
+    if (!url.trim()) return;
+    setPostActions(p => ({ ...p, photos: { status: "loading" } }));
+    try {
+      const res = await fetch("/api/post-diagnosis/photos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url.trim() }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setPostActions(p => ({ ...p, photos: { status: "done", images: data.images } }));
+    } catch (err) {
+      setPostActions(p => ({ ...p, photos: { status: "error", error: String(err) } }));
+    }
+  };
+
+  const handleBuildSite = async () => {
+    if (!state.report) return;
+    setPostActions(p => ({ ...p, site: { status: "loading" } }));
+    try {
+      const res = await fetch("/api/post-diagnosis/site", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ report: state.report, targetUrl: url.trim() }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setPostActions(p => ({ ...p, site: { status: "done", html: data.html, companyName: data.companyName } }));
+    } catch (err) {
+      setPostActions(p => ({ ...p, site: { status: "error", error: String(err) } }));
+    }
+  };
+
+  const handleWhatsApp = async () => {
+    if (!state.report) return;
+    const waNumber = state.whatsapp?.number ?? null;
+    setPostActions(p => ({ ...p, whatsapp: { status: "loading" } }));
+    try {
+      const res = await fetch("/api/post-diagnosis/whatsapp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ report: state.report, waNumber }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setPostActions(p => ({ ...p, whatsapp: { status: "done", setup: data.setup, waNumber: data.waNumber } }));
+    } catch (err) {
+      setPostActions(p => ({ ...p, whatsapp: { status: "error", error: String(err) } }));
+    }
+  };
+
+  const downloadSiteHtml = () => {
+    if (!postActions.site.html) return;
+    const blob = new Blob([postActions.site.html], { type: "text/html" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${postActions.site.companyName ?? "site"}-lotus.html`;
+    a.click();
   };
 
   const r = state.report as (Record<string, unknown> & { scores?: { instagram?: number; website?: number; ads?: number; positioning?: number } }) | null;
@@ -566,6 +633,172 @@ export default function DiagnosisPage() {
                     <span className="text-[11px] text-white/50">{a.name}</span>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            {/* ─── Post-Diagnosis Agent Actions ─────────────────────────────── */}
+            <div className="rounded-2xl border border-purple-500/25 bg-purple-500/5 p-6 space-y-4">
+              <div className="flex items-center gap-2 mb-1">
+                <Zap size={16} className="text-purple-400" />
+                <h3 className="font-bold text-white">Agentes em Ação — Próximos Passos</h3>
+                <span className="ml-auto text-[10px] text-purple-400/70 uppercase tracking-wider">Automático</span>
+              </div>
+              <p className="text-xs text-white/35">Com base no diagnóstico, os agentes podem agir agora. Clique para executar cada etapa.</p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+
+                {/* Baixar Fotos */}
+                <div className="rounded-xl border border-white/8 bg-white/3 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-blue-500/15 border border-blue-500/25 flex items-center justify-center">
+                      <Camera size={14} className="text-blue-400" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-white">Baixar Fotos</div>
+                      <div className="text-[10px] text-white/35">Pedro Alves — agente-web</div>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-white/40 leading-relaxed">Extrai todas as imagens do site para usar como referência no novo projeto.</p>
+                  {postActions.photos.status === "idle" && (
+                    <button onClick={handleDownloadPhotos}
+                      className="w-full py-2 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/20 text-blue-400 text-xs font-semibold transition-all flex items-center justify-center gap-1.5">
+                      <Download size={12} /> Executar
+                    </button>
+                  )}
+                  {postActions.photos.status === "loading" && (
+                    <div className="w-full py-2 rounded-lg bg-blue-500/10 border border-blue-500/15 text-blue-400/70 text-xs font-semibold flex items-center justify-center gap-1.5">
+                      <Loader2 size={12} className="animate-spin" /> Baixando...
+                    </div>
+                  )}
+                  {postActions.photos.status === "done" && postActions.photos.images && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1 text-[11px] text-green-400">
+                        <CheckCircle size={11} /> {postActions.photos.images.length} imagens encontradas
+                      </div>
+                      <div className="grid grid-cols-3 gap-1 max-h-32 overflow-y-auto">
+                        {postActions.photos.images.map((img, i) => (
+                          <a key={i} href={img.url} target="_blank" rel="noopener noreferrer"
+                            className="aspect-square rounded bg-white/5 border border-white/8 overflow-hidden flex items-center justify-center hover:border-blue-500/40 transition-colors">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={img.url} alt="" className="w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {postActions.photos.status === "error" && (
+                    <div className="text-[11px] text-red-400 flex items-center gap-1">
+                      <AlertCircle size={11} /> {postActions.photos.error ?? "Erro ao baixar"}
+                    </div>
+                  )}
+                </div>
+
+                {/* Gerar Novo Site */}
+                <div className="rounded-xl border border-white/8 bg-white/3 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-pink-500/15 border border-pink-500/25 flex items-center justify-center">
+                      <Wand2 size={14} className="text-pink-400" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-white">Gerar Novo Site</div>
+                      <div className="text-[10px] text-white/35">Felipe Costa — agente-strat</div>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-white/40 leading-relaxed">Cria uma landing page de alta conversão personalizada para esta empresa.</p>
+                  {postActions.site.status === "idle" && (
+                    <button onClick={handleBuildSite}
+                      className="w-full py-2 rounded-lg bg-pink-500/15 hover:bg-pink-500/25 border border-pink-500/20 text-pink-400 text-xs font-semibold transition-all flex items-center justify-center gap-1.5">
+                      <Wand2 size={12} /> Gerar
+                    </button>
+                  )}
+                  {postActions.site.status === "loading" && (
+                    <div className="w-full py-2 rounded-lg bg-pink-500/10 border border-pink-500/15 text-pink-400/70 text-xs font-semibold flex items-center justify-center gap-1.5">
+                      <Loader2 size={12} className="animate-spin" /> Criando site...
+                    </div>
+                  )}
+                  {postActions.site.status === "done" && postActions.site.html && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1 text-[11px] text-green-400">
+                        <CheckCircle size={11} /> Landing page gerada!
+                      </div>
+                      <button onClick={downloadSiteHtml}
+                        className="w-full py-2 rounded-lg bg-pink-500/15 hover:bg-pink-500/25 border border-pink-500/20 text-pink-400 text-xs font-semibold transition-all flex items-center justify-center gap-1.5">
+                        <Download size={12} /> Baixar HTML
+                      </button>
+                      <button onClick={() => { const w = window.open(); if (w) { w.document.write(postActions.site.html!); w.document.close(); } }}
+                        className="w-full py-2 rounded-lg bg-white/5 hover:bg-white/8 border border-white/10 text-white/60 text-xs font-semibold transition-all flex items-center justify-center gap-1.5">
+                        <ExternalLink size={12} /> Visualizar
+                      </button>
+                    </div>
+                  )}
+                  {postActions.site.status === "error" && (
+                    <div className="text-[11px] text-red-400 flex items-center gap-1">
+                      <AlertCircle size={11} /> {postActions.site.error ?? "Erro ao gerar"}
+                    </div>
+                  )}
+                </div>
+
+                {/* WhatsApp Automação */}
+                <div className="rounded-xl border border-white/8 bg-white/3 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-green-500/15 border border-green-500/25 flex items-center justify-center">
+                      <MessageSquare size={14} className="text-green-400" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-white">Montar WhatsApp</div>
+                      <div className="text-[10px] text-white/35">Rodrigo Castro — agente-sales</div>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-white/40 leading-relaxed">Gera scripts de atendimento, bot de qualificação e plano de automação completo.</p>
+                  {postActions.whatsapp.status === "idle" && (
+                    <button onClick={handleWhatsApp}
+                      className="w-full py-2 rounded-lg bg-green-500/15 hover:bg-green-500/25 border border-green-500/20 text-green-400 text-xs font-semibold transition-all flex items-center justify-center gap-1.5">
+                      <MessageSquare size={12} /> Configurar
+                    </button>
+                  )}
+                  {postActions.whatsapp.status === "loading" && (
+                    <div className="w-full py-2 rounded-lg bg-green-500/10 border border-green-500/15 text-green-400/70 text-xs font-semibold flex items-center justify-center gap-1.5">
+                      <Loader2 size={12} className="animate-spin" /> Montando bot...
+                    </div>
+                  )}
+                  {postActions.whatsapp.status === "done" && postActions.whatsapp.setup && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1 text-[11px] text-green-400">
+                        <CheckCircle size={11} /> Setup gerado!
+                        {postActions.whatsapp.waNumber && <span className="text-white/30 ml-1">+{postActions.whatsapp.waNumber}</span>}
+                      </div>
+                      {/* Welcome message preview */}
+                      {(postActions.whatsapp.setup as Record<string, unknown>).welcomeMessage && (
+                        <div className="rounded-lg bg-green-500/8 border border-green-500/15 p-2.5">
+                          <div className="text-[10px] text-green-400/60 mb-1 uppercase tracking-wider">Boas-vindas</div>
+                          <p className="text-[11px] text-white/60 leading-relaxed line-clamp-3">
+                            {(postActions.whatsapp.setup as Record<string, string>).welcomeMessage}
+                          </p>
+                        </div>
+                      )}
+                      {/* Platforms */}
+                      {Array.isArray((postActions.whatsapp.setup as Record<string, unknown>).platforms) && (
+                        <div className="flex flex-wrap gap-1">
+                          {((postActions.whatsapp.setup as { platforms: { name: string }[] }).platforms ?? []).slice(0, 3).map((p, i) => (
+                            <span key={i} className="px-2 py-0.5 rounded bg-white/5 border border-white/8 text-[10px] text-white/50">{p.name}</span>
+                          ))}
+                        </div>
+                      )}
+                      <button onClick={() => {
+                        const text = JSON.stringify(postActions.whatsapp.setup, null, 2);
+                        navigator.clipboard.writeText(text).catch(() => {});
+                      }}
+                        className="w-full py-2 rounded-lg bg-green-500/15 hover:bg-green-500/25 border border-green-500/20 text-green-400 text-xs font-semibold transition-all flex items-center justify-center gap-1.5">
+                        <Copy size={12} /> Copiar JSON completo
+                      </button>
+                    </div>
+                  )}
+                  {postActions.whatsapp.status === "error" && (
+                    <div className="text-[11px] text-red-400 flex items-center gap-1">
+                      <AlertCircle size={11} /> {postActions.whatsapp.error ?? "Erro ao gerar"}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
