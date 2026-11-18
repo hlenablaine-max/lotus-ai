@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initializeProviders, registry } from "@lotus/ai-engine";
 import { updateAgentStatus } from "@/lib/agent-service";
+import { demoSolutionArch } from "@/lib/engine-demos";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 90;
@@ -86,8 +87,9 @@ RETORNE SEMPRE JSON VÁLIDO com esta estrutura exata:
 }`;
 
 export async function POST(req: NextRequest) {
+  let body: any = {};
   try {
-    const body = await req.json();
+    body = await req.json();
     const { clientName, niche, city, needs, budget, strategyData } = body;
 
     if (!clientName) {
@@ -133,7 +135,20 @@ Foque em ferramentas acessíveis para PMEs brasileiras (RD Station, ManyChat, Ho
 
     return NextResponse.json({ success: true, engine: "solution-arch", architecture, clientName });
   } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const aiDown = errorMsg.includes('503') || errorMsg.includes('instabilidade') ||
+                   errorMsg.includes('No AI provider') || errorMsg.includes('502') || errorMsg.includes('504');
+    if (aiDown) {
+      const cn = body?.clientName || "";
+      await updateAgentStatus("agent-data", "COMPLETED", `Demo: Arquitetura de ${cn}`);
+      await updateAgentStatus("agent-perf", "IDLE", null);
+      return NextResponse.json({
+        success: true, engine: "solution-arch",
+        architecture: demoSolutionArch(cn, body?.niche || "", body?.city || ""),
+        clientName: cn, _demo: true,
+      });
+    }
     console.error("Engine Solution-Arch error:", error);
-    return NextResponse.json({ error: "Erro ao executar motor de arquitetura" }, { status: 500 });
+    return NextResponse.json({ error: `Erro ao executar motor de arquitetura: ${errorMsg}` }, { status: 500 });
   }
 }

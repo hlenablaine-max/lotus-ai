@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initializeProviders, registry } from "@lotus/ai-engine";
 import { updateAgentStatus } from "@/lib/agent-service";
+import { demoIntelligence } from "@/lib/engine-demos";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 90;
@@ -58,8 +59,9 @@ RETORNE SEMPRE JSON VÁLIDO com esta estrutura exata:
 }`;
 
 export async function POST(req: NextRequest) {
+  let body: any = {};
   try {
-    const body = await req.json();
+    body = await req.json();
     const { clientName, niche, city, instagram, website, segment } = body;
 
     if (!clientName || !niche) {
@@ -120,7 +122,22 @@ Use dados realistas baseados no contexto brasileiro de saúde/odontologia/estét
 
     return NextResponse.json({ success: true, engine: "intelligence", analysis, clientName, niche, city });
   } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const aiDown = errorMsg.includes('503') || errorMsg.includes('instabilidade') ||
+                   errorMsg.includes('No AI provider') || errorMsg.includes('502') || errorMsg.includes('504');
+    if (aiDown) {
+      const cn = body?.clientName || "";
+      const n = body?.niche || "";
+      const c = body?.city || "";
+      await updateAgentStatus("agent-bi", "COMPLETED", `Demo: Análise de ${cn}`);
+      await updateAgentStatus("agent-strat", "IDLE", null);
+      return NextResponse.json({
+        success: true, engine: "intelligence",
+        analysis: demoIntelligence(cn, n, c),
+        clientName: cn, niche: n, city: c, _demo: true,
+      });
+    }
     console.error("Engine Intelligence error:", error);
-    return NextResponse.json({ error: "Erro ao executar motor de inteligência" }, { status: 500 });
+    return NextResponse.json({ error: `Erro ao executar motor de inteligência: ${errorMsg}` }, { status: 500 });
   }
 }

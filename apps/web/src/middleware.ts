@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const PUBLIC_ROUTES = ['/login', '/api/auth']
+const PUBLIC_ROUTES = ['/login', '/api/auth', '/api/engines']
 
 function hasSession(req: NextRequest): boolean {
   return !!(

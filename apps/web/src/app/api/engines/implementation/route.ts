@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initializeProviders, registry } from "@lotus/ai-engine";
 import { updateAgentStatus } from "@/lib/agent-service";
+import { demoImplementation } from "@/lib/engine-demos";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 90;
@@ -100,8 +101,9 @@ RETORNE SEMPRE JSON VÁLIDO com esta estrutura exata:
 }`;
 
 export async function POST(req: NextRequest) {
+  let body: any = {};
   try {
-    const body = await req.json();
+    body = await req.json();
     const { clientName, niche, architectureData, selectedComponents, timeline } = body;
 
     if (!clientName) {
@@ -147,7 +149,20 @@ Seja específico com URLs, nomes de campos, e configurações exatas.
 
     return NextResponse.json({ success: true, engine: "implementation", implementation, clientName });
   } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const aiDown = errorMsg.includes('503') || errorMsg.includes('instabilidade') ||
+                   errorMsg.includes('No AI provider') || errorMsg.includes('502') || errorMsg.includes('504');
+    if (aiDown) {
+      const cn = body?.clientName || "";
+      await updateAgentStatus("agent-web", "COMPLETED", `Demo: Implementação de ${cn}`);
+      await updateAgentStatus("agent-mc", "IDLE", null);
+      return NextResponse.json({
+        success: true, engine: "implementation",
+        implementation: demoImplementation(cn, body?.niche || ""),
+        clientName: cn, _demo: true,
+      });
+    }
     console.error("Engine Implementation error:", error);
-    return NextResponse.json({ error: "Erro ao executar motor de implementação" }, { status: 500 });
+    return NextResponse.json({ error: `Erro ao executar motor de implementação: ${errorMsg}` }, { status: 500 });
   }
 }

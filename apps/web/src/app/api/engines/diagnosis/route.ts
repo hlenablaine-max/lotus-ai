@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initializeProviders, registry } from "@lotus/ai-engine";
 import { updateAgentStatus } from "@/lib/agent-service";
+import { demoDiagnosis } from "@/lib/engine-demos";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 90;
@@ -89,8 +90,9 @@ RETORNE SEMPRE JSON VÁLIDO com esta estrutura exata:
 }`;
 
 export async function POST(req: NextRequest) {
+  let body: any = {};
   try {
-    const body = await req.json();
+    body = await req.json();
     const { clientName, niche, city, instagram, investigationData } = body;
 
     if (!clientName) {
@@ -138,7 +140,20 @@ O diagnóstico deve ser orientado a venda da LOTUS como solução.
 
     return NextResponse.json({ success: true, engine: "diagnosis", diagnosis, clientName });
   } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const aiDown = errorMsg.includes('503') || errorMsg.includes('instabilidade') ||
+                   errorMsg.includes('No AI provider') || errorMsg.includes('502') || errorMsg.includes('504');
+    if (aiDown) {
+      const cn = body?.clientName || "";
+      await updateAgentStatus("agent-bi", "COMPLETED", `Demo: Diagnóstico de ${cn}`);
+      await updateAgentStatus("agent-data", "IDLE", null);
+      return NextResponse.json({
+        success: true, engine: "diagnosis",
+        diagnosis: demoDiagnosis(cn, body?.niche || "", body?.city || ""),
+        clientName: cn, _demo: true,
+      });
+    }
     console.error("Engine Diagnosis error:", error);
-    return NextResponse.json({ error: "Erro ao executar motor de diagnóstico" }, { status: 500 });
+    return NextResponse.json({ error: `Erro ao executar motor de diagnóstico: ${errorMsg}` }, { status: 500 });
   }
 }

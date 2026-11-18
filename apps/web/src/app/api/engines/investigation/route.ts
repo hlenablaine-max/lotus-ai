@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initializeProviders, registry } from "@lotus/ai-engine";
 import { updateAgentStatus } from "@/lib/agent-service";
+import { demoInvestigation } from "@/lib/engine-demos";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 90;
@@ -110,8 +111,9 @@ RETORNE SEMPRE JSON VÁLIDO com esta estrutura exata:
 }`;
 
 export async function POST(req: NextRequest) {
+  let body: any = {};
   try {
-    const body = await req.json();
+    body = await req.json();
     const { clientName, niche, city, instagram, website, whatsapp } = body;
 
     if (!clientName) {
@@ -155,7 +157,19 @@ Seja específico nas recomendações de quick wins.
 
     return NextResponse.json({ success: true, engine: "investigation", investigation, clientName });
   } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const aiDown = errorMsg.includes('503') || errorMsg.includes('instabilidade') ||
+                   errorMsg.includes('No AI provider') || errorMsg.includes('502') || errorMsg.includes('504');
+    if (aiDown) {
+      const cn = body?.clientName || "";
+      await updateAgentStatus("agent-creative", "COMPLETED", `Demo: Investigação de ${cn}`);
+      return NextResponse.json({
+        success: true, engine: "investigation",
+        investigation: demoInvestigation(cn, body?.niche || "", body?.city || ""),
+        clientName: cn, _demo: true,
+      });
+    }
     console.error("Engine Investigation error:", error);
-    return NextResponse.json({ error: "Erro ao executar motor de investigação" }, { status: 500 });
+    return NextResponse.json({ error: `Erro ao executar motor de investigação: ${errorMsg}` }, { status: 500 });
   }
 }
