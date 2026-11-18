@@ -3,8 +3,6 @@ import Credentials from 'next-auth/providers/credentials'
 import { prisma } from '@/lib/prisma'
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  // Sem PrismaAdapter por enquanto — usa JWT puro (Phase 1)
-  // Phase 2: adicionar PrismaAdapter(prisma) para persistir sessões no banco
   session: { strategy: 'jwt' },
   trustHost: true,
   pages: {

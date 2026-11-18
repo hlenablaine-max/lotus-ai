@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { DraelProvider } from "@lotus/ai-engine";
 
 export const dynamic = "force-dynamic";
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const provider = new DraelProvider({});
 
 // Fetch real data from the target URL with timeout
 async function fetchWithTimeout(url: string, timeoutMs = 8000): Promise<{ ok: boolean; status: number; text: string; finalUrl: string }> {
@@ -221,19 +221,18 @@ export async function POST(req: NextRequest) {
       facebookAdsResult.found ? `Verificado: ${facebookAdsResult.data}` : `Não verificado: ${facebookAdsResult.data}`,
     ].join("\n");
 
-    const message = await client.messages.create({
-      model: "claude-sonnet-4-5",
-      max_tokens: 2500,
-      system: SYSTEM_PROMPT,
+    const result = await provider.complete({
       messages: [
+        { role: "system", content: SYSTEM_PROMPT },
         {
           role: "user",
           content: `Analise esta empresa com base nos dados reais coletados abaixo:\n\n${realDataContext}`,
         },
       ],
+      maxTokens: 2500,
     });
 
-    const raw = (message.content[0] as { type: string; text: string }).text.trim();
+    const raw = result.content.trim();
     const clean = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
     const parsed = JSON.parse(clean);
 
