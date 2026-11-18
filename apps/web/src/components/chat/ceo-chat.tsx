@@ -24,7 +24,7 @@ Como posso ajudar você hoje? Pode me enviar o link de uma empresa para investig
   timestamp: new Date(),
 };
 
-// Futuristic neural-network icon — hexagon with connected nodes
+// Root Master icon — AI neural core with orbital ring and connected nodes
 function NeuralIcon({ size = 20, className = "" }: { size?: number; className?: string }) {
   return (
     <svg
@@ -35,25 +35,35 @@ function NeuralIcon({ size = 20, className = "" }: { size?: number; className?: 
       xmlns="http://www.w3.org/2000/svg"
       className={className}
     >
+      {/* Outer dashed orbital ring */}
+      <circle cx="12" cy="12" r="10.5" stroke="currentColor" strokeWidth="0.75" strokeDasharray="1.8 1.5" opacity="0.35" />
+      {/* Hexagon frame */}
       <path
-        d="M12 2L20.78 7V17L12 22L3.22 17V7L12 2Z"
+        d="M12 3.5L19.79 8V16L12 20.5L4.21 16V8L12 3.5Z"
         stroke="currentColor"
-        strokeWidth="1.5"
+        strokeWidth="1.2"
         strokeLinejoin="round"
+        opacity="0.65"
       />
-      <circle cx="12" cy="12" r="2.5" fill="currentColor" />
-      <circle cx="12" cy="5.5" r="1" fill="currentColor" opacity="0.75" />
-      <circle cx="12" cy="18.5" r="1" fill="currentColor" opacity="0.75" />
-      <circle cx="5.5" cy="8.75" r="1" fill="currentColor" opacity="0.75" />
-      <circle cx="5.5" cy="15.25" r="1" fill="currentColor" opacity="0.75" />
-      <circle cx="18.5" cy="8.75" r="1" fill="currentColor" opacity="0.75" />
-      <circle cx="18.5" cy="15.25" r="1" fill="currentColor" opacity="0.75" />
-      <line x1="12" y1="9.5" x2="12" y2="6.5" stroke="currentColor" strokeWidth="0.75" opacity="0.5" />
-      <line x1="12" y1="14.5" x2="12" y2="17.5" stroke="currentColor" strokeWidth="0.75" opacity="0.5" />
-      <line x1="9.75" y1="10.6" x2="6.5" y2="8.9" stroke="currentColor" strokeWidth="0.75" opacity="0.5" />
-      <line x1="9.75" y1="13.4" x2="6.5" y2="15.1" stroke="currentColor" strokeWidth="0.75" opacity="0.5" />
-      <line x1="14.25" y1="10.6" x2="17.5" y2="8.9" stroke="currentColor" strokeWidth="0.75" opacity="0.5" />
-      <line x1="14.25" y1="13.4" x2="17.5" y2="15.1" stroke="currentColor" strokeWidth="0.75" opacity="0.5" />
+      {/* Inner diamond */}
+      <path d="M12 7.5L15.5 12L12 16.5L8.5 12Z" stroke="currentColor" strokeWidth="0.75" opacity="0.4" />
+      {/* Center bright core */}
+      <circle cx="12" cy="12" r="2.8" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" opacity="0.5" />
+      {/* Six orbital nodes at hex vertices */}
+      <circle cx="12" cy="5.5" r="1.3" fill="currentColor" opacity="0.85" />
+      <circle cx="18" cy="8.75" r="1.3" fill="currentColor" opacity="0.85" />
+      <circle cx="18" cy="15.25" r="1.3" fill="currentColor" opacity="0.85" />
+      <circle cx="12" cy="18.5" r="1.3" fill="currentColor" opacity="0.85" />
+      <circle cx="6" cy="15.25" r="1.3" fill="currentColor" opacity="0.85" />
+      <circle cx="6" cy="8.75" r="1.3" fill="currentColor" opacity="0.85" />
+      {/* Spokes from center */}
+      <line x1="12" y1="9.2" x2="12" y2="6.7" stroke="currentColor" strokeWidth="0.9" opacity="0.55" />
+      <line x1="14.4" y1="10.6" x2="16.8" y2="9.2" stroke="currentColor" strokeWidth="0.9" opacity="0.55" />
+      <line x1="14.4" y1="13.4" x2="16.8" y2="14.8" stroke="currentColor" strokeWidth="0.9" opacity="0.55" />
+      <line x1="12" y1="14.8" x2="12" y2="17.3" stroke="currentColor" strokeWidth="0.9" opacity="0.55" />
+      <line x1="9.6" y1="13.4" x2="7.2" y2="14.8" stroke="currentColor" strokeWidth="0.9" opacity="0.55" />
+      <line x1="9.6" y1="10.6" x2="7.2" y2="9.2" stroke="currentColor" strokeWidth="0.9" opacity="0.55" />
     </svg>
   );
 }
@@ -160,7 +170,7 @@ function MarkdownContent({
       elements.push(<hr key={idx} className="border-border my-2" />);
     } else if (line.trim() === "") {
       flushList(idx);
-      elements.push(<div key={idx} className="h-2" />);
+      elements.push(<div key={idx} className="h-1" />);
     } else {
       flushList(idx);
       elements.push(
@@ -199,7 +209,7 @@ function TypingDots() {
   );
 }
 
-export function CeoChat() {
+export function CeoChat({ mini = false }: { mini?: boolean }) {
   const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -368,21 +378,33 @@ export function CeoChat() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-border flex items-center gap-4">
-        <div className="relative">
-          <div className="w-10 h-10 rounded-xl bg-primary/20 border border-primary/40 flex items-center justify-center lotus-glow">
-            <NeuralIcon size={20} className="text-primary" />
+      <div className={cn(
+        "border-b border-border flex items-center gap-3",
+        mini ? "px-4 py-3" : "px-6 py-4"
+      )}>
+        <div className="relative shrink-0">
+          <div className={cn(
+            "rounded-xl flex items-center justify-center",
+            "bg-gradient-to-br from-primary/30 to-primary/10 border border-primary/50",
+            "shadow-[0_0_12px_rgba(var(--primary)_/_0.3)]",
+            mini ? "w-9 h-9" : "w-10 h-10"
+          )}>
+            <NeuralIcon size={mini ? 18 : 20} className="text-primary drop-shadow-sm" />
           </div>
-          <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-background" />
+          <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-background shadow-sm" />
         </div>
-        <div>
-          <h2 className="font-semibold text-foreground">Root Master</h2>
-          <p className="text-xs text-muted-foreground">CEO &amp; Chief Orchestrator — Online</p>
+        <div className="min-w-0">
+          <h2 className={cn("font-semibold tracking-tight text-foreground", mini ? "text-sm" : "text-base")}>Root Master</h2>
+          <p className="text-[11px] text-muted-foreground leading-tight">CEO &amp; Chief Orchestrator · Online</p>
+        </div>
+        <div className="ml-auto shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-[10px] text-emerald-400 font-medium">IA ATIVA</span>
         </div>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      <div className={cn("flex-1 overflow-y-auto space-y-3", mini ? "p-3" : "p-5")}>
         <AnimatePresence initial={false}>
           {messages.map((message) => (
             <motion.div
@@ -414,10 +436,10 @@ export function CeoChat() {
               {/* Bubble */}
               <div
                 className={cn(
-                  "max-w-[75%] rounded-2xl px-4 py-3",
+                  "max-w-[78%] rounded-2xl px-4 py-3",
                   message.role === "assistant"
-                    ? "bg-card border border-border"
-                    : "bg-primary/15 border border-primary/20"
+                    ? "bg-card/80 border border-border/60 backdrop-blur-sm"
+                    : "bg-gradient-to-br from-primary/20 to-primary/10 border border-primary/30"
                 )}
               >
                 {message.isStreaming && message.content === "" ? (
@@ -428,7 +450,7 @@ export function CeoChat() {
                     isStreaming={message.isStreaming && message.content !== ""}
                   />
                 )}
-                <div className="mt-1 text-[10px] text-muted-foreground/50">
+                <div className="mt-1.5 text-[10px] text-muted-foreground/40 font-mono">
                   {message.timestamp.toLocaleTimeString("pt-BR", {
                     hour: "2-digit",
                     minute: "2-digit",
@@ -442,24 +464,25 @@ export function CeoChat() {
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-border">
-        <div className="flex gap-3 items-end">
+      <div className={cn("border-t border-border", mini ? "p-3" : "p-4")}>
+        <div className="flex gap-2 items-end">
           <div className="flex-1 relative">
             <textarea
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Envie uma solicitação ao Root Master... (Enter para enviar, Shift+Enter para nova linha)"
+              placeholder={mini ? "Enviar mensagem..." : "Envie uma solicitação ao Root Master... (Enter para enviar)"}
               rows={1}
               className={cn(
-                "w-full bg-muted/50 border border-border rounded-xl px-4 py-3 pr-12",
-                "text-sm text-foreground placeholder:text-muted-foreground",
-                "resize-none focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary",
-                "transition-all duration-150",
-                "max-h-32 overflow-y-auto"
+                "w-full bg-muted/40 border border-border/70 rounded-xl py-2.5 pr-4",
+                "text-sm text-foreground placeholder:text-muted-foreground/50",
+                "resize-none focus:outline-none focus:ring-1 focus:ring-primary/60 focus:border-primary/60",
+                "transition-all duration-150 leading-relaxed",
+                "max-h-32 overflow-y-auto",
+                mini ? "px-3 text-xs" : "px-4"
               )}
-              style={{ minHeight: "48px" }}
+              style={{ minHeight: mini ? "40px" : "46px" }}
               onInput={(e) => {
                 const target = e.target as HTMLTextAreaElement;
                 target.style.height = "auto";
@@ -471,25 +494,27 @@ export function CeoChat() {
             onClick={sendMessage}
             disabled={!input.trim() || isLoading}
             className={cn(
-              "w-11 h-11 rounded-xl flex items-center justify-center transition-all duration-150",
+              "rounded-xl flex items-center justify-center transition-all duration-150 shrink-0",
+              mini ? "w-9 h-9" : "w-10 h-10",
               input.trim() && !isLoading
-                ? "bg-primary hover:bg-primary/90 text-primary-foreground lotus-glow"
-                : "bg-muted text-muted-foreground cursor-not-allowed"
+                ? "bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_0_10px_rgba(var(--primary)_/_0.4)]"
+                : "bg-muted/50 text-muted-foreground/40 cursor-not-allowed"
             )}
           >
             {isLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader2 className={cn("animate-spin", mini ? "w-3.5 h-3.5" : "w-4 h-4")} />
             ) : (
-              <Send className="w-4 h-4" />
+              <Send className={cn(mini ? "w-3.5 h-3.5" : "w-4 h-4")} />
             )}
           </button>
         </div>
-        <div className="mt-2 flex items-center gap-2 px-1">
-          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-[11px] text-muted-foreground">
-            Root Master conectado · Drael drael-v1
-          </span>
-        </div>
+        {!mini && (
+          <div className="mt-1.5 flex items-center gap-2 px-1">
+            <span className="text-[10px] text-muted-foreground/40 font-mono">
+              Root Master · Drael · Enter para enviar
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

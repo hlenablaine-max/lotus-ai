@@ -11,12 +11,34 @@ import {
   LayoutDashboard,
   Plug,
   Settings,
-  Sparkles,
   Activity,
   Brain,
   Package,
   Zap,
 } from "lucide-react";
+
+function LotusIcon({ size = 18, className = "" }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+      <circle cx="12" cy="12" r="10.5" stroke="currentColor" strokeWidth="0.7" strokeDasharray="2 1.5" opacity="0.3" />
+      <path d="M12 3L19.79 7.5V16.5L12 21L4.21 16.5V7.5L12 3Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" opacity="0.6" />
+      <circle cx="12" cy="12" r="3.2" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" opacity="0.45" />
+      <circle cx="12" cy="5" r="1.4" fill="currentColor" opacity="0.9" />
+      <circle cx="18.5" cy="8.5" r="1.4" fill="currentColor" opacity="0.9" />
+      <circle cx="18.5" cy="15.5" r="1.4" fill="currentColor" opacity="0.9" />
+      <circle cx="12" cy="19" r="1.4" fill="currentColor" opacity="0.9" />
+      <circle cx="5.5" cy="15.5" r="1.4" fill="currentColor" opacity="0.9" />
+      <circle cx="5.5" cy="8.5" r="1.4" fill="currentColor" opacity="0.9" />
+      <line x1="12" y1="8.8" x2="12" y2="6.4" stroke="currentColor" strokeWidth="1" opacity="0.5" />
+      <line x1="14.6" y1="10.4" x2="17.2" y2="8.9" stroke="currentColor" strokeWidth="1" opacity="0.5" />
+      <line x1="14.6" y1="13.6" x2="17.2" y2="15.1" stroke="currentColor" strokeWidth="1" opacity="0.5" />
+      <line x1="12" y1="15.2" x2="12" y2="17.6" stroke="currentColor" strokeWidth="1" opacity="0.5" />
+      <line x1="9.4" y1="13.6" x2="6.8" y2="15.1" stroke="currentColor" strokeWidth="1" opacity="0.5" />
+      <line x1="9.4" y1="10.4" x2="6.8" y2="8.9" stroke="currentColor" strokeWidth="1" opacity="0.5" />
+    </svg>
+  );
+}
 
 const navItems = [
   {
@@ -89,8 +111,8 @@ export function Sidebar() {
       {/* Logo */}
       <div className="p-6 border-b border-border">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-primary/20 border border-primary/40 flex items-center justify-center lotus-glow">
-            <Sparkles className="w-4 h-4 text-primary" />
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/30 to-primary/10 border border-primary/50 flex items-center justify-center shadow-[0_0_10px_rgba(var(--primary)_/_0.25)]">
+            <LotusIcon size={18} className="text-primary" />
           </div>
           <div>
             <h1 className="text-sm font-bold tracking-wider text-foreground">LOTUS</h1>
