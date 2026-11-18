@@ -64,89 +64,201 @@ const STATUS_LABEL: Record<AgentStatus, string> = {
 const DEMO_AGENTS: Agent[] = [
   {
     id: 'agent-ceo', name: 'Aurora Mendes', role: 'CEO & Estrategista-chefe',
-    departmentId: 'ceo', status: 'idle',
-    currentMission: undefined,
-    tasksCompleted: 0, tasksPending: 0,
-    lastActivity: [],
+    departmentId: 'ceo', status: 'working',
+    currentMission: 'Revisando estratégia de expansão Q1',
+    tasksCompleted: 47, tasksPending: 3,
+    lastActivity: ['Aprovou plano de entrada em 3 cidades', 'Revisou OKRs do trimestre', 'Alinhamento com squad executivo'],
   },
   {
     id: 'agent-root', name: 'Luna', role: 'Root Master (IA Central)',
-    departmentId: 'root-master', status: 'idle',
-    currentMission: undefined,
-    tasksCompleted: 0, tasksPending: 0,
-    lastActivity: [],
+    departmentId: 'root-master', status: 'thinking',
+    currentMission: 'Processando 3 missões simultâneas',
+    tasksCompleted: 112, tasksPending: 7,
+    lastActivity: ['Orquestrou diagnóstico de clínica', 'Despachou tasks para 4 agentes', 'Validou entregáveis do sprint'],
   },
   {
     id: 'agent-bi', name: 'Marcos Andrade', role: 'Analista de BI',
-    departmentId: 'bi', status: 'idle',
-    currentMission: undefined,
-    tasksCompleted: 0, tasksPending: 0,
-    lastActivity: [],
+    departmentId: 'bi', status: 'working',
+    currentMission: 'Análise competitiva — mercado saúde SP',
+    tasksCompleted: 38, tasksPending: 2,
+    lastActivity: ['Mapeou 42 concorrentes em SP', 'Relatório de benchmark finalizado', 'Identificou gap de posicionamento'],
   },
   {
     id: 'agent-copy1', name: 'Beatriz Carvalho', role: 'Copywriter Sênior',
-    departmentId: 'copywriting', status: 'idle',
-    currentMission: undefined,
-    tasksCompleted: 0, tasksPending: 0,
-    lastActivity: [],
+    departmentId: 'copywriting', status: 'working',
+    currentMission: 'VSL para Clínica Estética Renata',
+    tasksCompleted: 61, tasksPending: 4,
+    lastActivity: ['Escreveu hook de abertura impactante', 'Revisou email sequence pós-lead', 'Entregou landing page copy'],
   },
   {
     id: 'agent-copy2', name: 'Rafael Nunes', role: 'Copywriter de Roteiros',
-    departmentId: 'copywriting', status: 'idle',
-    currentMission: undefined,
-    tasksCompleted: 0, tasksPending: 0,
-    lastActivity: [],
+    departmentId: 'copywriting', status: 'thinking',
+    currentMission: 'Revisando script para vídeo de vendas',
+    tasksCompleted: 29, tasksPending: 2,
+    lastActivity: ['Adaptou roteiro para formato reels', 'Pesquisou gatilhos emocionais saúde', 'Rascunhou CTA de alta conversão'],
   },
   {
     id: 'agent-creative', name: 'Camila Dias', role: 'Diretora de Criação',
-    departmentId: 'creative', status: 'idle',
-    currentMission: undefined,
-    tasksCompleted: 0, tasksPending: 0,
-    lastActivity: [],
+    departmentId: 'creative', status: 'working',
+    currentMission: 'Identidade visual — cliente fitness',
+    tasksCompleted: 43, tasksPending: 3,
+    lastActivity: ['Criou paleta de cores da marca', 'Exportou 12 criativos para Meta Ads', 'Revisou brand book v2'],
   },
   {
     id: 'agent-perf', name: 'Lucas Rodrigues', role: 'Gestor de Tráfego',
-    departmentId: 'performance', status: 'idle',
-    currentMission: undefined,
-    tasksCompleted: 0, tasksPending: 0,
-    lastActivity: [],
+    departmentId: 'performance', status: 'working',
+    currentMission: 'Meta Ads — ROAS 4.2x campanha ativa',
+    tasksCompleted: 85, tasksPending: 5,
+    lastActivity: ['Otimizou 3 conjuntos de anúncios', 'CPL reduzido em 18%', 'Escalonou campanha vencedora'],
   },
   {
     id: 'agent-web', name: 'Pedro Alves', role: 'Desenvolvedor Full-Stack',
     departmentId: 'web-dev', status: 'idle',
     currentMission: undefined,
-    tasksCompleted: 0, tasksPending: 0,
-    lastActivity: [],
+    tasksCompleted: 52, tasksPending: 1,
+    lastActivity: ['Publicou landing page para clínica', 'Corrigiu bug em formulário de captação', 'Aguardando próxima task'],
   },
   {
     id: 'agent-data', name: 'Ana Souza', role: 'Analista de Dados',
-    departmentId: 'data-analytics', status: 'idle',
-    currentMission: undefined,
-    tasksCompleted: 0, tasksPending: 0,
-    lastActivity: [],
+    departmentId: 'data-analytics', status: 'working',
+    currentMission: 'Dashboard Q4 — análise de conversões',
+    tasksCompleted: 34, tasksPending: 2,
+    lastActivity: ['Conectou CRM ao data warehouse', 'Criou relatório de funil completo', 'Identificou gargalo em retenção'],
   },
   {
     id: 'agent-sales', name: 'Rodrigo Castro', role: 'Head de Vendas',
-    departmentId: 'sales', status: 'idle',
-    currentMission: undefined,
-    tasksCompleted: 0, tasksPending: 0,
-    lastActivity: [],
+    departmentId: 'sales', status: 'meeting',
+    currentMission: 'Sprint semanal — 5 leads qualificados',
+    tasksCompleted: 21, tasksPending: 5,
+    lastActivity: ['Fechou contrato com clínica dermatológica', 'Qualificou 3 novos leads', 'Em reunião de alinhamento'],
   },
   {
     id: 'agent-strat', name: 'Felipe Costa', role: 'Estrategista de Growth',
-    departmentId: 'strategy', status: 'idle',
-    currentMission: undefined,
-    tasksCompleted: 0, tasksPending: 0,
-    lastActivity: [],
+    departmentId: 'strategy', status: 'meeting',
+    currentMission: 'Plano de crescimento — clínicas odonto',
+    tasksCompleted: 19, tasksPending: 4,
+    lastActivity: ['Mapeou jornada do cliente', 'Definiu OKRs de aquisição', 'Em reunião estratégica'],
   },
   {
     id: 'agent-mc', name: 'Julia Ferreira', role: 'Coord. de Operações',
-    departmentId: 'mission-control', status: 'idle',
-    currentMission: undefined,
-    tasksCompleted: 0, tasksPending: 0,
-    lastActivity: [],
+    departmentId: 'mission-control', status: 'working',
+    currentMission: 'Monitorando 7 missões ativas em tempo real',
+    tasksCompleted: 94, tasksPending: 7,
+    lastActivity: ['Alerta: aprovação pendente para Clínica X', 'Coordenou entrega de relatório', 'Dashboard operacional atualizado'],
   },
 ]
+
+// ============================================================
+// SIMULAÇÃO AO VIVO — AÇÕES POR STATUS E DEPARTAMENTO
+// ============================================================
+const LIVE_ACTIONS: Record<string, Record<AgentStatus, string[]>> = {
+  'ceo': {
+    working: ['Revisando OKRs do trimestre', 'Aprovando estratégia de cliente', 'Avaliando performance da equipe', 'Definindo prioridades do sprint'],
+    thinking: ['Calculando ROI de nova campanha...', 'Analisando posicionamento...', 'Formulando estratégia de expansão...'],
+    meeting: ['Em reunião executiva', 'Alinhamento com board', 'Revisão de resultados com equipe'],
+    idle: ['Disponível para novas missões', 'Monitorando painel executivo', 'Aguardando briefing'],
+    offline: ['Offline'],
+  },
+  'root-master': {
+    working: ['Orquestrando missão crítica', 'Despachando tasks para agentes', 'Processando análise de cliente', 'Validando entregáveis'],
+    thinking: ['Calculando melhor estratégia...', 'Processando dados do cliente...', 'Avaliando próximo passo...'],
+    meeting: ['Briefing de nova missão', 'Revisão de operações com equipe'],
+    idle: ['Aguardando próxima missão', 'Monitorando sistema', 'Pronto para nova tarefa'],
+    offline: ['Offline'],
+  },
+  'bi': {
+    working: ['Analisando dados competitivos', 'Gerando relatório de mercado', 'Mapeando oportunidades', 'Processando pesquisa de benchmark'],
+    thinking: ['Cruzando dados de 3 fontes...', 'Identificando padrão nos dados...', 'Calculando market share...'],
+    meeting: ['Apresentando análise para equipe', 'Revisão de intelligence com CEO'],
+    idle: ['Aguardando próxima análise', 'Revisando dashboard'],
+    offline: ['Offline'],
+  },
+  'copywriting': {
+    working: ['Escrevendo VSL de alta conversão', 'Criando email sequence', 'Desenvolvendo copy para ads', 'Revisando headline principal'],
+    thinking: ['Formulando abertura impactante...', 'Pesquisando gatilhos emocionais...', 'Testando variações de CTA...'],
+    meeting: ['Briefing de novo projeto copy', 'Revisão de copy com cliente'],
+    idle: ['Aguardando próximo briefing', 'Revisando banco de swipe files'],
+    offline: ['Offline'],
+  },
+  'creative': {
+    working: ['Criando identidade visual', 'Desenvolvendo criativos para Meta Ads', 'Exportando assets para campanha', 'Revisando brand book'],
+    thinking: ['Explorando direções criativas...', 'Avaliando paleta de cores...', 'Refinando tipografia da marca...'],
+    meeting: ['Apresentação de criativo para cliente', 'Briefing de nova identidade'],
+    idle: ['Aguardando aprovação de arte', 'Organizando biblioteca de assets'],
+    offline: ['Offline'],
+  },
+  'performance': {
+    working: ['Otimizando campanha Meta Ads', 'Escalonando conjunto vencedor', 'Testando novos criativos', 'Analisando métricas de ROAS'],
+    thinking: ['Calculando bid ideal...', 'Analisando funil de conversão...', 'Avaliando segmentação de público...'],
+    meeting: ['Revisão semanal de performance', 'Briefing de nova campanha'],
+    idle: ['Monitorando campanhas ativas', 'Aguardando novos criativos'],
+    offline: ['Offline'],
+  },
+  'web-dev': {
+    working: ['Desenvolvendo landing page', 'Implementando integração de CRM', 'Corrigindo bug crítico', 'Publicando funil de vendas'],
+    thinking: ['Revisando arquitetura...', 'Analisando problema técnico...', 'Otimizando performance do site...'],
+    meeting: ['Revisão técnica com equipe', 'Alinhamento de requisitos'],
+    idle: ['Aguardando próxima task de dev', 'Revisando backlog técnico'],
+    offline: ['Offline'],
+  },
+  'data-analytics': {
+    working: ['Construindo dashboard de resultados', 'Analisando funil de conversão', 'Conectando fontes de dados', 'Gerando relatório semanal'],
+    thinking: ['Interpretando anomalia nos dados...', 'Calculando projeção de crescimento...', 'Validando modelo preditivo...'],
+    meeting: ['Apresentando insights para equipe', 'Revisão de métricas com gestores'],
+    idle: ['Monitorando alertas de dados', 'Aguardando novos dados'],
+    offline: ['Offline'],
+  },
+  'sales': {
+    working: ['Qualificando lead de clínica', 'Enviando proposta comercial', 'Fazendo follow-up estratégico', 'Atualizando pipeline de vendas'],
+    thinking: ['Formulando abordagem personalizada...', 'Analisando objeções do lead...', 'Calculando proposta ideal...'],
+    meeting: ['Em reunião de fechamento', 'Sprint semanal de vendas', 'Alinhamento com squad'],
+    idle: ['Monitorando leads no CRM', 'Aguardando próximo contato'],
+    offline: ['Offline'],
+  },
+  'strategy': {
+    working: ['Desenvolvendo plano de crescimento', 'Mapeando jornada do cliente', 'Definindo posicionamento', 'Revisando OKRs do cliente'],
+    thinking: ['Formulando estratégia de entrada...', 'Avaliando oportunidades de mercado...', 'Calculando potencial de expansão...'],
+    meeting: ['Sessão estratégica com equipe', 'Alinhamento de growth hacking'],
+    idle: ['Revisando playbook de estratégias', 'Monitorando resultados'],
+    offline: ['Offline'],
+  },
+  'mission-control': {
+    working: ['Coordenando missões ativas', 'Despachando alertas de aprovação', 'Monitorando entregáveis', 'Atualizando dashboard operacional'],
+    thinking: ['Avaliando prioridade das missões...', 'Verificando gargalos no pipeline...'],
+    meeting: ['Reunião de ops com líderes', 'Briefing de emergência'],
+    idle: ['Monitorando painel de controle', 'Todos os sistemas operacionais'],
+    offline: ['Offline'],
+  },
+}
+
+const DEFAULT_ACTIONS: Record<AgentStatus, string[]> = {
+  working: ['Executando task de alta prioridade', 'Desenvolvendo entregável', 'Processando análise'],
+  thinking: ['Avaliando melhor estratégia...', 'Calculando próximo passo...'],
+  meeting: ['Em reunião estratégica', 'Alinhamento com equipe'],
+  idle: ['Disponível para nova task', 'Monitorando sistema'],
+  offline: ['Offline'],
+}
+
+const STATUS_TRANSITIONS: Record<AgentStatus, Array<{ s: AgentStatus; w: number }>> = {
+  idle:     [{ s: 'working', w: 55 }, { s: 'thinking', w: 25 }, { s: 'meeting', w: 15 }, { s: 'idle', w: 5 }],
+  working:  [{ s: 'working', w: 40 }, { s: 'thinking', w: 22 }, { s: 'idle', w: 23 }, { s: 'meeting', w: 15 }],
+  thinking: [{ s: 'working', w: 55 }, { s: 'idle', w: 25 }, { s: 'meeting', w: 10 }, { s: 'thinking', w: 10 }],
+  meeting:  [{ s: 'working', w: 50 }, { s: 'idle', w: 30 }, { s: 'thinking', w: 10 }, { s: 'meeting', w: 10 }],
+  offline:  [{ s: 'offline', w: 100 }],
+}
+
+function pickNextStatus(current: AgentStatus): AgentStatus {
+  const opts = STATUS_TRANSITIONS[current] ?? STATUS_TRANSITIONS.idle
+  const total = opts.reduce((s, o) => s + o.w, 0)
+  let r = Math.random() * total
+  for (const o of opts) { r -= o.w; if (r <= 0) return o.s }
+  return opts[opts.length - 1].s
+}
+
+function pickLiveAction(deptId: string, status: AgentStatus): string {
+  const pool = LIVE_ACTIONS[deptId]?.[status] ?? DEFAULT_ACTIONS[status] ?? ['Executando task']
+  return pool[Math.floor(Math.random() * pool.length)]
+}
 
 // ============================================================
 // HELPERS
@@ -1623,6 +1735,7 @@ export function LotusHQ3D() {
   const [feedEvents, setFeedEvents] = useState<FeedEvent[]>([])
   const eventCounterRef = useRef(0)
   const feedIndexRef = useRef(0)
+  const agentsRef = useRef<Agent[]>(DEMO_AGENTS)
 
   // Prime activity feed and cycle every 2.5s
   useEffect(() => {
@@ -1676,6 +1789,55 @@ export function LotusHQ3D() {
     pollAgents()
     const timer = setInterval(pollAgents, 15000)
     return () => { cancelled = true; clearInterval(timer) }
+  }, [])
+
+  // Keep agentsRef in sync so the simulation loop never has stale state
+  useEffect(() => { agentsRef.current = agents }, [agents])
+
+  // ======= LIVE SIMULATION LOOP — agents mudam status a cada 3s =======
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const current = agentsRef.current
+      const updated = [...current]
+      const newFeedItems: Array<Omit<FeedEvent, 'id'>> = []
+      let hasChanges = false
+
+      for (let i = 0; i < updated.length; i++) {
+        const agent = updated[i]
+        if (agent.status === 'offline') continue
+        if (Math.random() > 0.22) continue // ~22% chance por agente por tick
+
+        const newStatus = pickNextStatus(agent.status)
+        if (newStatus === agent.status) continue
+
+        const action = pickLiveAction(agent.departmentId, newStatus)
+        updated[i] = {
+          ...agent,
+          status: newStatus,
+          currentMission: newStatus !== 'idle' ? action : agent.currentMission,
+        }
+        hasChanges = true
+        newFeedItems.push({
+          agentName: agent.name.split(' ')[0],
+          role: agent.role,
+          deptId: agent.departmentId,
+          action,
+          color: getDeptColor(agent.departmentId),
+          time: getTimeStr(),
+        })
+      }
+
+      if (hasChanges) {
+        setAgents(updated)
+        if (newFeedItems.length > 0) {
+          setFeedEvents(prev => [
+            ...newFeedItems.map(ev => ({ ...ev, id: eventCounterRef.current++ })),
+            ...prev.slice(0, 24),
+          ])
+        }
+      }
+    }, 3000)
+    return () => clearInterval(timer)
   }, [])
 
   const handleSelect = useCallback((a: Agent) => {

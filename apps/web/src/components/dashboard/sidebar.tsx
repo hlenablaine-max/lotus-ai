@@ -15,6 +15,9 @@ import {
   Brain,
   Package,
   Zap,
+  Stethoscope,
+  Cpu,
+  Shield,
 } from "lucide-react";
 
 function LotusIcon({ size = 18, className = "" }: { size?: number; className?: string }) {
@@ -42,10 +45,16 @@ function LotusIcon({ size = 18, className = "" }: { size?: number; className?: s
 
 const navItems = [
   {
+    label: "Root Master",
+    href: "/root-master",
+    icon: Brain,
+    description: "Luna — CEO de Operações",
+  },
+  {
     label: "CEO Chat",
     href: "/ceo",
     icon: MessageSquare,
-    description: "Root Master — ops de clientes",
+    description: "Chat rápido com Luna",
   },
   {
     label: "Advisor",
@@ -58,6 +67,24 @@ const navItems = [
     href: "/copilot",
     icon: Zap,
     description: "Sugestões em tempo real",
+  },
+  {
+    label: "Diagnóstico",
+    href: "/diagnosis",
+    icon: Stethoscope,
+    description: "Análise de empresas",
+  },
+  {
+    label: "Motores",
+    href: "/motors",
+    icon: Cpu,
+    description: "8 Engines operacionais",
+  },
+  {
+    label: "Governança",
+    href: "/governance",
+    icon: Shield,
+    description: "Auditoria A/B/C/D",
   },
   {
     label: "Missões",
