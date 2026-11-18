@@ -4,6 +4,8 @@ const PUBLIC_ROUTES = ['/login', '/api/auth']
 
 function hasSession(req: NextRequest): boolean {
   return !!(
+    req.cookies.get('__Secure-authjs.session-token')?.value ||
+    req.cookies.get('authjs.session-token')?.value ||
     req.cookies.get('__Secure-next-auth.session-token')?.value ||
     req.cookies.get('next-auth.session-token')?.value
   )
