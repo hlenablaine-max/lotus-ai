@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { DraelProvider } from "@lotus/ai-engine";
+import { initializeProviders, registry } from "@lotus/ai-engine";
 
 export const dynamic = "force-dynamic";
 
-const provider = new DraelProvider({});
+initializeProviders();
 
 // Fetch real data from the target URL with timeout
 async function fetchWithTimeout(url: string, timeoutMs = 8000): Promise<{ ok: boolean; status: number; text: string; finalUrl: string }> {
@@ -221,7 +221,7 @@ export async function POST(req: NextRequest) {
       facebookAdsResult.found ? `Verificado: ${facebookAdsResult.data}` : `Não verificado: ${facebookAdsResult.data}`,
     ].join("\n");
 
-    const result = await provider.complete({
+    const result = await registry.getDefault().complete({
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {

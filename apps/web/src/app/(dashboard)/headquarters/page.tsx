@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { LotusHQ3D } from "@/components/headquarters/lotus-hq-3d";
+import { LotusHQ3D } from "@/components/hq/lotus-hq-3d";
 
 export default function HeadquartersPage() {
   const [command, setCommand] = useState("");

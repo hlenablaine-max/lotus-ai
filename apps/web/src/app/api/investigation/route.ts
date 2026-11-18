@@ -1,11 +1,11 @@
 import { NextRequest } from "next/server";
 import { updateAgentStatus } from "@/lib/agent-service";
-import { DraelProvider } from "@lotus/ai-engine";
+import { initializeProviders, registry } from "@lotus/ai-engine";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 90;
 
-const provider = new DraelProvider({});
+initializeProviders();
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -240,7 +240,7 @@ export async function GET(req: NextRequest) {
           whatsapp: { number: waNumber ?? null, responded: waResponded, automationDetected: false },
         });
 
-        const synthesis = await provider.complete({
+        const synthesis = await registry.getDefault().complete({
           messages: [
             {
               role: "system",
