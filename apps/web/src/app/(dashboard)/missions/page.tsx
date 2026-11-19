@@ -7,6 +7,7 @@ import {
   User, Zap, ArrowRight, RotateCcw, Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { RichText } from "@/components/ui/rich-text";
 
 interface Mission {
   id: string;
@@ -698,7 +699,7 @@ function TaskCard({ task, onRun, isRunning }: { task: Task; onRun: (t: Task) => 
           {task.output?.text && (
             <div>
               <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Resultado</p>
-              <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{task.output.text}</p>
+              <RichText content={task.output.text} />
             </div>
           )}
 
@@ -764,7 +765,7 @@ function DocumentCard({ doc }: { doc: TaskDocument }) {
       </button>
       {open && doc.content && (
         <div className="border-t border-border px-3 py-3">
-          <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{doc.content}</p>
+          <RichText content={doc.content} />
         </div>
       )}
     </div>

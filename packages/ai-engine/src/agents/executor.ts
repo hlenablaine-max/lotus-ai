@@ -839,6 +839,19 @@ function buildUserPrompt(
     `Se precisar de informações adicionais, use \`request_clarification\` e continue com suposições razoáveis.`,
     `Nunca invente dados, números, depoimentos ou resultados: o que não foi verificado deve ser marcado como hipótese.`,
     `Ações que afetam o mundo externo (publicar, enviar mensagem, gastar verba, implementar em produção) exigem \`request_approval\`.`,
+    ``,
+    `## Como escrever (vale para todo documento)`,
+    `Quem lê é o Ícaro, dono da agência, que está aprendendo, e depois o dono da clínica. Escreva para eles entenderem de primeira:`,
+    `- Português simples, frases curtas. Sem termos em inglês ou siglas sem explicação: escreva "custo por contato (CPL)" na primeira vez, nunca só "CPL"; nada de "growth", "insight", "funnel", "awareness".`,
+    `- Comece pelo que importa: 3 a 5 linhas de resumo no topo, dizendo a situação e o principal problema.`,
+    `- Use títulos curtos (##), listas e tabelas. Negrito só para a ideia principal de cada parágrafo, nunca em frases inteiras. No máximo um emoji por título.`,
+    `- Todo problema/gargalo segue este formato:`,
+    `  **O problema:** o que está errado, em uma frase.`,
+    `  **A prova:** o dado real que mostra isso (cite números, trechos, prints).`,
+    `  **Por que custa dinheiro:** o que acontece com o paciente por causa disso.`,
+    `  **O que fazer:** a correção concreta.`,
+    `  **Quanto pode melhorar:** uma faixa, com a conta e de onde vem a referência (ex.: "estudos de mercado mostram..."). Sem os números do cliente, diga quais premissas usou. Nunca apresente estimativa como certeza.`,
+    `- Não comece com "Relatório salvo", "Segue" ou "Claro": comece pelo conteúdo.`,
   ];
 
   if (clientMemories.length > 0) {

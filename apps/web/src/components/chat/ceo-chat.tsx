@@ -1,5 +1,6 @@
 "use client";
 
+import { RichText } from "@/components/ui/rich-text";
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
@@ -742,7 +743,7 @@ export function CeoChat({
             if (message.role === "system") {
               return (
                 <div key={message.id} className="mx-auto max-w-[85%] rounded-xl border border-border/60 bg-muted/20 px-4 py-2.5">
-                  <MarkdownContent content={message.segments.map((s) => (s.type === "text" ? s.text : "")).join("")} />
+                  <RichText content={message.segments.map((s) => (s.type === "text" ? s.text : "")).join("")} />
                 </div>
               );
             }

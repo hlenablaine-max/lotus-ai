@@ -6,7 +6,7 @@ import {
   AlertCircle, CheckCircle2, Clock, FileText, FolderDown, Hammer, Instagram, Loader2, MessageCircle, MonitorOff, Radar, ShieldAlert, XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { MarkdownContent } from "@/components/chat/ceo-chat";
+import { RichText } from "@/components/ui/rich-text";
 
 interface Progress {
   mission: { id: string; title: string; status: string; client: { id: string; name: string; instagram: string | null } };
@@ -363,7 +363,7 @@ export function Diagnosis360() {
             <div className="rounded-xl border border-emerald-400/20 bg-black/30 p-5">
               <div className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-3">Relatório final</div>
               <div className="text-white/85">
-                <MarkdownContent content={progress.report.content} />
+                <RichText content={progress.report.content} />
               </div>
             </div>
           )}
@@ -386,7 +386,7 @@ export function Diagnosis360() {
                       {doc.type === "RESEARCH_REPORT" ? (
                         <pre className="text-[11px] whitespace-pre-wrap break-words text-white/60">{doc.content}</pre>
                       ) : (
-                        <MarkdownContent content={doc.content} />
+                        <RichText content={doc.content} />
                       )}
                     </div>
                   )}

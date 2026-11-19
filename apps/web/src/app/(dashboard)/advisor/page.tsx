@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { RichText } from "@/components/ui/rich-text";
 import { Brain, Bell, AlertTriangle, Info, Zap, Loader2, Send, ChevronRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -270,7 +271,7 @@ export default function AdvisorPage() {
                     : "bg-white/5 border border-white/8 text-white/80"
                 )}
               >
-                <div className="whitespace-pre-wrap">{m.content || (m.role === "assistant" && loading ? "▌" : "")}</div>
+                {m.role === "assistant" && m.content ? <RichText content={m.content} /> : <div className="whitespace-pre-wrap">{m.content || (m.role === "assistant" && loading ? "▌" : "")}</div>}
               </div>
             </div>
           ))}

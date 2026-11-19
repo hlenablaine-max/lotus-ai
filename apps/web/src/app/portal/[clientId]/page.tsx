@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, use } from "react";
+import { RichText } from "@/components/ui/rich-text";
 import { FileText, Target, CheckCircle2, Clock, ChevronDown, ChevronUp, Download, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -106,9 +107,7 @@ function DocumentCard({ doc }: { doc: Document }) {
       </div>
       {expanded && (
         <div className="px-4 pb-4 border-t border-border pt-3">
-          <pre className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">
-            {doc.content}
-          </pre>
+          <RichText content={doc.content} />
         </div>
       )}
     </div>
