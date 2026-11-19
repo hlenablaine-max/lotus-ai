@@ -123,7 +123,7 @@ export class RuntimeHttpServer {
       case '/runtime/research/status':
         return rt.research.status()
       case '/runtime/research/connect':
-        return rt.research.connect(data.service === 'whatsapp' ? 'whatsapp' : 'instagram')
+        return rt.research.connect(data.service === 'whatsapp' ? 'whatsapp' : data.service === 'google' ? 'google' : 'instagram')
       case '/runtime/research/close':
         await rt.research.close()
         return { ok: true }
@@ -141,6 +141,10 @@ export class RuntimeHttpServer {
         return rt.research.metaAds(String(data.query ?? ''))
       case '/runtime/research/site':
         return rt.research.site(String(data.url ?? ''), String(data.name ?? 'negocio'))
+      case '/runtime/research/brand':
+        return rt.research.brandKit(String(data.handle ?? ''), data.site ? String(data.site) : null)
+      case '/runtime/research/place':
+        return rt.research.googlePlace(String(data.query ?? ''), String(data.name ?? ''))
       case '/runtime/research/maps':
         return rt.research.googleMaps(String(data.query ?? ''))
       case '/runtime/research/whatsapp-send':

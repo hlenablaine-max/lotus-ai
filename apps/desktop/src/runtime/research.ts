@@ -162,11 +162,12 @@ export class ResearchBrowser {
 
   // === Contas conectadas ===
 
-  async status(): Promise<{ instagram: boolean; whatsappProfile: boolean; browserOpen: boolean; visible: boolean }> {
+  async status(): Promise<{ instagram: boolean; google: boolean; whatsappProfile: boolean; browserOpen: boolean; visible: boolean }> {
     const ctx = await this.getContext()
     const cookies = await ctx.cookies(['https://www.instagram.com'])
     return {
       instagram: cookies.some((c) => c.name === 'sessionid' && c.value),
+      google: (await ctx.cookies(['https://www.google.com'])).some((c) => c.name === 'SID' && c.value),
       // WhatsApp Web guarda a sessão no armazenamento do perfil; a existência dele é só um indício
       whatsappProfile: fs.existsSync(path.join(PROFILE_DIR, 'Default', 'IndexedDB')),
       browserOpen: !!this.context,
@@ -175,10 +176,11 @@ export class ResearchBrowser {
   }
 
   // Abre uma janela visível para o dono fazer login (a sessão fica salva no perfil).
-  async connect(service: 'instagram' | 'whatsapp'): Promise<{ opened: boolean }> {
+  async connect(service: 'instagram' | 'whatsapp' | 'google'): Promise<{ opened: boolean }> {
     const ctx = await this.getContext(true)
     const page = ctx.pages()[0] ?? (await ctx.newPage())
-    await page.goto(service === 'whatsapp' ? 'https://web.whatsapp.com/' : 'https://www.instagram.com/accounts/login/', {
+    const target = { whatsapp: 'https://web.whatsapp.com/', google: 'https://accounts.google.com/ServiceLogin?continue=https://www.google.com/maps', instagram: 'https://www.instagram.com/accounts/login/' }[service]
+    await page.goto(target, {
       waitUntil: 'domcontentloaded',
       timeout: 45_000,
     })
@@ -584,6 +586,10 @@ export class ResearchBrowser {
           domContentLoadedMs: nav ? Math.round(nav.domContentLoadedEventEnd) : null,
           textSample: text.replace(/\s+/g, ' ').slice(0, 3500),
           wordCount: text.split(/\s+/).length,
+          cnpjs: [...new Set(text.match(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/g) ?? [])].slice(0, 3),
+          registrosProfissionais: [...new Set(text.match(/\b(?:CRO|CRM|COREN|CRBM|CRF)[\s\-/:]*[A-Z]{2}[\s\-/:]*\d{3,7}\b/gi) ?? [])].slice(0, 8),
+          profissionaisCitados: [...new Set(text.match(/\b(?:Dr|Dra)\.?\s+[A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõç]+(?:\s+(?:de |da |do |dos |das )?[A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõç]+){0,3}/g) ?? [])].slice(0, 10),
+          instagramsCitados: [...new Set(anchors.map((a) => a.href).filter((h) => /instagram\.com\/[A-Za-z0-9._]+/i.test(h)).map((h) => h.replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').split(/[/?#]/)[0].toLowerCase()).filter((h) => h && !['p', 'reel', 'explore', 'accounts'].includes(h)))].slice(0, 8),
         }
       })
 
@@ -645,6 +651,271 @@ export class ResearchBrowser {
           ...r,
           rating: parseFloat((r.details.match(/\b([1-5][.,]\d)\b/)?.[1] ?? '').replace(',', '.')) || null,
         })),
+      }
+    })
+  }
+
+  // === Kit da marca: logo, fotos e cores que o negócio realmente usa ===
+
+  async brandKit(handleInput: string, siteUrl: string | null): Promise<Record<string, unknown>> {
+    const handle = handleInput.replace(/^@/, '').trim()
+    const dir = path.join(this.outDir(handle), 'marca')
+    fs.mkdirSync(dir, { recursive: true })
+    this.log('info', `Marca: coletando logo, fotos e cores de @${handle}`)
+
+    const saveImage = async (ctx: BrowserContext, url: string, name: string): Promise<string | null> => {
+      try {
+        const res = await ctx.request.get(url, { timeout: 30_000 })
+        if (!res.ok()) return null
+        const type = res.headers()['content-type'] ?? ''
+        if (!type.startsWith('image/')) return null
+        const body = await res.body()
+        if (body.length < 3_000 || body.length > 8_000_000) return null
+        const ext = type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : type.includes('svg') ? 'svg' : 'jpg'
+        const file = path.join(dir, `${name}.${ext}`)
+        fs.writeFileSync(file, body)
+        return file
+      } catch {
+        return null
+      }
+    }
+
+    return this.withPage(async (page, ctx) => {
+      const files: { logoInstagram: string | null; logoSite: string | null; fotosInstagram: string[]; fotosSite: string[] } = {
+        logoInstagram: null,
+        logoSite: null,
+        fotosInstagram: [],
+        fotosSite: [],
+      }
+      const siteColors: string[] = []
+
+      // Instagram: foto do perfil (quase sempre o logo) e as imagens do grid
+      try {
+        await page.goto(`https://www.instagram.com/${handle}/`, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+        await page.waitForTimeout(4500)
+        const imgs = await page.evaluate(() => {
+          const header = document.querySelector('header')
+          const avatar = (header?.querySelector('img') as HTMLImageElement | null)?.src ?? ''
+          const grid = (Array.from(document.querySelectorAll('a[href*="/p/"] img, a[href*="/reel/"] img')) as HTMLImageElement[])
+            .map((i) => i.currentSrc || i.src)
+            .filter(Boolean)
+          return { avatar, grid: [...new Set(grid)].slice(0, 9) }
+        })
+        if (imgs.avatar) files.logoInstagram = await saveImage(ctx, imgs.avatar, 'logo-instagram')
+        for (const [i, src] of imgs.grid.entries()) {
+          const f = await saveImage(ctx, src, `foto-instagram-${i + 1}`)
+          if (f) files.fotosInstagram.push(f)
+        }
+      } catch {
+        /* segue com o site */
+      }
+
+      // Site: logo, fotos grandes e cores dos botões e cabeçalho
+      if (siteUrl) {
+        try {
+          await page.goto(siteUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+          await page.waitForTimeout(3500)
+          const found = await page.evaluate(() => {
+            const abs = (u: string | null | undefined) => {
+              try {
+                return u ? new URL(u, location.href).href : ''
+              } catch {
+                return ''
+              }
+            }
+            const imgs = Array.from(document.querySelectorAll('img')) as HTMLImageElement[]
+            const logo =
+              imgs.find((i) => /logo/i.test(`${i.src} ${i.alt} ${i.className} ${i.id}`))?.currentSrc ||
+              abs(document.querySelector('link[rel*="apple-touch-icon"]')?.getAttribute('href')) ||
+              abs(document.querySelector('meta[property="og:image"]')?.getAttribute('content'))
+            const photos = imgs
+              .filter((i) => i.naturalWidth >= 500 && i.naturalHeight >= 300 && !/logo|icon/i.test(`${i.src} ${i.alt}`))
+              .sort((a, b) => b.naturalWidth * b.naturalHeight - a.naturalWidth * a.naturalHeight)
+              .map((i) => i.currentSrc || i.src)
+            const colors: string[] = []
+            const pick = (el: Element | null) => {
+              if (!el) return
+              const st = getComputedStyle(el)
+              for (const c of [st.backgroundColor, st.color]) if (c && !/rgba\(0, 0, 0, 0\)|transparent/.test(c)) colors.push(c)
+            }
+            document.querySelectorAll('header, nav, footer, button, a[class*="btn"], a[class*="button"], .elementor-button').forEach((el, i) => {
+              if (i < 40) pick(el)
+            })
+            const theme = document.querySelector('meta[name="theme-color"]')?.getAttribute('content')
+            if (theme) colors.push(theme)
+            return { logo: logo || '', photos: [...new Set(photos)].slice(0, 8), colors }
+          })
+          if (found.logo) files.logoSite = await saveImage(ctx, found.logo, 'logo-site')
+          for (const [i, src] of found.photos.entries()) {
+            const f = await saveImage(ctx, src, `foto-site-${i + 1}`)
+            if (f) files.fotosSite.push(f)
+          }
+          siteColors.push(...found.colors)
+        } catch {
+          /* site indisponível: fica só o Instagram */
+        }
+      }
+
+      // Paleta: lê as imagens num canvas e conta as cores dominantes (sem enviar nada para fora).
+      // Cores da MARCA vêm dos logos e do CSS do site; os tons das FOTOS ficam à parte (pele e ambiente distorcem a marca).
+      const toDataUrl = (f: string) => `data:image/${path.extname(f).slice(1).replace('jpg', 'jpeg')};base64,${fs.readFileSync(f).toString('base64')}`
+      const notSvg = (f: string | null): f is string => !!f && !f.endsWith('.svg')
+      const logoUrls = [files.logoInstagram, files.logoSite].filter(notSvg).map(toDataUrl)
+      const photoUrls = [...files.fotosInstagram, ...files.fotosSite].filter(notSvg).map(toDataUrl)
+      const images = [...logoUrls, ...photoUrls]
+      await page.setContent('<html><body></body></html>')
+      const computePalette = async ({ urls, cssColors }: { urls: string[]; cssColors: string[] }) => {
+          const toHex = (r: number, g: number, b: number) => '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')
+          const buckets = new Map<string, { r: number; g: number; b: number; n: number }>()
+          const add = (r: number, g: number, b: number, weight: number) => {
+            const key = `${r >> 5}-${g >> 5}-${b >> 5}`
+            const cur = buckets.get(key) ?? { r: 0, g: 0, b: 0, n: 0 }
+            cur.r += r * weight
+            cur.g += g * weight
+            cur.b += b * weight
+            cur.n += weight
+            buckets.set(key, cur)
+          }
+          for (const url of urls) {
+            const img = new Image()
+            img.src = url
+            try {
+              await img.decode()
+            } catch {
+              continue
+            }
+            const canvas = document.createElement('canvas')
+            canvas.width = 48
+            canvas.height = 48
+            const ctx = canvas.getContext('2d')
+            if (!ctx) continue
+            ctx.drawImage(img, 0, 0, 48, 48)
+            const data = ctx.getImageData(0, 0, 48, 48).data
+            for (let i = 0; i < data.length; i += 4) if (data[i + 3] > 200) add(data[i], data[i + 1], data[i + 2], 1)
+          }
+          // Cores do CSS do site pesam mais: são escolhas de marca, não de fotografia
+          for (const c of cssColors) {
+            const m = c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/) ?? c.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i)
+            if (!m) continue
+            const nums = c.startsWith('#') ? [1, 2, 3].map((i) => parseInt(m[i], 16)) : [1, 2, 3].map((i) => Number(m[i]))
+            add(nums[0], nums[1], nums[2], 120)
+          }
+          const all = [...buckets.values()]
+            .map((b) => ({ r: Math.round(b.r / b.n), g: Math.round(b.g / b.n), b: Math.round(b.b / b.n), n: b.n }))
+            .sort((a, b) => b.n - a.n)
+          const total = all.reduce((acc, c) => acc + c.n, 0) || 1
+          const sat = (c: { r: number; g: number; b: number }) => {
+            const max = Math.max(c.r, c.g, c.b)
+            const min = Math.min(c.r, c.g, c.b)
+            return max === 0 ? 0 : (max - min) / max
+          }
+          const describe = (c: { r: number; g: number; b: number; n: number }) => ({ hex: toHex(c.r, c.g, c.b), percentual: Math.round((c.n / total) * 1000) / 10 })
+          return {
+            coresDeDestaque: all.filter((c) => sat(c) > 0.28 && Math.max(c.r, c.g, c.b) > 60).slice(0, 6).map(describe),
+            neutras: all.filter((c) => sat(c) <= 0.28).slice(0, 4).map(describe),
+          }
+        }
+      const brand = await page.evaluate(computePalette, { urls: logoUrls, cssColors: siteColors })
+      const photos = await page.evaluate(computePalette, { urls: photoUrls, cssColors: [] })
+      const palette = {
+        coresDaMarca: brand.coresDeDestaque,
+        neutrasDaMarca: brand.neutras,
+        tonsDasFotos: photos.coresDeDestaque.slice(0, 4),
+        coresDeDestaque: brand.coresDeDestaque,
+      }
+
+      const result = { pasta: dir, ...files, paleta: palette, coresDoSite: [...new Set(siteColors)].slice(0, 12), coletadoEm: new Date().toISOString() }
+      fs.writeFileSync(path.join(dir, 'marca.json'), JSON.stringify(result, null, 2), 'utf-8')
+      this.log('success', `Marca de @${handle}: ${images.length} imagens, cores ${palette.coresDeDestaque.map((c) => c.hex).join(' ')}`)
+      return result
+    })
+  }
+
+  // === Ficha do negócio no Google: nota, contato, horário e o texto das avaliações ===
+
+  async googlePlace(query: string, nameHint: string): Promise<Record<string, unknown>> {
+    const url = `https://www.google.com/maps/search/${encodeURIComponent(query)}?hl=pt-BR`
+    this.log('info', `Google: abrindo a ficha de "${nameHint}"`)
+    return this.withPage(async (page) => {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+      await page.waitForTimeout(6000)
+      // Se caiu numa lista, abre o resultado cujo nome mais parece com o do negócio
+      const tokens = nameHint.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^a-z0-9]+/).filter((t) => t.length >= 4)
+      const opened = await page.evaluate((toks) => {
+        const cards = Array.from(document.querySelectorAll('a.hfpxzc')) as HTMLAnchorElement[]
+        if (cards.length === 0) return 'ficha'
+        const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+        const best = cards
+          .map((a) => ({ a, score: toks.filter((t) => norm(a.getAttribute('aria-label') ?? '').includes(t)).length }))
+          .sort((x, y) => y.score - x.score)[0]
+        if (!best || best.score === 0) return 'nao-encontrado'
+        best.a.click()
+        return 'clicado'
+      }, tokens)
+      if (opened === 'nao-encontrado') return { query, encontrado: false, observacao: 'Nenhum resultado do Google Maps tem o nome do negócio.' }
+      await page.waitForTimeout(5000)
+
+      const ficha = await page.evaluate(() => {
+        const main = (document.querySelector('div[role="main"][aria-label]') ?? document.querySelector('div[role="main"]')) as HTMLElement | null
+        const text = main?.innerText ?? ''
+        const byItem = (id: string) => (document.querySelector(`[data-item-id^="${id}"]`) as HTMLElement | null)?.innerText?.replace(/\s+/g, ' ').trim() ?? ''
+        const ratingText = (main?.querySelector('div.F7nice') as HTMLElement | null)?.innerText ?? ''
+        return {
+          nome: (main?.querySelector('h1') as HTMLElement | null)?.innerText ?? main?.getAttribute('aria-label') ?? '',
+          categoria: (main?.querySelector('button[jsaction*="category"]') as HTMLElement | null)?.innerText ?? '',
+          notaETotal: ratingText.replace(/\s+/g, ' '),
+          endereco: byItem('address'),
+          telefone: byItem('phone'),
+          site: byItem('authority'),
+          horario: ((main?.querySelector('[aria-label*="Horário"], [aria-label*="horário"]') as HTMLElement | null)?.getAttribute('aria-label') ?? '').slice(0, 400),
+          resumo: text.replace(/\s+/g, ' ').slice(0, 900),
+        }
+      })
+
+      // Aba de avaliações: rola algumas vezes e lê os textos (sem guardar o nome de quem avaliou)
+      const reviews: Array<{ estrelas: number | null; quando: string; texto: string; respostaDoDono: boolean }> = []
+      try {
+        const tab = page.locator('button[role="tab"]', { hasText: /Avalia/i }).first()
+        if (await tab.count()) {
+          await tab.click()
+          await page.waitForTimeout(3500)
+          for (let i = 0; i < 5; i++) {
+            await page.evaluate(() => {
+              const scroller = document.querySelector('div.m6QErb.DxyBCb') ?? document.querySelector('div[role="main"] div[tabindex="-1"]')
+              scroller?.scrollBy(0, 2500)
+            })
+            await page.waitForTimeout(1500)
+          }
+          await page.evaluate(() => document.querySelectorAll('button.w8nwRe').forEach((b) => (b as HTMLButtonElement).click())).catch(() => {})
+          const items = await page.evaluate(() =>
+            (Array.from(document.querySelectorAll('div.jftiEf')) as HTMLElement[]).slice(0, 25).map((el) => ({
+              estrelas: Number((el.querySelector('span.kvMYJc') as HTMLElement | null)?.getAttribute('aria-label')?.match(/\d/)?.[0] ?? '') || null,
+              quando: (el.querySelector('span.rsqaWe') as HTMLElement | null)?.innerText ?? '',
+              texto: ((el.querySelector('span.wiI7pd') as HTMLElement | null)?.innerText ?? '').replace(/\s+/g, ' ').slice(0, 700),
+              respostaDoDono: !!el.querySelector('div.CDe7pd'),
+            }))
+          )
+          reviews.push(...items.filter((r) => r.texto || r.estrelas))
+        }
+      } catch {
+        /* sem avaliações legíveis */
+      }
+
+      const limitado = /visualização limitada do Google Maps|limited view of Google Maps/i.test(ficha.resumo)
+      const nota = parseFloat((ficha.notaETotal.match(/([1-5][.,]\d)/)?.[1] ?? '').replace(',', '.')) || null
+      const total = Number((ficha.notaETotal.match(/\(([\d.]+)\)/)?.[1] ?? '').replace(/\./g, '')) || null
+      this.log('success', `Google: ${ficha.nome} nota ${nota ?? '?'} (${total ?? '?'} avaliações), ${reviews.length} avaliações lidas`)
+      return {
+        query,
+        encontrado: true,
+        ...ficha,
+        nota,
+        totalDeAvaliacoes: total,
+        avaliacoesLidas: reviews,
+        avaliacoesNegativas: reviews.filter((r) => r.estrelas !== null && r.estrelas <= 3).length,
+        avaliacoesRespondidasPeloDono: reviews.filter((r) => r.respostaDoDono).length,
+        observacao: limitado && reviews.length === 0 ? 'O Google mostrou a visualização limitada (sem login), então o texto das avaliações não pôde ser lido. Conecte uma conta Google em Diagnóstico > conectar Google.' : null,
+        url: page.url(),
       }
     })
   }

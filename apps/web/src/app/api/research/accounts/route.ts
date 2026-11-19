@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       await client.call("/runtime/research/close", {}, 30_000);
       return Response.json({ ok: true });
     }
-    if (body.action === "connect" && (body.service === "instagram" || body.service === "whatsapp")) {
+    if (body.action === "connect" && (body.service === "instagram" || body.service === "whatsapp" || body.service === "google")) {
       await client.call("/runtime/research/connect", { service: body.service }, 90_000);
       return Response.json({ ok: true, opened: body.service });
     }

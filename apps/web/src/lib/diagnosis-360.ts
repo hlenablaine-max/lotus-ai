@@ -265,6 +265,25 @@ async function collectAndAnalyze(ctx: {
   const mapsQuery = [businessName.startsWith("@") ? handle : businessName, input.city].filter(Boolean).join(" ");
   const maps = await safeCollect("Google Maps", () => runtime.call("/runtime/research/maps", { query: mapsQuery }, 90_000) as Promise<Json>);
 
+  // 4b) Ficha completa do negócio no Google, com o texto das avaliações
+  const place = await safeCollect("Ficha do Google", () =>
+    runtime.call("/runtime/research/place", { query: mapsQuery, name: businessName.startsWith("@") ? handle : businessName }, 150_000) as Promise<Json>
+  );
+
+  // 4c) Kit da marca: logo, fotos e cores reais (base do site novo e da análise visual)
+  const brandSite =
+    [mainSite, site]
+      .map((s) => (s && !hasError(s) && !s.isLinkAggregator && !s.redirectsToWhatsApp && s.finalUrl ? String(s.finalUrl) : ""))
+      .find(Boolean) || null;
+  const brand = await safeCollect("Marca", () => runtime.call("/runtime/research/brand", { handle, site: brandSite }, 200_000) as Promise<Json>);
+
+  // 4d) Pessoas ligadas ao negócio (dono, sócios, dentistas): perfis citados na bio, no site e nas legendas
+  const people = await collectPeople(runtime, handle, profile, [site, mainSite]);
+
+  // 4e) Dados públicos da empresa pelo CNPJ (Receita Federal, via BrasilAPI)
+  const cnpjs = [site, mainSite].flatMap((s) => (s && !hasError(s) ? ((s.cnpjs as string[] | undefined) ?? []) : []));
+  const company = cnpjs.length > 0 ? await lookupCnpj(cnpjs[0]) : { observacao: "Nenhum CNPJ publicado no site; dá para pedir na reunião ou procurar pelo nome na Receita." };
+
   // 5) Vídeos: transcrição da fala e quadros dos 3 reels mais recentes
   const reels = profile.posts.filter((p) => p.type === "reel").slice(0, 3);
   // Primeiro baixa tudo com o navegador, depois fecha o navegador e só então transcreve:
@@ -324,6 +343,10 @@ async function collectAndAnalyze(ctx: {
     sitePrincipal: mainSite,
     anuncios: hasError(ads) ? ads : { totalDaBuscaPorPalavraChave: ads.totalText, anunciosDoProprioNegocio: matchingAds, outrosAnunciosDaBusca: ((ads.ads as Json[] | undefined) ?? []).filter((a) => !matchingAds.includes(a)).slice(0, 5), urlDaBiblioteca: ads.url },
     googleMaps: maps,
+    fichaDoGoogle: place,
+    marca: brand,
+    pessoasLigadas: people,
+    empresa: company,
     whatsappEncontrado: whatsapp,
     coletadoEm: new Date().toISOString(),
   };
@@ -353,7 +376,7 @@ async function collectAndAnalyze(ctx: {
     data: { clientId, missionId, taskId: collectTaskId, action: "DIAGNOSIS_DATA_COLLECTED", details: { handle, posts: profile.posts.length, videos: videos.length, ads: matchingAds.length, whatsapp: whatsapp.length }, level: "INFO" },
   });
 
-  await createAnalysisTasks({ missionId, businessName, handle, profile, metrics, videos, site, mainSite, candidateSite, ads: collected.anuncios as Json, maps, whatsapp, produce: input.produce !== false });
+  await createAnalysisTasks({ missionId, businessName, handle, profile, metrics, videos, site, mainSite, candidateSite, ads: collected.anuncios as Json, maps, place, brand, people, company, whatsapp, produce: input.produce !== false });
 
   // Teste de atendimento no WhatsApp
   if (whatsapp.length > 0) {
@@ -390,8 +413,71 @@ interface AnalysisContext {
   candidateSite: string | null;
   ads: Json;
   maps: Json | { erro: string };
+  place: Json | { erro: string };
+  brand: Json | { erro: string };
+  people: Json[];
+  company: Json;
   whatsapp: string[];
   produce: boolean;
+}
+
+// Perfis do Instagram de pessoas ligadas ao negócio: @ citados na bio, no site e repetidos nas legendas.
+async function collectPeople(runtime: RuntimeClient, handle: string, profile: InstagramProfile, sites: Array<Json | { erro: string } | null>): Promise<Json[]> {
+  const mentions = (text: string) => (text.match(/@([a-z0-9._]{3,30})/gi) ?? []).map((h) => h.slice(1).toLowerCase().replace(/\.+$/, ""));
+  const counts = new Map<string, number>();
+  const bump = (h: string, n: number) => counts.set(h, (counts.get(h) ?? 0) + n);
+  mentions(`${profile.bio} ${profile.headerText}`).forEach((h) => bump(h, 10));
+  sites.forEach((s) => (s && !("erro" in s) ? ((s.instagramsCitados as string[] | undefined) ?? []) : []).forEach((h) => bump(h, 6)));
+  profile.posts.forEach((p) => mentions(p.caption).forEach((h) => bump(h, 1)));
+  const candidates = [...counts.entries()]
+    .filter(([h, n]) => h !== handle && n >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([h]) => h);
+  const people: Json[] = [];
+  for (const candidate of candidates) {
+    const data = await safeCollect("Perfil ligado", () => runtime.call("/runtime/research/instagram", { handle: candidate, maxPosts: 4 }, 150_000) as Promise<Json>);
+    if (hasError(data) || !data.found) continue;
+    people.push({
+      instagram: `@${candidate}`,
+      nome: String(data.fullTitle ?? "").split("(@")[0].trim(),
+      seguidores: data.followers,
+      bio: data.bio,
+      linksNaBio: data.externalLinks,
+      postsRecentes: ((data.posts as InstagramPost[] | undefined) ?? []).map((p) => ({ tipo: p.type, data: p.publishedAt, curtidas: p.likes, legenda: p.caption.slice(0, 400) })),
+      print: data.screenshot,
+      porQueFoiInvestigado: "Citado na bio, no site ou várias vezes nas legendas do negócio",
+    });
+  }
+  return people;
+}
+
+// Cadastro público da empresa (Receita Federal) pelo CNPJ publicado no site.
+async function lookupCnpj(raw: string): Promise<Json> {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length !== 14) return { observacao: `CNPJ inválido no site: ${raw}` };
+  try {
+    const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${digits}`, { signal: AbortSignal.timeout(20_000) });
+    if (!res.ok) return { cnpj: raw, observacao: `Consulta pública do CNPJ indisponível agora (HTTP ${res.status}).` };
+    const d = (await res.json()) as Json;
+    const opened = d.data_inicio_atividade ? new Date(String(d.data_inicio_atividade)) : null;
+    return {
+      cnpj: raw,
+      razaoSocial: d.razao_social,
+      nomeFantasia: d.nome_fantasia,
+      situacao: d.descricao_situacao_cadastral,
+      abertaEm: d.data_inicio_atividade,
+      anosDeEmpresa: opened ? Math.floor((Date.now() - opened.getTime()) / (365.25 * 86_400_000)) : null,
+      porte: d.porte ?? d.descricao_porte,
+      atividadePrincipal: d.cnae_fiscal_descricao,
+      capitalSocial: d.capital_social,
+      cidade: `${d.municipio ?? ""}/${d.uf ?? ""}`,
+      socios: ((d.qsa as Json[] | undefined) ?? []).map((q) => ({ nome: q.nome_socio, qualificacao: q.qualificacao_socio, desde: q.data_entrada_sociedade })),
+      fonte: "Receita Federal (dados públicos, via BrasilAPI)",
+    };
+  } catch (err) {
+    return { cnpj: raw, observacao: `Consulta do CNPJ falhou: ${err instanceof Error ? err.message : String(err)}` };
+  }
 }
 
 const RULES = [
@@ -514,13 +600,14 @@ async function createAnalysisTasks(c: AnalysisContext): Promise<void> {
       title: "Reputação, presença local e concorrência",
       description: "Avaliar Google Maps, avaliações e como o negócio se compara aos concorrentes próximos.",
       instructions: [
-        "1. Identifique nos resultados do Google Maps qual é a ficha deste negócio (nome parecido). Nota, se está aberta, se tem site e telefone. Se não aparecer, isso é um achado: paciente que procura no Google não encontra.",
+        "1. Ficha do Google (fichaDoGoogle): nota, número de avaliações, se está completa (horário, site, telefone, fotos). Se não foi encontrada, isso é um achado: paciente que procura no Google não encontra.",
+        "1b. Leia o TEXTO das avaliações (avaliacoesLidas): do que os pacientes mais elogiam e do que reclamam (atendimento, espera, preço, resultado, recepção). Cite trechos curtos. Diga se o dono responde às avaliações. Se o texto não pôde ser lido, diga isso e como resolver.",
         "2. Compare com os outros resultados da mesma busca (são concorrentes locais): notas e como se apresentam.",
         "3. Use search_web para procurar o negócio no Google (nome + cidade), Reclame Aqui e Doctoralia, e fetch_url para abrir o que achar relevante. Relate só o que encontrar.",
         "4. Conclusão: como está a reputação visível e o que fazer (rotina de pedir avaliações, responder avaliações, completar a ficha).",
         RULES,
       ].join("\n"),
-      input: { negocio: c.businessName, instagram: `@${c.handle}`, googleMaps: c.maps, seguidores: c.metrics.seguidores },
+      input: { negocio: c.businessName, instagram: `@${c.handle}`, fichaDoGoogle: c.place, resultadosDaBuscaLocal: c.maps, seguidores: c.metrics.seguidores },
     },
     {
       key: "funil",
@@ -570,6 +657,40 @@ async function createAnalysisTasks(c: AnalysisContext): Promise<void> {
     },
   ];
 
+  definitions.push({
+    key: "empresa",
+    agentId: "agent-sales-intel",
+    department: "sales",
+    title: "Empresa, dono e posicionamento",
+    description: "Quem está por trás do negócio, como se posiciona e o que isso muda na abordagem comercial.",
+    instructions: [
+      "Monte o perfil de quem decide neste negócio, só com dados públicos do contexto:",
+      "1. A empresa: há quanto tempo existe, porte, atividade, sócios (dados da Receita em `empresa`). Se não houver CNPJ, diga o que dá para inferir e o que perguntar.",
+      "2. O dono e os profissionais: identifique nos `pessoasLigadas`, nos profissionais e registros citados no site quem parece ser o dono ou o profissional principal. Como ele se posiciona no Instagram pessoal (autoridade, rosto da marca, frequência, tom)? Ele aparece no perfil da clínica?",
+      "3. Coerência: o posicionamento do dono e o da clínica contam a mesma história? O que um paciente percebe?",
+      "4. Abordagem: o que esse perfil indica sobre como vender para ele (o que valoriza, objeções prováveis, por onde começar a conversa). Nada de suposição sobre vida pessoal: só o que é profissional e público.",
+      "Se não der para identificar o dono com segurança, diga isso claramente e liste as perguntas para descobrir na reunião.",
+      RULES,
+    ].join("\n"),
+    input: {
+      negocio: c.businessName,
+      instagram: `@${c.handle}`,
+      bioDoNegocio: c.profile.bio,
+      empresa: c.company,
+      pessoasLigadas: c.people.map(({ print: _print, ...rest }) => rest),
+      profissionaisNoSite: [c.mainSite, c.site].flatMap((s) => (s && !hasError(s) ? ((s.profissionaisCitados as string[] | undefined) ?? []) : [])),
+      registrosNoSite: [c.mainSite, c.site].flatMap((s) => (s && !hasError(s) ? ((s.registrosProfissionais as string[] | undefined) ?? []) : [])),
+      imagePaths: c.people.map((p) => p.print).filter(Boolean).slice(0, 2),
+    },
+  });
+
+  // A frente de perfil também recebe as cores e o logo reais da marca
+  const perfilDef = definitions.find((d) => d.key === "perfil");
+  if (perfilDef && !hasError(c.brand)) {
+    perfilDef.input = { ...perfilDef.input, coresDaMarca: (c.brand.paleta as Json | undefined)?.coresDaMarca ?? null };
+    perfilDef.instructions += "\n6. Identidade visual: as cores reais da marca (coresDaMarca) e o logo aparecem com consistência nos posts? A estética combina com o público que a clínica quer atrair?";
+  }
+
   const analysisIds: string[] = [];
   for (const def of definitions) {
     const agentId = await resolveAgent(def.agentId, def.department);
@@ -596,18 +717,22 @@ async function createAnalysisTasks(c: AnalysisContext): Promise<void> {
           missionId: c.missionId,
           agentId: strategistId,
           title: `Diagnóstico consolidado — ${c.businessName}`,
-          description: "Juntar as análises da equipe em um diagnóstico único, priorizado, com plano de ação.",
+          description: "Juntar as análises da equipe no Playbook de Faturamento da clínica: gargalos, quanto custam, o que fazer e o plano de 90 dias.",
           instructions: [
-            "Você recebeu, nos entregáveis anteriores, a análise de cada especialista. Produza o DIAGNÓSTICO 360 final, em português claro, para ser apresentado ao dono da clínica:",
-            "1. Resumo executivo (5 linhas): situação atual e a maior oportunidade.",
-            "2. Placar por frente (0 a 10): perfil e conteúdo, copy, vídeos, tráfego pago, site, reputação local, funil e atendimento, operação, conformidade. Nota geral.",
-            "3. Os 5 maiores gargalos, em ordem de impacto no faturamento: evidência, por que custa pacientes, e a correção.",
-            "4. Plano de ação: primeiros 7 dias, 30 dias, 60 dias e 90 dias, com responsável (frente da LOTUS) e o resultado esperado de cada etapa.",
-            "5. O que a LOTUS implementa: soluções do catálogo recomendadas e a ordem.",
-            "6. O que ainda precisa ser confirmado com o cliente (dados que só ele tem).",
-            "7. Para o Ícaro aprender: 5 conceitos que apareceram neste diagnóstico explicados em 2 linhas cada.",
-            "Não estime faturamento nem retorno em reais sem os números do cliente; se der uma faixa, declare as premissas.",
-            "Não repita as análises inteiras: sintetize e priorize. Salve com save_document usando type \"strategy\" e o título \"Diagnóstico 360 — " + c.businessName + "\".",
+            "Você recebeu, nos entregáveis anteriores, a análise de cada especialista. Produza o PLAYBOOK DE FATURAMENTO desta clínica: o documento que o Ícaro apresenta ao dono para mostrar onde ele perde dinheiro e como a LOTUS resolve.",
+            "Escreva para o dono da clínica entender sem ajuda. Estrutura obrigatória:",
+            "## Resumo em 5 linhas — a situação de hoje, o maior problema e a maior oportunidade.",
+            "## Nota por área (0 a 10) — tabela com: Perfil e conteúdo, Copy, Vídeos, Tráfego pago, Site, Reputação no Google, Funil e atendimento, Operação, Regras de publicidade em saúde. Uma frase de justificativa por nota. Nota geral.",
+            "## Os gargalos que travam o faturamento — os 5 a 7 principais, do maior impacto para o menor. Cada um com: O problema / A prova (dado real) / Por que custa dinheiro / O que fazer / Quanto pode melhorar.",
+            "## Quanto a clínica pode ganhar — uma conta simples e honesta: cenário atual e cenário corrigido, com as premissas escritas (ex.: 'se chegam 100 contatos por mês e 20% agendam...'). Use faixas, não números exatos. Quando citar estatística de mercado (tempo de resposta, taxa de conversão, efeito de avaliações), use search_web para encontrar a referência e cite a fonte e o ano; se não achar, escreva 'estimativa da equipe'.",
+            "## O que a LOTUS monta para vocês — as soluções (do catálogo e das entregas de produção desta missão) ligadas a cada gargalo.",
+            "## Plano de 90 dias — semanas 1-2, mês 1, mês 2, mês 3: o que é feito, por quem (LOTUS ou clínica) e o resultado esperado.",
+            "## Perguntas para a reunião — o que só o dono sabe e que muda as contas (contatos por mês, agendamentos, comparecimento, ticket médio, quem atende o WhatsApp).",
+            "## Para o Ícaro aprender — 5 conceitos deste caso, 2 linhas cada.",
+            "",
+            "NO FINAL do documento, inclua um bloco de código ```json com os dados para o painel, exatamente neste formato:",
+            '{"notaGeral": 0, "notas": [{"area": "Site", "nota": 0, "motivo": "..."}], "gargalos": [{"titulo": "...", "problema": "...", "prova": "...", "porQueCusta": "...", "oQueFazer": "...", "impacto": "...", "gravidade": "alta|media|baixa"}], "ganhoPotencial": "faixa em uma frase, com a premissa principal", "proximosPassos": ["...", "..."]}',
+            "Não repita as análises inteiras: sintetize, priorize e ligue cada problema ao dinheiro. Salve com save_document usando type \"strategy\" e o título \"Diagnóstico 360 — " + c.businessName + "\".",
           ].join("\n"),
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           input: { negocio: c.businessName, instagram: `@${c.handle}`, indicadores: c.metrics, catalogoDeSolucoes: await catalog() } as any,

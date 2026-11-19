@@ -22,6 +22,7 @@ interface Progress {
 interface Accounts {
   desktop: boolean;
   instagram?: boolean;
+  google?: boolean;
   visible?: boolean;
   error?: string;
 }
@@ -138,7 +139,7 @@ export function Diagnosis360() {
     }
   };
 
-  const account = async (action: "connect" | "close", service?: "instagram" | "whatsapp") => {
+  const account = async (action: "connect" | "close", service?: "instagram" | "whatsapp" | "google") => {
     setAccountMessage("");
     const res = await fetch("/api/research/accounts", {
       method: "POST",
@@ -147,7 +148,7 @@ export function Diagnosis360() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) setAccountMessage(data.error ?? "Não foi possível abrir a janela.");
-    else if (action === "connect") setAccountMessage(`Janela aberta: entre no ${service === "whatsapp" ? "WhatsApp (leia o QR code)" : "Instagram"} e depois clique em "Concluir conexão".`);
+    else if (action === "connect") setAccountMessage(`Janela aberta: entre no ${service === "whatsapp" ? "WhatsApp (leia o QR code com o celular)" : service === "google" ? "Google (qualquer conta Gmail serve)" : "Instagram"} e depois clique em "Concluir conexão".`);
     else setAccountMessage("Sessão salva.");
     loadAccounts();
   };
@@ -256,6 +257,8 @@ export function Diagnosis360() {
             Contas do navegador de pesquisa:
             <span className={accounts.instagram ? "text-emerald-400" : "text-white/40"}>Instagram {accounts.instagram ? "conectado" : "sem login (só perfis públicos)"}</span>
             <button onClick={() => account("connect", "instagram")} className="underline hover:text-white">conectar Instagram</button>
+            <span className={accounts.google ? "text-emerald-400" : "text-white/40"}>Google {accounts.google ? "conectado" : "sem login (sem texto das avaliações)"}</span>
+            <button onClick={() => account("connect", "google")} className="underline hover:text-white">conectar Google</button>
             <button onClick={() => account("connect", "whatsapp")} className="underline hover:text-white">conectar WhatsApp</button>
             {accounts.visible && <button onClick={() => account("close")} className="underline text-pink-300 hover:text-white">concluir conexão</button>}
           </span>
