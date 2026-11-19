@@ -959,7 +959,7 @@ Toda ação registrada em `ActivityLog`:
 ### 17.1 Integrações de IA (Multi-Provider)
 
 ```
-Primário: Drael AI (dk-_2qA2waXowNXjd19qyGeqpvuEy-EkBQDNxntlBiKVfc)
+Primário: Drael AI (chave em DRAEL_API_KEY no apps/web/.env.local — nunca no repositório)
 Fallback: Anthropic Claude (ANTHROPIC_API_KEY)
 Futuro: OpenAI, Google AI, Groq
 ```

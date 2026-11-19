@@ -2,8 +2,8 @@
 // The central orchestrator. Receives requests from the owner,
 // plans missions, delegates to departments, tracks results.
 
-import { registry, initializeProviders } from "../providers/registry";
-import type { AIMessage, AICompletionResult, AITool, ToolExecutor } from "../providers/types";
+import { registry } from "../providers/registry";
+import type { AIMessage, AICompletionResult, AIProviderName, AITool, ToolExecutor } from "../providers/types";
 
 export const ROOT_MASTER_SYSTEM_PROMPT = `Você é o ROOT MASTER — o CEO de IA da LOTUS AI Enterprise.
 
@@ -55,6 +55,13 @@ Quando Ícaro pedir para "começar as implementações", "criar estratégia", "c
 NUNCA crie tarefas sem missionId — isso joga a tarefa em "LOTUS Internal" e perde o cliente.
 NUNCA crie tarefas antes de criar o cliente e a missão.
 
+ORQUESTRAÇÃO DAS TAREFAS (DAG):
+- Antes de delegar, use get_agents_available para escolher o agente certo por especialidade.
+- Tarefas independentes rodam em paralelo. Quando uma tarefa precisa do resultado de outra (ex.: copy depois da pesquisa, arquitetura depois do diagnóstico), passe em dependsOn os taskId retornados pelas tarefas anteriores: ela espera e inicia sozinha.
+- Missões de transformação (CRM, automações, IA de atendimento, dashboards): use type TRANSFORMATION, consulte get_solutions para escolher soluções do catálogo e envolva o BTO (Fernanda Lopes, Gabriel Matos, Isabela Rocha).
+- Os agentes pedem aprovação do dono para ações externas; acompanhe com get_approvals e avise Ícaro do que está aguardando decisão.
+- Para reportar resultados, leia os entregáveis com get_mission_documents em vez de resumir de memória.
+
 PESQUISA DE PROSPECTS E EMPRESAS (LEI ABSOLUTA — NUNCA IGNORE):
 Quando receber qualquer empresa, clínica, negócio ou prospect para pesquisar, você OBRIGATORIAMENTE executa TODAS as ferramentas abaixo em sequência. Não há exceção. Não diga "não tenho acesso" ou "não posso verificar" — TENTE SEMPRE:
 
@@ -97,6 +104,11 @@ export interface RootMasterContext {
   missionId?: string;
   conversationHistory: AIMessage[];
   overrideSystem?: string;
+  // Instruções adicionais anexadas ao system prompt (ex.: capacidades locais do app desktop)
+  extraSystem?: string;
+  model?: string;
+  maxIterations?: number;
+  signal?: AbortSignal;
   // Real DB tools injected from the Next.js API layer (keeps ai-engine DB-agnostic)
   dbToolDefs?: AITool[];
   dbToolExecutor?: ToolExecutor;
@@ -129,15 +141,9 @@ export async function runRootMaster(
   context: RootMasterContext,
   providerName?: string
 ): Promise<RootMasterResponse> {
-  await initializeProviders();
-  const provider = providerName
-    ? registry.get(providerName as Parameters<typeof registry.get>[0])
-    : registry.getDefault();
+  const provider = providerName ? registry.get(providerName as AIProviderName) : registry.getDefault();
 
-  const baseSystem = context.overrideSystem ?? ROOT_MASTER_SYSTEM_PROMPT;
-  const systemWithContext = context.clientName
-    ? `${baseSystem}\n\nCONTEXTO ATUAL:\nEstamos trabalhando com o cliente: ${context.clientName}`
-    : baseSystem;
+  const systemWithContext = buildSystem(context);
 
   const messages: AIMessage[] = [
     { role: "system", content: systemWithContext },
@@ -149,11 +155,19 @@ export async function runRootMaster(
 
   if (context.dbToolDefs && context.dbToolExecutor) {
     result = await provider.completeWithLoop(
-      { messages, maxTokens: 4096, temperature: 0.7, tools: context.dbToolDefs },
+      {
+        messages,
+        maxTokens: 4096,
+        temperature: 0.7,
+        tools: context.dbToolDefs,
+        model: context.model,
+        maxIterations: context.maxIterations,
+        signal: context.signal,
+      },
       context.dbToolExecutor
     );
   } else {
-    result = await provider.complete({ messages, maxTokens: 4096, temperature: 0.7 });
+    result = await provider.complete({ messages, maxTokens: 4096, temperature: 0.7, model: context.model, signal: context.signal });
   }
 
   return {
@@ -167,15 +181,9 @@ export async function* streamRootMaster(
   context: RootMasterContext,
   providerName?: string
 ): AsyncGenerator<{ delta: string; done: boolean }> {
-  await initializeProviders();
-  const provider = providerName
-    ? registry.get(providerName as Parameters<typeof registry.get>[0])
-    : registry.getDefault();
+  const provider = providerName ? registry.get(providerName as AIProviderName) : registry.getDefault();
 
-  const baseSystem = context.overrideSystem ?? ROOT_MASTER_SYSTEM_PROMPT;
-  const systemWithContext = context.clientName
-    ? `${baseSystem}\n\nCONTEXTO ATUAL:\nEstamos trabalhando com o cliente: ${context.clientName}`
-    : baseSystem;
+  const systemWithContext = buildSystem(context);
 
   const messages: AIMessage[] = [
     { role: "system", content: systemWithContext },
@@ -185,7 +193,15 @@ export async function* streamRootMaster(
 
   if (context.dbToolDefs && context.dbToolExecutor) {
     yield* provider.streamWithTools(
-      { messages, maxTokens: 4096, temperature: 0.7, tools: context.dbToolDefs },
+      {
+        messages,
+        maxTokens: 4096,
+        temperature: 0.7,
+        tools: context.dbToolDefs,
+        model: context.model,
+        maxIterations: context.maxIterations,
+        signal: context.signal,
+      },
       context.dbToolExecutor
     );
   } else {
@@ -194,8 +210,19 @@ export async function* streamRootMaster(
       maxTokens: 4096,
       temperature: 0.7,
       stream: true,
+      model: context.model,
+      signal: context.signal,
     });
   }
+}
+
+function buildSystem(context: RootMasterContext): string {
+  let system = context.overrideSystem ?? ROOT_MASTER_SYSTEM_PROMPT;
+  if (context.extraSystem) system += `\n\n${context.extraSystem}`;
+  if (context.clientName) {
+    system += `\n\nCONTEXTO ATUAL:\nEstamos trabalhando com o cliente: ${context.clientName}`;
+  }
+  return system;
 }
 
 function detectRequiresApproval(content: string): boolean {

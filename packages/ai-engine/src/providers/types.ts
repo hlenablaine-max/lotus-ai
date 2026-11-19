@@ -19,6 +19,9 @@ export interface AICompletionOptions {
   maxTokens?: number;
   temperature?: number;
   stream?: boolean;
+  // Máximo de rodadas modelo -> ferramentas -> modelo no loop agêntico.
+  maxIterations?: number;
+  signal?: AbortSignal;
 }
 
 export interface AICompletionResult {
@@ -54,9 +57,11 @@ export interface AIProvider {
   stream(options: AICompletionOptions): AsyncGenerator<AIStreamChunk>;
   streamWithTools(options: AICompletionOptions, toolExecutor: ToolExecutor): AsyncGenerator<AIStreamChunk>;
   isAvailable(): boolean;
+  getDefaultModel(): string;
+  listModels(): Promise<string[]>;
 }
 
-export type AIProviderName = "anthropic" | "openai" | "google" | "groq" | "drael" | "custom";
+export type AIProviderName = "drael" | "openai" | "anthropic";
 
 export interface ProviderConfig {
   apiKey?: string;

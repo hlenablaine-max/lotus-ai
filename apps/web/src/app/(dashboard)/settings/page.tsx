@@ -1,6 +1,8 @@
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
-import { User, Shield, Key, Bell, Database, Info } from "lucide-react";
+import { User, Shield, Key, Database, Info } from "lucide-react";
+import { AISettings } from "@/components/settings/ai-settings";
+import { SignOutButton } from "@/components/settings/sign-out-button";
 
 export const metadata = {
   title: "Configurações — LOTUS AI",
@@ -14,8 +16,6 @@ export default async function SettingsPage() {
   const role = (session.user as { role?: string }).role ?? "OWNER";
 
   const dbConfigured = !!process.env.DATABASE_URL;
-  const draelConfigured = !!process.env.DRAEL_API_KEY;
-  const anthropicConfigured = !!process.env.ANTHROPIC_API_KEY;
 
   return (
     <div className="p-8 max-w-3xl space-y-8">
@@ -60,6 +60,8 @@ export default async function SettingsPage() {
         </div>
       </section>
 
+      <AISettings />
+
       {/* System status */}
       <section className="rounded-xl border border-border bg-card overflow-hidden">
         <div className="px-6 py-4 border-b border-border flex items-center gap-3">
@@ -74,20 +76,6 @@ export default async function SettingsPage() {
               ok: dbConfigured,
               okText: "Configurado",
               failText: "DATABASE_URL não definido",
-            },
-            {
-              label: "Drael AI",
-              description: "Provedor de IA (Root Master)",
-              ok: draelConfigured,
-              okText: "API Key configurada",
-              failText: "DRAEL_API_KEY não definido",
-            },
-            {
-              label: "Anthropic Claude",
-              description: "Fallback de IA",
-              ok: anthropicConfigured,
-              okText: "API Key configurada",
-              failText: "ANTHROPIC_API_KEY não definido (opcional)",
             },
           ].map((item) => (
             <div
@@ -121,9 +109,13 @@ export default async function SettingsPage() {
           <div className="mt-3 rounded-lg bg-amber-400/5 border border-amber-400/20 p-4 flex items-start gap-3">
             <Info className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-muted-foreground leading-relaxed">
-              A senha é configurada via variável de ambiente <code className="text-amber-400 font-mono">OWNER_PASSWORD</code> no arquivo <code className="font-mono">.env.local</code>.
-              Por padrão usa <code className="text-primary font-mono">lotus2026</code>.
+              O login usa as variáveis <code className="text-amber-400 font-mono">OWNER_EMAIL</code> e{" "}
+              <code className="text-amber-400 font-mono">OWNER_PASSWORD</code> do arquivo <code className="font-mono">apps/web/.env.local</code>.
+              Sem elas, ninguém consegue entrar.
             </p>
+          </div>
+          <div className="mt-3">
+            <SignOutButton />
           </div>
         </div>
       </section>
@@ -137,7 +129,7 @@ export default async function SettingsPage() {
         <div className="p-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
             { label: "Versão", value: "2.0.0" },
-            { label: "Framework", value: "Next.js 14" },
+            { label: "Framework", value: "Next.js 15" },
             { label: "ORM", value: "Prisma" },
             { label: "Auth", value: "NextAuth v5" },
           ].map((item) => (

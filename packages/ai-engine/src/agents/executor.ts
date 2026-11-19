@@ -1,8 +1,16 @@
 // Task Executor — Runs a DB task through the right agent and saves output
 // Uses dependency injection for the DB layer so ai-engine stays DB-agnostic.
 
-import { registry, initializeProviders } from "../providers/registry";
-import type { AITool } from "../providers/types";
+import { registry } from "../providers/registry";
+import type { AIProvider, AITool } from "../providers/types";
+import type { PermissionMode } from "../settings";
+
+export interface ExecuteTaskOptions {
+  provider?: AIProvider;
+  model?: string;
+  // "ask": ações no computador local viram pedidos de aprovação; "auto": executam direto.
+  permissionMode?: PermissionMode;
+}
 
 // Minimal interface for the DB operations executor needs
 export interface ExecutorDB {
@@ -43,6 +51,15 @@ export interface ExecutorDB {
   integration?: {
     findFirst(args: { where: { type: string; status: string } }): Promise<{ config: unknown } | null>;
   };
+  memory?: {
+    findMany(args: {
+      where: { scope: string; clientId: string };
+      select: { key: boolean; content: boolean };
+      orderBy: { updatedAt: "asc" | "desc" };
+      take: number;
+    }): Promise<Array<{ key: string; content: string }>>;
+    create(args: { data: Record<string, unknown> }): Promise<unknown>;
+  };
   runtime?: {
     call(endpoint: string, data?: Record<string, unknown>): Promise<unknown>;
     available(): Promise<boolean>;
@@ -68,7 +85,14 @@ interface TaskWithRelations {
   mission: {
     title: string;
     objective: string;
-    client: { name: string };
+    client: {
+      id: string;
+      name: string;
+      segment?: string | null;
+      website?: string | null;
+      instagram?: string | null;
+      description?: string | null;
+    };
   };
 }
 
@@ -77,12 +101,12 @@ const BASE_AGENT_TOOLS: AITool[] = [
   {
     name: "request_approval",
     description:
-      "Solicita aprovação humana antes de executar uma ação crítica (publicar post, enviar mensagem, criar campanha paga, etc.). Use SEMPRE antes de qualquer ação que afete o mundo externo.",
+      "Solicita aprovação humana para uma ação crítica (publicar post, enviar mensagem, criar campanha paga, gastar verba, etc.). A ação NÃO é executada por você: registre no payload tudo que o sistema precisa para executá-la depois que o dono aprovar, e siga com o restante da tarefa.",
     parameters: {
       properties: {
         type: {
           type: "string",
-          enum: ["PUBLISH_CAMPAIGN", "SPEND_BUDGET", "SEND_EXTERNAL_MESSAGE", "EXTERNAL_ACTION", "SEND_PROPOSAL", "OTHER"],
+          enum: ["PUBLISH_CAMPAIGN", "SPEND_BUDGET", "SEND_EXTERNAL_MESSAGE", "EXTERNAL_ACTION", "IMPLEMENT_IN_PRODUCTION", "SEND_PROPOSAL", "CREATE_AGENT", "OTHER"],
           description: "Tipo de aprovação necessária",
         },
         title: { type: "string", description: "Título curto da ação que precisa de aprovação" },
@@ -98,7 +122,7 @@ const BASE_AGENT_TOOLS: AITool[] = [
   {
     name: "send_whatsapp",
     description:
-      "Envia mensagem WhatsApp para o cliente via Evolution API. SEMPRE use request_approval antes.",
+      "Envia mensagem WhatsApp via Evolution API. Só funciona com o approvalId de uma aprovação JÁ CONCEDIDA; sem isso, use request_approval (type SEND_EXTERNAL_MESSAGE, payload { phone, message }) e o sistema envia após a aprovação.",
     parameters: {
       properties: {
         phone: { type: "string", description: "Número com DDI, ex: 5571920001249" },
@@ -249,11 +273,12 @@ function emitAgentEvent(
   }
 }
 
-export async function executeTask(taskId: string, db: ExecutorDB): Promise<void> {
+export async function executeTask(taskId: string, db: ExecutorDB, opts: ExecuteTaskOptions = {}): Promise<void> {
   await db.task.update({
     where: { id: taskId },
     data: { status: "IN_PROGRESS", startedAt: new Date() },
   });
+  const permissionMode: PermissionMode = opts.permissionMode ?? "ask";
 
   try {
     const task = await db.task.findUniqueOrThrow({
@@ -299,10 +324,35 @@ export async function executeTask(taskId: string, db: ExecutorDB): Promise<void>
       }
     }
 
-    const userPrompt = buildUserPrompt(task, prevDocs);
+    // Memória do cliente: aprendizados de missões anteriores do MESMO cliente
+    let clientMemories: Array<{ key: string; content: string }> = [];
+    if (db.memory) {
+      try {
+        clientMemories = await db.memory.findMany({
+          where: { scope: "CLIENT", clientId: task.mission.client.id },
+          select: { key: true, content: true },
+          orderBy: { updatedAt: "desc" },
+          take: 8,
+        });
+      } catch {
+        // non-critical
+      }
+    }
 
-    await initializeProviders();
-    const provider = registry.getDefault();
+    const userPrompt = buildUserPrompt(task, prevDocs, clientMemories);
+
+    const provider = opts.provider ?? registry.getDefault();
+
+    await db.activityLog.create({
+      data: {
+        agentId: task.agentId!,
+        missionId: task.missionId,
+        taskId: task.id,
+        action: "TASK_STARTED",
+        details: { title: task.title, provider: provider.name },
+        level: "INFO",
+      },
+    });
 
     const messages = task.agent.systemPrompt
       ? [
@@ -314,13 +364,51 @@ export async function executeTask(taskId: string, db: ExecutorDB): Promise<void>
     const tools = getToolsForAgent(task.agent);
     const savedDocuments: Array<{ title: string; type: string }> = [];
     const clarifications: string[] = [];
+    const pendingApprovals: string[] = [];
+
+    // Aprovação durável: o agente não fica esperando; o sistema executa após a decisão.
+    const createApproval = async (
+      type: string,
+      title: string,
+      description: string,
+      payload: Record<string, unknown>
+    ): Promise<string | null> => {
+      if (!db.approval) return null;
+      const approval = await db.approval.create({
+        data: {
+          missionId: task.missionId,
+          requestedBy: task.agentId ?? "unknown",
+          type,
+          title,
+          description,
+          payload: { ...payload, taskId: task.id, agentId: task.agentId, clientId: task.mission.client.id },
+          status: "PENDING",
+        },
+      });
+      pendingApprovals.push(approval.id);
+      await db.activityLog.create({
+        data: {
+          agentId: task.agentId!,
+          missionId: task.missionId,
+          taskId: task.id,
+          action: "APPROVAL_REQUESTED",
+          details: { approvalId: approval.id, type, title },
+          level: "WARN",
+        },
+      });
+      if (db.mission) {
+        await db.mission.update({ where: { id: task.missionId }, data: { status: "WAITING_APPROVAL" } });
+      }
+      return approval.id;
+    };
 
     // Agentic loop via completeWithLoop
     const result = await provider.completeWithLoop(
       {
-        model: task.agent.model ?? undefined,
+        model: opts.model,
         messages,
         maxTokens: 4096,
+        maxIterations: 15,
         tools,
       },
       async (toolName, args) => {
@@ -373,34 +461,9 @@ export async function executeTask(taskId: string, db: ExecutorDB): Promise<void>
             type: string; title: string; description: string; payload: Record<string, unknown>;
           };
 
-          if (db.approval) {
-            const approval = await db.approval.create({
-              data: {
-                missionId: task.missionId,
-                requestedBy: task.agentId ?? "unknown",
-                type,
-                title,
-                description: approvalDesc,
-                payload,
-                status: "PENDING",
-              },
-            });
-            // Poll for decision (up to 5 minutes)
-            const startWait = Date.now();
-            while (Date.now() - startWait < 300_000) {
-              await new Promise((r) => setTimeout(r, 5000));
-              const updated = await db.approval.findUnique({
-                where: { id: approval.id },
-                select: { status: true },
-              });
-              if (updated?.status === "APPROVED") {
-                return `Aprovação concedida para: "${title}". ID: ${approval.id}. Pode prosseguir.`;
-              }
-              if (updated?.status === "REJECTED") {
-                return `Aprovação NEGADA para: "${title}". Não execute esta ação. Registre como pendente.`;
-              }
-            }
-            return `Aprovação criada (ID: ${approval.id}) mas não decidida em 5 minutos. Salve como pendente e continue com outras tarefas.`;
+          const approvalId = await createApproval(type, title, approvalDesc, payload ?? {});
+          if (approvalId) {
+            return `Aprovação solicitada (ID: ${approvalId}) e enviada ao dono. A ação "${title}" NÃO foi executada e será executada pelo sistema assim que for aprovada. Não espere: conclua o restante da tarefa e registre no entregável que esta ação aguarda aprovação.`;
           }
 
           return `Aprovação registrada para "${title}". Aguardando decisão humana.`;
@@ -409,14 +472,12 @@ export async function executeTask(taskId: string, db: ExecutorDB): Promise<void>
         if (toolName === "send_whatsapp") {
           const { phone, message, approvalId } = args as { phone: string; message: string; approvalId?: string };
 
-          if (approvalId && db.approval) {
-            const approval = await db.approval.findUnique({
-              where: { id: approvalId },
-              select: { status: true },
-            });
-            if (approval?.status !== "APPROVED") {
-              return `WhatsApp NÃO enviado. Aprovação "${approvalId}" ainda não foi concedida (status: ${approval?.status ?? "não encontrada"}). Use request_approval primeiro.`;
-            }
+          // Mensagem externa sempre exige aprovação humana concedida.
+          const waApproval = approvalId && db.approval
+            ? await db.approval.findUnique({ where: { id: approvalId }, select: { status: true } })
+            : null;
+          if (waApproval?.status !== "APPROVED") {
+            return `WhatsApp NÃO enviado: é obrigatória uma aprovação concedida (status atual: ${waApproval?.status ?? "sem aprovação"}). Use request_approval com type SEND_EXTERNAL_MESSAGE e payload { phone, message }; o sistema envia após a aprovação.`;
           }
 
           // Try to send via Evolution API if integration is configured
@@ -467,6 +528,16 @@ export async function executeTask(taskId: string, db: ExecutorDB): Promise<void>
 
           if (!db.runtime) {
             return "Runtime local indisponível. App LOTUS desktop não está rodando ou não iniciou o runtime.";
+          }
+
+          if (permissionMode === "ask" && (action === "click" || action === "type")) {
+            const id = await createApproval(
+              "EXTERNAL_ACTION",
+              `Ação no navegador: ${action} ${selector ?? ""}`.trim(),
+              `O agente ${task.agent!.name} quer executar "${action}" no navegador local${selector ? ` em ${selector}` : ""}${text ? ` com o texto "${text.slice(0, 200)}"` : ""}.`,
+              { action: "run_browser", args: { action, url, selector, text } }
+            );
+            return `Ação de navegador NÃO executada: aguardando aprovação do dono (ID: ${id ?? "n/d"}). Conclua o restante da tarefa.`;
           }
 
           try {
@@ -520,6 +591,16 @@ export async function executeTask(taskId: string, db: ExecutorDB): Promise<void>
 
           if (!db.runtime) {
             return "Runtime local indisponível. App LOTUS desktop não está rodando.";
+          }
+
+          if (permissionMode === "ask") {
+            const id = await createApproval(
+              "EXTERNAL_ACTION",
+              `Executar ${type === "python" ? "script Python" : "comando"} no computador`,
+              `O agente ${task.agent!.name} quer executar no computador local:\n\n${code.slice(0, 1500)}`,
+              { action: "exec_local", args: { type, code } }
+            );
+            return `Execução local NÃO realizada: aguardando aprovação do dono (ID: ${id ?? "n/d"}). Conclua o restante da tarefa.`;
           }
 
           try {
@@ -607,10 +688,29 @@ export async function executeTask(taskId: string, db: ExecutorDB): Promise<void>
           usage: result.usage,
           documents: savedDocuments,
           clarifications,
+          pendingApprovals,
         },
         completedAt: new Date(),
       },
     });
+
+    // Memória do cliente: resumo do que foi entregue, para as próximas missões
+    if (db.memory && result.content) {
+      try {
+        await db.memory.create({
+          data: {
+            scope: "CLIENT",
+            clientId: task.mission.client.id,
+            agentId: task.agentId,
+            key: `task:${task.id}`,
+            content: `[${task.agent.name}] ${task.title} — ${result.content.replace(/\s+/g, " ").slice(0, 700)}`,
+            metadata: { missionId: task.missionId, documents: savedDocuments },
+          },
+        });
+      } catch {
+        // non-critical
+      }
+    }
 
     await db.agent.update({
       where: { id: task.agentId! },
@@ -648,7 +748,7 @@ export async function executeTask(taskId: string, db: ExecutorDB): Promise<void>
         const allDone = siblings.every(
           (t) => t.status === "COMPLETED" || t.status === "CANCELLED" || t.status === "SKIPPED"
         );
-        if (allDone) {
+        if (allDone && pendingApprovals.length === 0) {
           await db.mission.update({
             where: { id: task.missionId },
             data: { status: "COMPLETED", completedAt: new Date() },
@@ -657,22 +757,6 @@ export async function executeTask(taskId: string, db: ExecutorDB): Promise<void>
       } catch {
         // non-critical
       }
-    }
-
-    // Auto-retry sibling FAILED tasks (respects maxRetries=3)
-    try {
-      const failedSiblings = await db.task.findMany({
-        where: { missionId: task.missionId, status: "FAILED", NOT: { id: task.id } },
-        select: { id: true, status: true, retryCount: true },
-        take: 5,
-      });
-      for (const sibling of failedSiblings) {
-        if ((sibling.retryCount ?? 0) < 3) {
-          executeTask(sibling.id, db).catch(() => {});
-        }
-      }
-    } catch {
-      // non-critical
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -694,16 +778,27 @@ export async function executeTask(taskId: string, db: ExecutorDB): Promise<void>
         level: "ERROR",
       },
     });
+    throw error;
   }
 }
 
 function buildUserPrompt(
   task: TaskWithRelations,
-  prevDocs: Array<{ title: string; content: string; type: string }> = []
+  prevDocs: Array<{ title: string; content: string; type: string }> = [],
+  clientMemories: Array<{ key: string; content: string }> = []
 ): string {
+  const client = task.mission.client;
+  const clientProfile = [
+    `Cliente: ${client.name}`,
+    client.segment ? `Segmento: ${client.segment}` : "",
+    client.website ? `Site: ${client.website}` : "",
+    client.instagram ? `Instagram: @${client.instagram.replace(/^@/, "")}` : "",
+    client.description ? `Contexto: ${client.description}` : "",
+  ].filter(Boolean);
+
   const parts = [
     `# Missão: ${task.mission.title}`,
-    `Cliente: ${task.mission.client.name}`,
+    ...clientProfile,
     `Objetivo: ${task.mission.objective}`,
     ``,
     `## Sua Tarefa: ${task.title}`,
@@ -715,7 +810,14 @@ function buildUserPrompt(
     `## Instruções de Entrega`,
     `Use a ferramenta \`save_document\` para salvar o resultado final. Isso é OBRIGATÓRIO.`,
     `Se precisar de informações adicionais, use \`request_clarification\` e continue com suposições razoáveis.`,
+    `Nunca invente dados, números, depoimentos ou resultados: o que não foi verificado deve ser marcado como hipótese.`,
+    `Ações que afetam o mundo externo (publicar, enviar mensagem, gastar verba, implementar em produção) exigem \`request_approval\`.`,
   ];
+
+  if (clientMemories.length > 0) {
+    parts.push(``, `## Memória deste Cliente (trabalhos anteriores)`);
+    for (const mem of clientMemories) parts.push(`- ${mem.content}`);
+  }
 
   if (task.input) {
     parts.push(``, `## Contexto Adicional`, JSON.stringify(task.input, null, 2));

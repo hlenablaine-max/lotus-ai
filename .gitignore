@@ -49,3 +49,9 @@ coverage/
 
 .vercel
 .env*
+
+# O motor "build" é código-fonte, não saída de build
+!apps/web/src/app/api/engines/build/
+
+# Cache do TypeScript
+*.tsbuildinfo

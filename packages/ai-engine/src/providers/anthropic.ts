@@ -8,6 +8,10 @@ import type {
   ToolExecutor,
 } from "./types";
 
+// Modelos atuais rejeitam temperature e budget de thinking: o raciocínio é adaptativo.
+const DEFAULT_MODEL = "claude-opus-5-5";
+const DEFAULT_MAX_ITERATIONS = 10;
+
 export class AnthropicProvider implements AIProvider {
   name = "anthropic";
   private client: Anthropic;
@@ -24,8 +28,17 @@ export class AnthropicProvider implements AIProvider {
     return !!(this.config.apiKey || process.env.ANTHROPIC_API_KEY);
   }
 
+  getDefaultModel(): string {
+    return this.config.defaultModel || DEFAULT_MODEL;
+  }
+
+  async listModels(): Promise<string[]> {
+    const page = await this.client.models.list({ limit: 100 });
+    return page.data.map((m) => m.id);
+  }
+
   async complete(options: AICompletionOptions): Promise<AICompletionResult> {
-    const model = options.model || this.config.defaultModel || "claude-sonnet-4-5";
+    const model = options.model || this.config.defaultModel || DEFAULT_MODEL;
 
     const systemMessage = options.messages.find((m) => m.role === "system");
     const conversationMessages = options.messages.filter((m) => m.role !== "system");
@@ -42,7 +55,6 @@ export class AnthropicProvider implements AIProvider {
     const response = await this.client.messages.create({
       model,
       max_tokens: options.maxTokens || 8192,
-      temperature: options.temperature,
       system: systemMessage?.content,
       messages: conversationMessages.map((m) => ({
         role: m.role as "user" | "assistant",
@@ -83,7 +95,7 @@ export class AnthropicProvider implements AIProvider {
     options: AICompletionOptions,
     toolExecutor: ToolExecutor
   ): Promise<AICompletionResult> {
-    const model = options.model || this.config.defaultModel || "claude-sonnet-4-5";
+    const model = options.model || this.config.defaultModel || DEFAULT_MODEL;
     const systemContent = options.messages.find((m) => m.role === "system")?.content;
 
     type MsgContent = string | Anthropic.ContentBlockParam[];
@@ -102,16 +114,19 @@ export class AnthropicProvider implements AIProvider {
     let finalContent = "";
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
-    const MAX_LOOPS = 8;
+    const MAX_LOOPS = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
     for (let i = 0; i < MAX_LOOPS; i++) {
-      const response = await this.client.messages.create({
-        model,
-        max_tokens: options.maxTokens || 4096,
-        system: systemContent,
-        messages: messages as Parameters<typeof this.client.messages.create>[0]["messages"],
-        ...(tools && tools.length > 0 ? { tools } : {}),
-      });
+      const response = await this.client.messages.create(
+        {
+          model,
+          max_tokens: options.maxTokens || 4096,
+          system: systemContent,
+          messages: messages as Parameters<typeof this.client.messages.create>[0]["messages"],
+          ...(tools && tools.length > 0 ? { tools } : {}),
+        },
+        { signal: options.signal }
+      );
 
       totalInputTokens += response.usage.input_tokens;
       totalOutputTokens += response.usage.output_tokens;
@@ -154,7 +169,7 @@ export class AnthropicProvider implements AIProvider {
   }
 
   async *stream(options: AICompletionOptions): AsyncGenerator<AIStreamChunk> {
-    const model = options.model || this.config.defaultModel || "claude-sonnet-4-5";
+    const model = options.model || this.config.defaultModel || DEFAULT_MODEL;
 
     const systemMessage = options.messages.find((m) => m.role === "system");
     const conversationMessages = options.messages.filter((m) => m.role !== "system");
@@ -183,7 +198,7 @@ export class AnthropicProvider implements AIProvider {
     options: AICompletionOptions,
     toolExecutor: ToolExecutor
   ): AsyncGenerator<AIStreamChunk> {
-    const model = options.model || this.config.defaultModel || "claude-sonnet-4-5";
+    const model = options.model || this.config.defaultModel || DEFAULT_MODEL;
     const systemContent = options.messages.find((m) => m.role === "system")?.content;
 
     type MsgContent = string | Anthropic.ContentBlockParam[];
@@ -199,16 +214,19 @@ export class AnthropicProvider implements AIProvider {
       input_schema: { type: "object" as const, ...tool.parameters },
     }));
 
-    const MAX_LOOPS = 8;
+    const MAX_LOOPS = options.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
     for (let iteration = 0; iteration < MAX_LOOPS; iteration++) {
-      const sdkStream = this.client.messages.stream({
-        model,
-        max_tokens: options.maxTokens || 8192,
-        system: systemContent,
-        messages: messages as Parameters<typeof this.client.messages.stream>[0]["messages"],
-        ...(tools && tools.length > 0 ? { tools } : {}),
-      });
+      const sdkStream = this.client.messages.stream(
+        {
+          model,
+          max_tokens: options.maxTokens || 8192,
+          system: systemContent,
+          messages: messages as Parameters<typeof this.client.messages.stream>[0]["messages"],
+          ...(tools && tools.length > 0 ? { tools } : {}),
+        },
+        { signal: options.signal }
+      );
 
       let textAccumulated = "";
       const toolUseBlocks: Array<{ id: string; name: string; input: string }> = [];
@@ -236,21 +254,19 @@ export class AnthropicProvider implements AIProvider {
 
       const finalMsg = await sdkStream.finalMessage();
 
+      if ((finalMsg.stop_reason as string) === "refusal") {
+        yield { delta: "\n\n_(O modelo recusou esta solicitação por política de segurança.)_", done: false };
+        yield { delta: "", done: true };
+        return;
+      }
+
       if (finalMsg.stop_reason !== "tool_use" || toolUseBlocks.length === 0) {
         yield { delta: "", done: true };
         return;
       }
 
-      // Build the assistant message content blocks
-      const assistantBlocks: Anthropic.ContentBlockParam[] = [];
-      if (textAccumulated) {
-        assistantBlocks.push({ type: "text", text: textAccumulated });
-      }
-      for (const tb of toolUseBlocks) {
-        let parsedInput: Record<string, unknown> = {};
-        try { parsedInput = JSON.parse(tb.input || "{}"); } catch { /* ignore */ }
-        assistantBlocks.push({ type: "tool_use", id: tb.id, name: tb.name, input: parsedInput });
-      }
+      // Os blocos de raciocínio precisam voltar intactos junto com as tool calls.
+      const assistantBlocks = finalMsg.content as unknown as Anthropic.ContentBlockParam[];
 
       // Execute tool calls
       const toolResultBlocks: Anthropic.ToolResultBlockParam[] = [];
@@ -274,6 +290,10 @@ export class AnthropicProvider implements AIProvider {
       ];
     }
 
+    yield {
+      delta: `\n\n_(Limite de ${MAX_LOOPS} etapas atingido nesta resposta. Diga "continue" para eu seguir de onde parei.)_`,
+      done: false,
+    };
     yield { delta: "", done: true };
   }
 }
