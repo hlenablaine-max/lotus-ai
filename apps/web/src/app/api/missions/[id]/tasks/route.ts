@@ -1,19 +1,22 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { executeTask, type ExecutorDB } from "@lotus/ai-engine";
-import { createRuntimeClient } from "@/lib/runtime-client";
+import { recoverStaleTasks, runTask } from "@/lib/task-runner";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
+  await recoverStaleTasks().catch(() => {});
+
   const tasks = await prisma.task.findMany({
     where: { missionId: id },
     include: {
-      agent: { select: { id: true, name: true, slug: true, avatar: true } },
+      agent: { select: { id: true, name: true, slug: true, avatar: true, title: true } },
       documents: {
         select: { id: true, title: true, content: true, type: true },
         orderBy: { createdAt: "asc" },
@@ -45,6 +48,16 @@ export async function POST(
     return Response.json({ error: "Mission not found" }, { status: 404 });
   }
 
+  // Dependências só valem se forem tarefas desta mesma missão
+  let validDeps: string[] = [];
+  if (Array.isArray(dependsOn) && dependsOn.length > 0) {
+    const found = await prisma.task.findMany({
+      where: { id: { in: dependsOn.map(String) }, missionId: id },
+      select: { id: true },
+    });
+    validDeps = found.map((t) => t.id);
+  }
+
   const task = await prisma.task.create({
     data: {
       missionId: id,
@@ -52,8 +65,8 @@ export async function POST(
       title,
       description,
       instructions,
-      input: input || null,
-      dependsOn: dependsOn || [],
+      input: input || undefined,
+      dependsOn: validDeps,
       status: "QUEUED",
     },
     include: { agent: { select: { id: true, name: true, slug: true } } },
@@ -65,16 +78,12 @@ export async function POST(
       taskId: task.id,
       agentId: agentId || null,
       action: "TASK_CREATED",
-      details: { title, agentId },
+      details: { title, agentId, dependsOn: validDeps },
       level: "INFO",
     },
   });
 
-  // Fire-and-forget execution if agent is assigned
-  if (agentId) {
-    const db = { ...(prisma as unknown as ExecutorDB), runtime: createRuntimeClient() };
-    executeTask(task.id, db).catch(() => {});
-  }
+  if (agentId) runTask(task.id);
 
   return Response.json({ task }, { status: 201 });
 }

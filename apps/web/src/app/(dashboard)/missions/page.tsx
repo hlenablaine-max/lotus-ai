@@ -72,7 +72,23 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
   CANCELLED:        { label: 'Cancelada',   color: 'text-zinc-500',    bg: 'bg-zinc-500/10 border-zinc-500/20' },
 };
 
+const TASK_STATUS_LABEL: Record<string, { label: string; color: string }> = {
+  PENDING:            { label: 'Pendente',                 color: 'text-zinc-400' },
+  QUEUED:             { label: 'Na fila',                  color: 'text-zinc-400' },
+  WAITING_DEPENDENCY: { label: 'Aguardando outra tarefa',  color: 'text-blue-400' },
+  IN_PROGRESS:        { label: 'Em execução',              color: 'text-amber-400' },
+  COMPLETED:          { label: 'Concluída',                color: 'text-emerald-400' },
+  FAILED:             { label: 'Falhou',                   color: 'text-red-400' },
+  CANCELLED:          { label: 'Cancelada',                color: 'text-zinc-500' },
+  SKIPPED:            { label: 'Ignorada',                 color: 'text-zinc-500' },
+};
+
+const OPEN_TASK_STATUSES = ['IN_PROGRESS', 'QUEUED', 'WAITING_DEPENDENCY'];
+
 const TASK_STATUS_ICON: Record<string, React.ReactNode> = {
+  QUEUED:             <Clock className="w-4 h-4 text-zinc-400" />,
+  WAITING_DEPENDENCY: <Clock className="w-4 h-4 text-blue-400" />,
+  SKIPPED:            <XCircle className="w-4 h-4 text-zinc-500" />,
   PENDING:     <Clock className="w-4 h-4 text-zinc-400" />,
   IN_PROGRESS: <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />,
   COMPLETED:   <CheckCircle2 className="w-4 h-4 text-emerald-400" />,
@@ -151,14 +167,14 @@ export default function MissionsPage() {
     } catch {}
   }, []);
 
-  // Poll when any task is IN_PROGRESS
+  // Atualiza sozinho enquanto houver tarefa em execução, na fila ou aguardando dependência
   useEffect(() => {
     if (!selectedMission) {
       if (pollRef.current) clearInterval(pollRef.current);
       return;
     }
 
-    const hasRunning = tasks.some((t) => t.status === 'IN_PROGRESS');
+    const hasRunning = tasks.some((t) => OPEN_TASK_STATUSES.includes(t.status));
     if (hasRunning) {
       pollRef.current = setInterval(() => fetchTasks(selectedMission.id), 4000);
     } else {
@@ -182,6 +198,18 @@ export default function MissionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Link direto (/missions?open=<id>) abre o painel da missão
+  const openedFromUrl = useRef(false);
+  useEffect(() => {
+    if (openedFromUrl.current || missions.length === 0) return;
+    const openId = new URLSearchParams(window.location.search).get('open');
+    if (!openId) return;
+    openedFromUrl.current = true;
+    const target = missions.find((m) => m.id === openId);
+    if (target) openMission(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [missions]);
+
   const openMission = async (mission: Mission) => {
     setSelectedMission(mission);
     setTasksLoading(true);
@@ -199,10 +227,9 @@ export default function MissionsPage() {
   const retryFailed = async () => {
     setRetrying(true);
     try {
-      await fetch('/api/retry-failed-tasks', { method: 'POST' });
-      if (selectedMission) {
-        setTimeout(() => fetchTasks(selectedMission.id), 1000);
-      }
+      if (!selectedMission) return;
+      await fetch(`/api/retry-failed-tasks?missionId=${selectedMission.id}`, { method: 'POST' });
+      setTimeout(() => fetchTasks(selectedMission.id), 1000);
     } catch {} finally {
       setRetrying(false);
     }
@@ -281,7 +308,9 @@ export default function MissionsPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-foreground">Missões</h1>
-            <p className="text-muted-foreground mt-1">{missions.length} missão{missions.length !== 1 ? 'ões' : ''} ativas</p>
+            <p className="text-muted-foreground mt-1">
+              {missions.length} {missions.length === 1 ? 'missão' : 'missões'} · {missions.filter((m) => ['IN_PROGRESS', 'PLANNING', 'WAITING_APPROVAL', 'IN_REVIEW'].includes(m.status)).length} em andamento
+            </p>
           </div>
           <button
             onClick={() => setShowCreate(true)}
@@ -610,7 +639,7 @@ export default function MissionsPage() {
 
 function TaskCard({ task, onRun, isRunning }: { task: Task; onRun: (t: Task) => void; isRunning: boolean }) {
   const [expanded, setExpanded] = useState(task.status === 'COMPLETED');
-  const statusCfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG['PENDING'];
+  const statusCfg = TASK_STATUS_LABEL[task.status] ?? TASK_STATUS_LABEL['PENDING'];
   const icon = TASK_STATUS_ICON[task.status] ?? <Clock className="w-4 h-4 text-zinc-400" />;
   const dbDocs = task.documents ?? [];
   const hasOutput = (task.output && (task.output.text || (task.output.documents && task.output.documents.length > 0))) || dbDocs.length > 0;

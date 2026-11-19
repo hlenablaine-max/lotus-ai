@@ -65,6 +65,18 @@ export default function AdvisorPage() {
     return () => clearInterval(timer);
   }, []);
 
+  // Vindo do sino de notificações: abre o alerta indicado na URL
+  const openedFromUrl = useRef(false);
+  useEffect(() => {
+    if (openedFromUrl.current || notifications.length === 0) return;
+    const id = new URLSearchParams(window.location.search).get("notificationId");
+    if (!id) return;
+    openedFromUrl.current = true;
+    const target = notifications.find((n) => n.id === id);
+    if (target) openNotification(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notifications]);
+
   // Auto-scroll messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -107,11 +119,14 @@ export default function AdvisorPage() {
       setMessages((prev) => [...prev, assistantMsg]);
 
       const decoder = new TextDecoder();
+      let buffer = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n").filter((l) => l.startsWith("data: "));
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n");
+        buffer = parts.pop() ?? "";
+        const lines = parts.filter((l) => l.startsWith("data: "));
         for (const line of lines) {
           try {
             const raw = line.slice(6);
@@ -217,7 +232,7 @@ export default function AdvisorPage() {
             <div>
               <h2 className="text-sm font-bold text-white">Aurora — Advisor</h2>
               <p className="text-xs text-white/35">
-                {selected ? `Contexto: ${selected.title}` : "Estrategista da LOTUS"}
+                {selected ? `Contexto: ${selected.title}` : "LOTUS AI CEO — estratégia, pipeline e precificação"}
               </p>
             </div>
           </div>
@@ -239,7 +254,7 @@ export default function AdvisorPage() {
                 <Brain className="w-6 h-6 text-purple-400/50" />
               </div>
               <p className="text-white/30 text-sm">Clique em um alerta para abrir o contexto</p>
-              <p className="text-white/15 text-xs">ou faça uma pergunta diretamente</p>
+              <p className="text-white/15 text-xs">ou pergunte: &quot;qual cliente tem mais risco de churn?&quot;, &quot;faça o assessment de preço do cliente X&quot;</p>
             </div>
           )}
           {messages.map((m) => (

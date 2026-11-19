@@ -4,7 +4,7 @@ import { useState, useEffect, use } from "react";
 import {
   ArrowLeft, Building2, Globe, Instagram, Target, MessageSquare,
   TrendingUp, Calendar, Users, ChevronRight, ExternalLink, Briefcase,
-  Loader2, AlertCircle, CheckCircle, Clock
+  Loader2, AlertCircle, CheckCircle, Clock, Link2, FileText
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -18,10 +18,18 @@ interface Client {
   instagram?: string;
   description?: string;
   status: string;
-  monthlyValue?: number;
-  assessmentScore?: number;
   createdAt: string;
-  _count: { missions: number };
+  _count: { missions: number; documents?: number };
+  assessments?: Array<{
+    id: string;
+    recommendedSetupPrice: number;
+    recommendedMonthlyPrice: number;
+    estimatedMonthlyROI: number;
+    paybackMonths: number;
+    pricingRationale: string;
+    createdAt: string;
+  }>;
+  memories?: Array<{ id: string; content: string; updatedAt: string }>;
 }
 
 interface Mission {
@@ -43,7 +51,11 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
 
 const MISSION_STATUS: Record<string, { label: string; color: string; icon: React.ElementType }> = {
   DRAFT:       { label: "Rascunho",  color: "text-muted-foreground", icon: Clock },
-  PLANNED:     { label: "Planejada", color: "text-blue-400",         icon: Clock },
+  PENDING:     { label: "Pendente",  color: "text-muted-foreground", icon: Clock },
+  PLANNING:    { label: "Planejando", color: "text-blue-400",        icon: Clock },
+  WAITING_APPROVAL: { label: "Aguardando aprovação", color: "text-amber-400", icon: AlertCircle },
+  IN_REVIEW:   { label: "Em revisão", color: "text-purple-400",      icon: Clock },
+  FAILED:      { label: "Falhou",    color: "text-red-400",          icon: AlertCircle },
   IN_PROGRESS: { label: "Em andamento", color: "text-amber-400",     icon: Loader2 },
   COMPLETED:   { label: "Concluída", color: "text-emerald-400",      icon: CheckCircle },
   CANCELLED:   { label: "Cancelada", color: "text-red-400",          icon: AlertCircle },
@@ -64,6 +76,15 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
   const [missions, setMissions] = useState<Mission[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"overview" | "missions" | "chat">("overview");
+  const [portalPath, setPortalPath] = useState<string | null>(null);
+  const [portalCopied, setPortalCopied] = useState(false);
+
+  const copyPortalLink = async () => {
+    if (!portalPath) return;
+    await navigator.clipboard.writeText(`${window.location.origin}${portalPath}`);
+    setPortalCopied(true);
+    setTimeout(() => setPortalCopied(false), 2500);
+  };
 
   useEffect(() => {
     Promise.all([
@@ -71,7 +92,8 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
       fetch(`/api/missions?clientId=${id}`).then((r) => r.json()),
     ])
       .then(([clientData, missionsData]) => {
-        setClient(clientData.client ?? clientData);
+        setClient(clientData.client ?? null);
+        setPortalPath(clientData.portalPath ?? null);
         setMissions(missionsData.missions ?? []);
       })
       .finally(() => setLoading(false));
@@ -144,7 +166,13 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                   <Instagram className="w-4 h-4" />
                 </a>
               )}
-              <Link href={`/ceo?clientId=${client.id}`}
+              {portalPath && (
+                <button onClick={copyPortalLink} title="Link assinado para o cliente acompanhar as entregas (sem login)"
+                  className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border border-border text-sm text-muted-foreground hover:text-foreground hover:border-primary/30 transition-all">
+                  <Link2 className="w-4 h-4" /> {portalCopied ? "Link copiado" : "Portal do cliente"}
+                </button>
+              )}
+              <Link href={`/ceo?clientId=${client.id}&clientName=${encodeURIComponent(client.name)}`}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary/15 border border-primary/20 text-primary text-sm font-medium hover:bg-primary/25 transition-all">
                 <MessageSquare className="w-4 h-4" /> CEO Chat
               </Link>
@@ -162,7 +190,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
           { label: "Missões totais",  value: client._count.missions, icon: Target,    color: "text-primary" },
           { label: "Em andamento",    value: activeMissions,         icon: TrendingUp, color: "text-amber-400" },
           { label: "Concluídas",      value: completedMissions,      icon: CheckCircle, color: "text-emerald-400" },
-          { label: "Valor mensal",    value: formatCurrency(client.monthlyValue), icon: TrendingUp, color: "text-primary" },
+          { label: "Entregáveis",     value: client._count.documents ?? 0, icon: FileText, color: "text-primary" },
         ].map((kpi) => (
           <div key={kpi.label} className="p-4 rounded-xl bg-card border border-border">
             <div className="flex items-center gap-2 mb-2">
@@ -228,6 +256,50 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                   );
                 })}
               </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === "overview" && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="p-5 rounded-xl bg-card border border-border">
+            <h3 className="text-sm font-semibold text-foreground mb-4">Precificação (Client Value Assessment)</h3>
+            {!client.assessments?.length ? (
+              <p className="text-sm text-muted-foreground py-4">
+                Nenhum assessment ainda. Peça ao Advisor: &quot;faça o assessment de preço de {client.name}&quot;.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-lg bg-muted/30 border border-border p-3">
+                    <div className="text-xs text-muted-foreground">Setup recomendado</div>
+                    <div className="text-lg font-bold text-foreground">{formatCurrency(client.assessments[0].recommendedSetupPrice)}</div>
+                  </div>
+                  <div className="rounded-lg bg-muted/30 border border-border p-3">
+                    <div className="text-xs text-muted-foreground">Mensalidade recomendada</div>
+                    <div className="text-lg font-bold text-foreground">{formatCurrency(client.assessments[0].recommendedMonthlyPrice)}</div>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">{client.assessments[0].pricingRationale}</p>
+                <p className="text-[11px] text-muted-foreground/70">Registrado em {formatDate(client.assessments[0].createdAt)}</p>
+              </div>
+            )}
+          </div>
+          <div className="p-5 rounded-xl bg-card border border-border">
+            <h3 className="text-sm font-semibold text-foreground mb-4">Memória do cliente</h3>
+            {!client.memories?.length ? (
+              <p className="text-sm text-muted-foreground py-4">
+                Vazia. Cada tarefa concluída para este cliente grava um resumo aqui, e os agentes leem isso nas próximas missões.
+              </p>
+            ) : (
+              <ul className="space-y-2 max-h-64 overflow-y-auto">
+                {client.memories.map((m) => (
+                  <li key={m.id} className="text-xs text-muted-foreground leading-relaxed border-b border-border/50 pb-2 last:border-0">
+                    {m.content}
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         </div>

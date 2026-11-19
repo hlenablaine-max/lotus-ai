@@ -2,27 +2,46 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const STATUSES = ["PENDING", "APPROVED", "REJECTED", "EXPIRED"] as const;
+type Status = (typeof STATUSES)[number];
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const status = searchParams.get("status") || "PENDING";
+  const statusParam = (searchParams.get("status") || "PENDING").toUpperCase();
   const missionId = searchParams.get("missionId");
 
-  const where: Record<string, unknown> = { status };
-  if (missionId) where.missionId = missionId;
+  if (statusParam !== "ALL" && !STATUSES.includes(statusParam as Status)) {
+    return Response.json({ error: `status inválido: ${statusParam}` }, { status: 400 });
+  }
 
   const approvals = await prisma.approval.findMany({
-    where,
+    where: {
+      ...(statusParam !== "ALL" ? { status: statusParam as Status } : {}),
+      ...(missionId ? { missionId } : {}),
+    },
     include: {
       mission: { select: { id: true, title: true, client: { select: { name: true } } } },
     },
     orderBy: { createdAt: "desc" },
-    take: 50,
+    take: 100,
   });
 
-  const count = await prisma.approval.count({ where: { status: "PENDING" } });
+  // Nome de quem pediu (agente) em vez do ID cru
+  const agentIds = [...new Set(approvals.map((a) => a.requestedBy))];
+  const agents = await prisma.agent.findMany({ where: { id: { in: agentIds } }, select: { id: true, name: true } });
+  const names = new Map(agents.map((a) => [a.id, a.name]));
 
-  return Response.json({ approvals, pendingCount: count });
+  const pendingCount = await prisma.approval.count({ where: { status: "PENDING" } });
+
+  return Response.json({
+    approvals: approvals.map((a) => ({
+      ...a,
+      requestedByName: names.get(a.requestedBy) ?? (a.requestedBy === "root-master" ? "Root Master (chat)" : a.requestedBy),
+    })),
+    pendingCount,
+  });
 }
 
 export async function POST(request: NextRequest) {

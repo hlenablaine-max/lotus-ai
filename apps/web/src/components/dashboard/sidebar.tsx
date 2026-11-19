@@ -57,13 +57,13 @@ const navItems: Array<{
     label: "Root Master",
     href: "/root-master",
     icon: Brain,
-    description: "Luna — CEO de Operações",
+    description: "Central de missões + chat",
   },
   {
     label: "CEO Chat",
     href: "/ceo",
     icon: MessageSquare,
-    description: "Chat rápido com Luna",
+    description: "Chat em tela cheia (CLI)",
   },
   {
     label: "Advisor",
@@ -87,7 +87,7 @@ const navItems: Array<{
     label: "Motores",
     href: "/motors",
     icon: Cpu,
-    description: "8 Engines operacionais",
+    description: "8 motores de análise",
   },
   {
     label: "Governança",
