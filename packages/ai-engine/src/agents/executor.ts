@@ -2,7 +2,7 @@
 // Uses dependency injection for the DB layer so ai-engine stays DB-agnostic.
 
 import { registry } from "../providers/registry";
-import type { AIProvider, AITool } from "../providers/types";
+import type { AIImage, AIProvider, AITool, ToolExecutor } from "../providers/types";
 import type { PermissionMode } from "../settings";
 
 export interface ExecuteTaskOptions {
@@ -10,6 +10,11 @@ export interface ExecuteTaskOptions {
   model?: string;
   // "ask": ações no computador local viram pedidos de aprovação; "auto": executam direto.
   permissionMode?: PermissionMode;
+  // Imagens anexadas à tarefa (o agente "enxerga" prints e quadros de vídeo)
+  images?: AIImage[];
+  // Ferramentas extras fornecidas pela aplicação (ex.: pesquisa na web)
+  extraTools?: AITool[];
+  extraToolExecutor?: ToolExecutor;
 }
 
 // Minimal interface for the DB operations executor needs
@@ -317,7 +322,7 @@ export async function executeTask(taskId: string, db: ExecutorDB, opts: ExecuteT
           where: { missionId: task.missionId, NOT: { taskId: task.id } },
           select: { title: true, content: true, type: true },
           orderBy: { createdAt: "asc" },
-          take: 5,
+          take: 14,
         });
       } catch {
         // non-critical — proceed without context
@@ -357,11 +362,12 @@ export async function executeTask(taskId: string, db: ExecutorDB, opts: ExecuteT
     const messages = task.agent.systemPrompt
       ? [
           { role: "system" as const, content: task.agent.systemPrompt },
-          { role: "user" as const, content: userPrompt },
+          { role: "user" as const, content: userPrompt, images: opts.images },
         ]
-      : [{ role: "user" as const, content: userPrompt }];
+      : [{ role: "user" as const, content: userPrompt, images: opts.images }];
 
-    const tools = getToolsForAgent(task.agent);
+    const extraToolNames = new Set((opts.extraTools ?? []).map((t) => t.name));
+    const tools = [...getToolsForAgent(task.agent), ...(opts.extraTools ?? [])];
     const savedDocuments: Array<{ title: string; type: string }> = [];
     const clarifications: string[] = [];
     const pendingApprovals: string[] = [];
@@ -412,6 +418,10 @@ export async function executeTask(taskId: string, db: ExecutorDB, opts: ExecuteT
         tools,
       },
       async (toolName, args) => {
+        if (opts.extraToolExecutor && extraToolNames.has(toolName)) {
+          return opts.extraToolExecutor(toolName, args);
+        }
+
         if (toolName === "save_document") {
           const { title, content, type } = args as { title: string; content: string; type: string };
           savedDocuments.push({ title, type });
@@ -820,7 +830,11 @@ function buildUserPrompt(
   }
 
   if (task.input) {
-    parts.push(``, `## Contexto Adicional`, JSON.stringify(task.input, null, 2));
+    // imagePaths são anexados como imagens à mensagem; não precisam aparecer no texto
+    const { imagePaths: _imagePaths, ...context } = task.input as Record<string, unknown>;
+    if (Object.keys(context).length > 0) {
+      parts.push(``, `## Contexto Adicional`, JSON.stringify(context, null, 2));
+    }
   }
 
   if (prevDocs.length > 0) {
@@ -829,7 +843,9 @@ function buildUserPrompt(
       `Os seguintes documentos já foram produzidos por outros agentes nesta missão. Use-os como contexto para o seu trabalho:`
     );
     for (const doc of prevDocs) {
-      parts.push(``, `### ${doc.title} (${doc.type})`, doc.content.slice(0, 2000));
+      // Dados brutos de coleta já chegam no contexto de cada tarefa; aqui entra só um trecho
+      const limit = doc.type === "RESEARCH_REPORT" ? 1200 : 3500;
+      parts.push(``, `### ${doc.title} (${doc.type})`, doc.content.slice(0, limit));
     }
   }
 

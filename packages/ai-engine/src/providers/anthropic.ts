@@ -3,10 +3,23 @@ import type {
   AIProvider,
   AICompletionOptions,
   AICompletionResult,
+  AIMessage,
   AIStreamChunk,
   ProviderConfig,
   ToolExecutor,
 } from "./types";
+
+// Mensagens com imagens viram blocos de conteúdo (imagens antes do texto)
+function toAnthropicContent(message: AIMessage): string | Anthropic.ContentBlockParam[] {
+  if (!message.images || message.images.length === 0) return message.content;
+  return [
+    ...message.images.map(
+      (img) =>
+        ({ type: "image", source: { type: "base64", media_type: img.mediaType, data: img.data } }) as Anthropic.ContentBlockParam
+    ),
+    { type: "text", text: message.content },
+  ];
+}
 
 // Modelos atuais rejeitam temperature e budget de thinking: o raciocínio é adaptativo.
 const DEFAULT_MODEL = "claude-opus-5-5";
@@ -58,7 +71,7 @@ export class AnthropicProvider implements AIProvider {
       system: systemMessage?.content,
       messages: conversationMessages.map((m) => ({
         role: m.role as "user" | "assistant",
-        content: m.content,
+        content: toAnthropicContent(m),
       })),
       ...(tools && tools.length > 0 ? { tools } : {}),
     });
@@ -103,7 +116,7 @@ export class AnthropicProvider implements AIProvider {
 
     let messages: MsgParam[] = options.messages
       .filter((m) => m.role !== "system")
-      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+      .map((m) => ({ role: m.role as "user" | "assistant", content: toAnthropicContent(m) }));
 
     const tools = options.tools?.map((tool) => ({
       name: tool.name,
@@ -180,7 +193,7 @@ export class AnthropicProvider implements AIProvider {
       system: systemMessage?.content,
       messages: conversationMessages.map((m) => ({
         role: m.role as "user" | "assistant",
-        content: m.content,
+        content: toAnthropicContent(m),
       })),
     });
 
@@ -206,7 +219,7 @@ export class AnthropicProvider implements AIProvider {
 
     let messages: MsgParam[] = options.messages
       .filter((m) => m.role !== "system")
-      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+      .map((m) => ({ role: m.role as "user" | "assistant", content: toAnthropicContent(m) }));
 
     const tools = options.tools?.map((tool) => ({
       name: tool.name,

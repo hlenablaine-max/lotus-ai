@@ -50,7 +50,68 @@ async function sendWhatsApp(phone: string, message: string): Promise<{ sent: boo
   }
 }
 
+// Teste de atendimento: envia a mensagem pelo WhatsApp Web do app e mede a resposta por até 10 minutos.
+async function runWhatsAppProbe(approval: Approval, payload: Payload): Promise<string> {
+  const runtime = createRuntimeClient();
+  if (!(await runtime.available())) return "Aprovado, mas o aplicativo desktop não está aberto: teste não realizado.";
+  const phone = String(payload.phone ?? "");
+  const sent = (await runtime.call("/runtime/research/whatsapp-send", { phone, message: String(payload.message ?? "") }, 120_000)) as {
+    sent: boolean;
+    sentAt: string | null;
+    reason?: string;
+  };
+  if (!sent.sent || !sent.sentAt) {
+    await saveResult(approval, payload, `Teste de atendimento no WhatsApp — não realizado`, `**Número:** ${phone}\n\nO teste não foi feito: ${sent.reason ?? "motivo desconhecido"}`);
+    return `Teste não realizado: ${sent.reason ?? "motivo desconhecido"}`;
+  }
+
+  const sentAt = new Date(sent.sentAt).getTime();
+  const checksAtMinutes = [1, 3, 6, 10];
+  const check = async (index: number, baseline: number) => {
+    const minutes = checksAtMinutes[index];
+    try {
+      const read = (await runtime.call("/runtime/research/whatsapp-read", { phone }, 120_000)) as { connected: boolean; incoming: Array<{ meta: string; text: string }> };
+      const replies = read.incoming.slice(baseline);
+      if (replies.length > 0 || index === checksAtMinutes.length - 1) {
+        const elapsed = Math.round((Date.now() - sentAt) / 60_000);
+        const content = [
+          `**Número testado:** ${phone}`,
+          `**Mensagem enviada às** ${new Date(sentAt).toLocaleTimeString("pt-BR")}: "${payload.message}"`,
+          ``,
+          replies.length > 0
+            ? `**Resposta recebida em até ${elapsed} minuto(s).**\n\n${replies.map((r) => `> ${r.text}`).join("\n")}\n\n${elapsed <= 1 ? "Resposta em menos de 1 minuto costuma indicar mensagem automática — confira o texto acima." : ""}`
+            : `**Nenhuma resposta em ${minutes} minutos.** Um lead vindo de anúncio que espera mais de 5 minutos tem chance muito menor de agendar — aqui está um gargalo de atendimento.`,
+          ``,
+          `_Teste único, feito em horário ${new Date(sentAt).getHours() >= 8 && new Date(sentAt).getHours() < 18 ? "comercial" : "fora do comercial"}. Repita em outro horário antes de concluir._`,
+        ].join("\n");
+        await saveResult(approval, payload, `Teste de atendimento no WhatsApp — ${replies.length > 0 ? "respondeu" : "sem resposta"}`, content);
+        await prisma.activityLog.create({
+          data: { missionId: approval.missionId, action: "WHATSAPP_PROBE_RESULT", details: { phone, replied: replies.length > 0, minutes: elapsed }, level: "INFO" },
+        });
+        return;
+      }
+    } catch (err) {
+      console.error("[whatsapp-probe]", err);
+    }
+    if (index < checksAtMinutes.length - 1) {
+      setTimeout(() => check(index + 1, baseline), (checksAtMinutes[index + 1] - minutes) * 60_000);
+    }
+  };
+  // Quantas mensagens recebidas já existiam nessa conversa antes do teste
+  let baseline = 0;
+  try {
+    const before = (await runtime.call("/runtime/research/whatsapp-read", { phone }, 120_000)) as { incoming: unknown[] };
+    baseline = before.incoming.length;
+  } catch {
+    baseline = 0;
+  }
+  setTimeout(() => check(0, baseline), checksAtMinutes[0] * 60_000);
+  return "Mensagem de teste enviada. O resultado (se respondeu e em quanto tempo) entra nos entregáveis da missão em até 10 minutos.";
+}
+
 async function executeApproved(approval: Approval, payload: Payload): Promise<string> {
+  if (payload.action === "whatsapp_probe") return runWhatsAppProbe(approval, payload);
+
   // Mensagem externa aprovada: o sistema envia (ou registra para envio manual).
   if (approval.type === "SEND_EXTERNAL_MESSAGE" && payload.phone && payload.message) {
     const result = await sendWhatsApp(String(payload.phone), String(payload.message));
@@ -111,6 +172,17 @@ async function executeApproved(approval: Approval, payload: Payload): Promise<st
   }
 
   return "Aprovação registrada.";
+}
+
+// Aprovação dada pelo dono no ato do pedido (ex.: marcou "testar WhatsApp" ao iniciar o diagnóstico).
+export async function decideApprovalBySystem(approvalId: string, note: string): Promise<void> {
+  const claimed = await prisma.approval.updateMany({
+    where: { id: approvalId, status: "PENDING" },
+    data: { status: "APPROVED", decisionNote: note, decidedAt: new Date() },
+  });
+  if (claimed.count === 0) return;
+  const approval = await prisma.approval.findUniqueOrThrow({ where: { id: approvalId } });
+  await handleApprovalDecision(approval);
 }
 
 export async function handleApprovalDecision(approval: Approval): Promise<string> {

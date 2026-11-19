@@ -5,15 +5,19 @@ import type {
   AIProvider,
   AICompletionOptions,
   AICompletionResult,
+  AIImage,
   AIStreamChunk,
   AITool,
   ProviderConfig,
   ToolExecutor,
 } from "./types";
 
+type OpenAIContent = string | null | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
+
 interface OpenAIChatMessage {
   role: "system" | "user" | "assistant" | "tool";
-  content: string | null;
+  content: OpenAIContent;
+  images?: AIImage[];
   tool_calls?: OpenAIToolCall[];
   tool_call_id?: string;
 }
@@ -48,6 +52,22 @@ export interface OpenAICompatibleConfig extends ProviderConfig {
 }
 
 const DEFAULT_MAX_ITERATIONS = 10;
+
+// Mensagens com imagens viram conteúdo em partes (texto + image_url em data URL)
+function toWire(message: OpenAIChatMessage): Omit<OpenAIChatMessage, "images"> {
+  const { images, ...rest } = message;
+  if (!images || images.length === 0 || typeof rest.content !== "string") return rest;
+  return {
+    ...rest,
+    content: [
+      { type: "text", text: rest.content },
+      ...images.map((img) => ({
+        type: "image_url" as const,
+        image_url: { url: `data:${img.mediaType};base64,${img.data}` },
+      })),
+    ],
+  };
+}
 
 function toOpenAITools(tools: AITool[]) {
   return tools.map((t) => ({
@@ -132,7 +152,7 @@ export class OpenAICompatibleProvider implements AIProvider {
   ): Promise<Response> {
     const body: Record<string, unknown> = {
       model: options.model || this.defaultModel,
-      messages,
+      messages: messages.map(toWire),
       stream,
     };
     body[this.tokenParam] = options.maxTokens || 4096;

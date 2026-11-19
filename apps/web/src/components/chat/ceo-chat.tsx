@@ -112,7 +112,7 @@ function renderInline(text: string, keyBase: string): React.ReactNode[] {
   });
 }
 
-function MarkdownContent({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
+export function MarkdownContent({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
   const lines = content.replace(/^\n+/, "").split("\n");
   const elements: React.ReactNode[] = [];
   let listBuffer: string[] = [];

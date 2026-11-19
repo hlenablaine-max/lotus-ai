@@ -1,9 +1,17 @@
 // LOTUS AI Engine — Provider Abstraction Layer
 // Supports Anthropic, OpenAI, Google, Groq — swap without rebuilding
 
+export interface AIImage {
+  mediaType: "image/jpeg" | "image/png" | "image/webp";
+  // conteúdo em base64, sem o prefixo data:
+  data: string;
+}
+
 export interface AIMessage {
   role: "system" | "user" | "assistant";
   content: string;
+  // Imagens anexadas à mensagem (prints de perfil, site, quadros de vídeo)
+  images?: AIImage[];
 }
 
 export interface AITool {

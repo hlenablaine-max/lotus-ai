@@ -120,6 +120,28 @@ export class RuntimeHttpServer {
         await rt.browserClose()
         return { ok: true }
 
+      case '/runtime/research/status':
+        return rt.research.status()
+      case '/runtime/research/connect':
+        return rt.research.connect(data.service === 'whatsapp' ? 'whatsapp' : 'instagram')
+      case '/runtime/research/close':
+        await rt.research.close()
+        return { ok: true }
+      case '/runtime/research/instagram':
+        return rt.research.instagramProfile(String(data.handle ?? ''), data.maxPosts)
+      case '/runtime/research/reel':
+        return rt.research.reelMedia(String(data.url ?? ''), String(data.name ?? 'negocio'))
+      case '/runtime/research/ads':
+        return rt.research.metaAds(String(data.query ?? ''))
+      case '/runtime/research/site':
+        return rt.research.site(String(data.url ?? ''), String(data.name ?? 'negocio'))
+      case '/runtime/research/maps':
+        return rt.research.googleMaps(String(data.query ?? ''))
+      case '/runtime/research/whatsapp-send':
+        return rt.research.whatsappSend(String(data.phone ?? ''), String(data.message ?? ''))
+      case '/runtime/research/whatsapp-read':
+        return rt.research.whatsappRead(String(data.phone ?? ''))
+
       default:
         throw new Error(`Endpoint desconhecido: ${url}`)
     }

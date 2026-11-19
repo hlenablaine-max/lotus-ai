@@ -8,6 +8,7 @@ import {
   Camera, Wand2, MessageSquare, Download, ExternalLink, Copy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Diagnosis360 } from "@/components/diagnosis/diagnosis-360";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -327,7 +328,14 @@ export default function DiagnosisPage() {
         {/* Header */}
         <div>
           <h1 className="text-3xl font-bold text-white">Diagnóstico de Empresa</h1>
-          <p className="text-white/40 mt-1">Cole o link do Instagram ou site para uma investigação completa com agentes reais</p>
+          <p className="text-white/40 mt-1">Do link do Instagram ao diagnóstico completo, com a equipe inteira trabalhando</p>
+        </div>
+
+        <Diagnosis360 />
+
+        <div className="pt-4 border-t border-white/8">
+          <h2 className="text-lg font-semibold text-white">Investigação rápida</h2>
+          <p className="text-white/40 text-sm mt-1">Checagem de 1 minuto de um site ou perfil, sem acionar a equipe e sem salvar no cliente</p>
         </div>
 
         {/* Input */}

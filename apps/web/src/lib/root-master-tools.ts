@@ -161,6 +161,27 @@ export const DB_TOOL_DEFS: AITool[] = [
     },
   },
   {
+    name: "start_diagnosis",
+    description:
+      "Inicia o DIAGNÓSTICO 360 de um lead a partir do Instagram: o app coleta perfil, posts, vídeos (com transcrição), link da bio/site, anúncios na Meta e Google Maps, e a equipe inteira analisa (conteúdo, copy, vídeos, tráfego, site, reputação, funil, operação, conformidade), fecha o diagnóstico consolidado e o roteiro da reunião. Use SEMPRE que o dono enviar o Instagram de um lead/prospect para diagnosticar. Cria o cliente e a missão sozinho — não use create_client/create_mission antes.",
+    parameters: {
+      properties: {
+        instagram: { type: "string", description: "Link ou @ do Instagram do lead" },
+        website: { type: "string", description: "Site do lead, se o dono informou (opcional)" },
+        city: { type: "string", description: "Cidade do negócio, se conhecida (melhora a busca no Google Maps)" },
+      },
+      required: ["instagram"],
+    },
+  },
+  {
+    name: "get_diagnosis",
+    description: "Consulta o andamento e o resultado de um Diagnóstico 360 (tarefas dos agentes, relatório final, aprovações pendentes).",
+    parameters: {
+      properties: { missionId: { type: "string", description: "ID da missão do diagnóstico" } },
+      required: ["missionId"],
+    },
+  },
+  {
     name: "get_solutions",
     description: "Consulta o Solution Intelligence Catalog: soluções que a LOTUS implementa (problema resolvido, escopo, horas, preço base de setup e mensalidade, prazo). Use SEMPRE ao planejar missões de transformação (BTO) ou montar propostas.",
     parameters: {
@@ -780,6 +801,31 @@ export function createDbToolExecutor(): ToolExecutor {
           } catch (err) {
             return JSON.stringify({ error: `Erro ao buscar no Google Maps: ${err instanceof Error ? err.message : String(err)}` });
           }
+        }
+
+        case "start_diagnosis": {
+          const { startDiagnosis } = await import("@/lib/diagnosis-360");
+          const { instagram, website, city } = args as { instagram: string; website?: string; city?: string };
+          const started = await startDiagnosis({ instagram, website, city });
+          return JSON.stringify({
+            success: true,
+            ...started,
+            message: `Diagnóstico 360 de @${started.handle} iniciado (missão ${started.missionId}). A coleta leva de 2 a 5 minutos e as análises dos agentes mais alguns minutos. Acompanhe em Diagnóstico ou Missões; use get_diagnosis para ver o resultado. Se houver WhatsApp do lead, o teste de atendimento aparece em Aprovações.`,
+          });
+        }
+
+        case "get_diagnosis": {
+          const { diagnosisProgress } = await import("@/lib/diagnosis-360");
+          const progress = await diagnosisProgress(String((args as { missionId: string }).missionId));
+          if (!progress) return JSON.stringify({ error: "Diagnóstico não encontrado" });
+          return JSON.stringify({
+            mission: progress.mission.title,
+            status: progress.mission.status,
+            done: progress.done,
+            tasks: progress.tasks.map((t) => `${t.status} — ${t.title} (${t.agent})${t.error ? ` — erro: ${t.error}` : ""}`),
+            pendingApprovals: progress.approvals.filter((a) => a.status === "PENDING").map((a) => a.title),
+            report: progress.report?.content.slice(0, 9000) ?? null,
+          });
         }
 
         case "get_solutions": {

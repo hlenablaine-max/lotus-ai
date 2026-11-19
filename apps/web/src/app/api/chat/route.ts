@@ -46,6 +46,8 @@ const DB_TOOL_LABELS: Record<string, string> = {
   get_client_details: "Detalhes do cliente",
   get_agents_available: "Ver agentes disponíveis",
   create_task: "Delegar tarefa",
+  start_diagnosis: "Iniciar Diagnóstico 360",
+  get_diagnosis: "Consultar diagnóstico",
   get_solutions: "Consultar catálogo de soluções",
   get_mission_documents: "Ler entregáveis da missão",
   get_approvals: "Consultar aprovações",
@@ -54,7 +56,7 @@ const DB_TOOL_LABELS: Record<string, string> = {
 
 function argSummary(args: Record<string, unknown>): string {
   const parts: string[] = [];
-  for (const key of ["title", "name", "query", "url", "handle", "businessName", "clientName", "agentName", "search"]) {
+  for (const key of ["title", "name", "query", "url", "handle", "instagram", "businessName", "clientName", "agentName", "search"]) {
     if (typeof args[key] === "string" && args[key]) parts.push(String(args[key]));
   }
   return parts.join(" · ").slice(0, 200);

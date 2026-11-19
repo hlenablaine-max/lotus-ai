@@ -5,11 +5,13 @@ import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
 import { BrowserWindow } from 'electron'
 import type { Browser, Page } from 'playwright'
+import { ResearchBrowser } from './research'
+import { WORKSPACE_DIR } from './paths'
+
+export { WORKSPACE_DIR }
 
 const execAsync = promisify(exec)
 
-// Pasta de trabalho padrão dos agentes (arquivos gerados, scripts, backups)
-export const WORKSPACE_DIR = path.join(os.homedir(), 'LOTUS_Workspace')
 const BACKUP_DIR = path.join(WORKSPACE_DIR, '.backups')
 const BACKUP_INDEX = path.join(BACKUP_DIR, 'index.jsonl')
 
@@ -64,10 +66,13 @@ export class LocalRuntime {
   private page: Page | null = null
   private status: 'idle' | 'busy' | 'error' = 'idle'
   private repoDir: string
+  // Navegador de pesquisa (perfil persistente) usado nos diagnósticos
+  readonly research: ResearchBrowser
 
   constructor(mainWindow: BrowserWindow, repoDir: string) {
     this.mainWindow = mainWindow
     this.repoDir = repoDir
+    this.research = new ResearchBrowser((level, message) => this.log(level, message, 'pesquisa'))
     if (!fs.existsSync(WORKSPACE_DIR)) fs.mkdirSync(WORKSPACE_DIR, { recursive: true })
   }
 
@@ -487,5 +492,6 @@ export class LocalRuntime {
 
   async destroy() {
     await this.browserClose()
+    await this.research.close()
   }
 }

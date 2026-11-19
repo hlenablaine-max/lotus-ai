@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Settings } from "lucide-react";
 import { NotificationBell } from "@/components/dashboard/notification-bell";
@@ -29,6 +30,15 @@ export function TopBar() {
   const pathname = usePathname();
   const section = pathname.split("/").filter(Boolean)[0] ?? "";
   const title = TITLES[section] ?? "Painel";
+  const [userName, setUserName] = useState("");
+
+  // Nome de quem está logado neste computador (dono ou sócio)
+  useEffect(() => {
+    fetch("/api/auth/session")
+      .then((r) => r.json())
+      .then((session) => setUserName(session?.user?.name ?? ""))
+      .catch(() => {});
+  }, []);
 
   return (
     <header className="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-6 flex-shrink-0">
@@ -46,9 +56,9 @@ export function TopBar() {
           title="Configurações e conta"
         >
           <div className="w-6 h-6 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center">
-            <span className="text-[10px] font-bold text-primary">I</span>
+            <span className="text-[10px] font-bold text-primary">{(userName || "?").charAt(0).toUpperCase()}</span>
           </div>
-          <span className="text-sm font-medium">Ícaro</span>
+          <span className="text-sm font-medium">{userName || "Conta"}</span>
           <Settings className="w-3 h-3 text-muted-foreground" />
         </Link>
       </div>
