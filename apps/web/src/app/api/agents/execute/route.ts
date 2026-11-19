@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { executeTask } from "@lotus/ai-engine";
 import { prisma } from "@/lib/prisma";
 import { updateAgentStatus } from "@/lib/agent-service";
+import { createRuntimeClient } from "@/lib/runtime-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,7 +43,8 @@ export async function POST(request: NextRequest) {
 
     // Fire-and-forget — route returns 202 immediately
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    executeTask(taskId, prisma as any)
+    const db = { ...(prisma as any), runtime: createRuntimeClient() };
+    executeTask(taskId, db)
       .then(() => updateAgentStatus(agentId, "idle"))
       .catch((err) => {
         console.error(`[execute] Task ${taskId} failed:`, err);

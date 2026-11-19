@@ -1,5 +1,6 @@
 "use client";
-
+// sidebar v2
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -18,6 +19,8 @@ import {
   Stethoscope,
   Cpu,
   Shield,
+  Bell,
+  TrendingUp,
 } from "lucide-react";
 
 function LotusIcon({ size = 18, className = "" }: { size?: number; className?: string }) {
@@ -43,7 +46,13 @@ function LotusIcon({ size = 18, className = "" }: { size?: number; className?: s
   );
 }
 
-const navItems = [
+const navItems: Array<{
+  label: string;
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  description: string;
+  badgeKey?: string;
+}> = [
   {
     label: "Root Master",
     href: "/root-master",
@@ -87,6 +96,13 @@ const navItems = [
     description: "Auditoria A/B/C/D",
   },
   {
+    label: "Aprovações",
+    href: "/approvals",
+    icon: Bell,
+    description: "Decisões pendentes",
+    badgeKey: "approvals",
+  },
+  {
     label: "Missões",
     href: "/missions",
     icon: Target,
@@ -117,6 +133,12 @@ const navItems = [
     description: "Escritório virtual",
   },
   {
+    label: "Métricas",
+    href: "/metrics",
+    icon: TrendingUp,
+    description: "KPIs e desempenho",
+  },
+  {
     label: "Integrações",
     href: "/integrations",
     icon: Plug,
@@ -132,9 +154,27 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const [pendingApprovals, setPendingApprovals] = useState(0);
+
+  useEffect(() => {
+    const fetchBadge = async () => {
+      try {
+        const res = await fetch("/api/approvals?status=PENDING");
+        const data = await res.json();
+        setPendingApprovals(data.pendingCount ?? 0);
+      } catch {
+        // non-critical
+      }
+    };
+    fetchBadge();
+    const interval = setInterval(fetchBadge, 15_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const badges: Record<string, number> = { approvals: pendingApprovals };
 
   return (
-    <aside className="w-64 h-screen flex flex-col bg-card border-r border-border flex-shrink-0">
+    <aside className="w-64 flex flex-col bg-card border-r border-border flex-shrink-0 overflow-hidden" style={{ height: '100%', minHeight: 0 }}>
       {/* Logo */}
       <div className="p-6 border-b border-border">
         <div className="flex items-center gap-3">
@@ -149,9 +189,10 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-3 space-y-1">
+      <nav className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1">
         {navItems.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+          const badgeCount = item.badgeKey ? (badges[item.badgeKey] ?? 0) : 0;
           return (
             <Link
               key={item.href}
@@ -169,8 +210,15 @@ export function Sidebar() {
                   isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
                 )}
               />
-              <div className="min-w-0">
-                <div className="text-sm font-medium leading-none">{item.label}</div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium leading-none flex items-center gap-2">
+                  {item.label}
+                  {badgeCount > 0 && (
+                    <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-400/20 text-amber-400 border border-amber-400/30 leading-none">
+                      {badgeCount}
+                    </span>
+                  )}
+                </div>
                 <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
                   {item.description}
                 </div>

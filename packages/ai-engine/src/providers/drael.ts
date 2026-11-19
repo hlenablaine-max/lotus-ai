@@ -46,6 +46,25 @@ function toOpenAITools(tools: AITool[]) {
   }));
 }
 
+// Retry a fetch with exponential backoff on 429 turns_in_flight
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  maxRetries = 5
+): Promise<Response> {
+  let delay = 3000; // start at 3s
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const response = await fetch(url, init);
+    if (response.status !== 429) return response;
+    if (attempt === maxRetries) return response;
+    // Clone/drain the body before retrying to avoid "body used" errors
+    await response.text();
+    await new Promise((r) => setTimeout(r, delay));
+    delay = Math.min(delay * 2, 30000); // cap at 30s
+  }
+  return fetch(url, init); // unreachable but satisfies TS
+}
+
 export class DraelProvider implements AIProvider {
   name = "drael";
   private apiKey: string;
@@ -65,7 +84,7 @@ export class DraelProvider implements AIProvider {
   async complete(options: AICompletionOptions): Promise<AICompletionResult> {
     const model = options.model || this.defaultModel;
 
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+    const response = await fetchWithRetry(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -118,7 +137,7 @@ export class DraelProvider implements AIProvider {
       };
       if (tools) body.tools = tools;
 
-      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      const response = await fetchWithRetry(`${this.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${this.apiKey}` },
         body: JSON.stringify(body),
@@ -180,7 +199,7 @@ export class DraelProvider implements AIProvider {
       };
       if (tools) body.tools = tools;
 
-      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      const response = await fetchWithRetry(`${this.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${this.apiKey}` },
         body: JSON.stringify(body),
@@ -273,7 +292,7 @@ export class DraelProvider implements AIProvider {
   async *stream(options: AICompletionOptions): AsyncGenerator<AIStreamChunk> {
     const model = options.model || this.defaultModel;
 
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+    const response = await fetchWithRetry(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

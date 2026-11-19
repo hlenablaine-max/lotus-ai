@@ -1,7 +1,9 @@
 import { NextRequest } from "next/server";
-import { streamRootMaster } from "@lotus/ai-engine";
+import { streamRootMaster, executeTask } from "@lotus/ai-engine";
 import type { AITool, ToolExecutor } from "@lotus/ai-engine";
 import { prisma } from "@/lib/prisma";
+import { updateAgentStatus } from "@/lib/agent-service";
+import { createRuntimeClient } from "@/lib/runtime-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -377,11 +379,15 @@ function createDbToolExecutor(): ToolExecutor {
             name: string; segment?: string; website?: string; instagram?: string; description?: string;
           };
           if (!name?.trim()) return JSON.stringify({ error: "name é obrigatório" });
-          // Check if client already exists
-          const existing = await prisma.client.findFirst({
-            where: { name: { contains: name } },
-            select: { id: true, name: true },
-          });
+          // Dedup: check by exact name OR by shared keywords (catches "Bella Pele Estética" vs "Clínica Estética Bella Pele")
+          const allClients = await prisma.client.findMany({ select: { id: true, name: true } });
+          const nameLower = name.toLowerCase();
+          const keywords = nameLower.split(/\s+/).filter((w) => w.length >= 4);
+          const existing = allClients.find((c) => {
+            const cLower = c.name.toLowerCase();
+            return cLower === nameLower || cLower.includes(nameLower) || nameLower.includes(cLower)
+              || keywords.some((kw) => cLower.includes(kw));
+          }) ?? null;
           if (existing) {
             return JSON.stringify({
               success: true,
@@ -822,14 +828,22 @@ function createDbToolExecutor(): ToolExecutor {
               ? (await prisma.agent.findUnique({ where: { id: resolvedAgentId }, select: { name: true } }))?.name
               : undefined);
 
-          // Auto-execute
+          // Auto-execute — call executeTask directly (no HTTP round-trip, no auth needed)
           if (autoExecute) {
-            const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000";
-            fetch(`${baseUrl}/api/agents/execute`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ taskId: task.id }),
-            }).catch(() => {});
+            const agentForExec = resolvedAgentId
+              ? await prisma.agent.findUnique({ where: { id: resolvedAgentId }, select: { id: true, name: true } })
+              : null;
+            if (agentForExec) {
+              updateAgentStatus(agentForExec.id, "working", title).catch(() => {});
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const _db = { ...(prisma as any), runtime: createRuntimeClient() };
+              executeTask(task.id, _db)
+                .then(() => updateAgentStatus(agentForExec.id, "idle"))
+                .catch((err) => {
+                  console.error(`[create_task auto-execute] Task ${task.id} failed:`, err);
+                  updateAgentStatus(agentForExec.id, "idle").catch(() => {});
+                });
+            }
           }
 
           return JSON.stringify({
@@ -903,6 +917,20 @@ export async function POST(request: NextRequest) {
           }
 
           // Persist assistant response after stream completes
+          // If Root Master only called tools (no text), generate a summary from recent DB activity
+          if (!fullResponse) {
+            const since = new Date(Date.now() - 30000);
+            const [recentClients, recentMissions, recentTasks] = await Promise.all([
+              prisma.client.findMany({ where: { createdAt: { gte: since } }, select: { name: true }, orderBy: { createdAt: "desc" }, take: 3 }),
+              prisma.mission.findMany({ where: { createdAt: { gte: since } }, select: { title: true }, orderBy: { createdAt: "desc" }, take: 3 }),
+              prisma.task.findMany({ where: { createdAt: { gte: since } }, select: { title: true, agentId: true }, orderBy: { createdAt: "desc" }, take: 5 }),
+            ]);
+            const parts: string[] = [];
+            if (recentClients.length) parts.push(`Cliente criado: ${recentClients.map((c) => c.name).join(", ")}`);
+            if (recentMissions.length) parts.push(`Missão criada: ${recentMissions.map((m) => m.title).join(", ")}`);
+            if (recentTasks.length) parts.push(`${recentTasks.length} tarefa(s) criada(s) e iniciada(s): ${recentTasks.map((t) => t.title).join(" | ")}`);
+            if (parts.length) fullResponse = `Pronto! ${parts.join(". ")}. Os agentes já estão trabalhando.`;
+          }
           if (fullResponse) {
             await prisma.chatMessage.create({
               data: {

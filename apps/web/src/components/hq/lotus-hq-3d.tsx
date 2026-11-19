@@ -1344,7 +1344,7 @@ function CameraController({ viewMode, activeFloor }: { viewMode: ViewMode; activ
       // Vista dollhouse frontal: câmera elevada à frente do prédio, mostra todos os andares
       camera.position.set(2, NF * FH * 0.78, 42)
     } else if (viewMode === 'exterior') {
-      camera.position.set(32, 28, 32)
+      camera.position.set(24, 24, 24)
     }
   }, [viewMode, activeFloor, camera])
   return null
@@ -1358,7 +1358,7 @@ function Scene({ viewMode, activeFloor, ...rest }: BuildingProps) {
     ? [0, getFloorY(activeFloor) + 1.5, -2]   // Olhando para a parede de fundo
     : viewMode === 'dollhouse'
     ? [0, NF * FH * 0.4, 0]                    // Centro do prédio para dollhouse
-    : [0, NF * FH / 2.5, 0]                    // Vista exterior normal
+    : [0, NF * FH * 0.52, 0]                   // Vista exterior — centro visual do prédio (y≈14.7, preenche canvas verticalmente)
 
   return (
     <>
@@ -1375,8 +1375,13 @@ function Scene({ viewMode, activeFloor, ...rest }: BuildingProps) {
       <directionalLight position={[0, 2, 20]} intensity={0.8} color="#ffffff" />
       <directionalLight position={[0, 2, -20]} intensity={0.6} color="#ffffff" />
       <pointLight position={[0, NF * FH + 1, BD / 2 + 3]} color="#ec4899" intensity={3.5} distance={28} />
-      <color attach="background" args={['#070718']} />
-      <fog attach="fog" args={['#060614', 60, 160]} />
+      <color attach="background" args={['#060614']} />
+      <fog attach="fog" args={['#060614', 50, 120]} />
+      {/* Ground plane — preenche a área visível ao redor do prédio */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.15, 0]} receiveShadow>
+        <planeGeometry args={[400, 400]} />
+        <meshStandardMaterial color="#060614" roughness={1} metalness={0} />
+      </mesh>
       <CameraController viewMode={viewMode} activeFloor={activeFloor} />
       <Building viewMode={viewMode} activeFloor={activeFloor} {...rest} />
       <OrbitControls
@@ -1853,13 +1858,13 @@ export function LotusHQ3D() {
   }, [activeFloor])
 
   return (
-    <div className="relative w-full h-full bg-[#060614] overflow-hidden">
+    <div className="absolute inset-0 bg-[#060614]">
       <TopBar agents={agents} connected={connected} />
       <Canvas
         shadows
         dpr={[1, 1.5]}
         performance={{ min: 0.5 }}
-        camera={{ position: [32, 28, 32], fov: 52, near: 0.1, far: 500 }}
+        camera={{ position: [24, 24, 24], fov: 45, near: 0.1, far: 500 }}
         style={{ position: 'absolute', inset: 0 }}
         onPointerMissed={() => setSelected(null)}
       >
@@ -1873,6 +1878,8 @@ export function LotusHQ3D() {
           />
         </Suspense>
       </Canvas>
+      {/* Gradient to blend dark ground plane into background */}
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '28%', background: 'linear-gradient(to bottom, transparent, #060614 85%)', pointerEvents: 'none', zIndex: 1 }} />
       <div className="absolute inset-0 pointer-events-none">
         <FloorSelector active={activeFloor} onChange={setActiveFloor} />
         <ViewToggle mode={viewMode} onChange={handleViewChange} />

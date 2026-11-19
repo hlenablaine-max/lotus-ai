@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Target, Plus, X, Calendar, ChevronRight, AlertCircle, Search, Flag,
   Loader2, CheckCircle2, Clock, XCircle, FileText, Play, ChevronLeft,
-  User, Zap, ArrowRight,
+  User, Zap, ArrowRight, RotateCcw, Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +38,13 @@ interface TaskOutput {
   clarifications?: string[];
 }
 
+interface DbDocument {
+  id: string;
+  title: string;
+  content: string;
+  type: string;
+}
+
 interface Task {
   id: string;
   title: string;
@@ -47,6 +54,7 @@ interface Task {
   updatedAt: string;
   agent?: { id: string; name: string; title?: string };
   output?: TaskOutput;
+  documents?: DbDocument[];
 }
 
 // Cache de módulo — sobrevive entre navegações, limpo só no reload
@@ -112,6 +120,7 @@ export default function MissionsPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [runningTaskId, setRunningTaskId] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchData = async () => {
@@ -185,6 +194,37 @@ export default function MissionsPage() {
     setSelectedMission(null);
     setTasks([]);
     if (pollRef.current) clearInterval(pollRef.current);
+  };
+
+  const retryFailed = async () => {
+    setRetrying(true);
+    try {
+      await fetch('/api/retry-failed-tasks', { method: 'POST' });
+      if (selectedMission) {
+        setTimeout(() => fetchTasks(selectedMission.id), 1000);
+      }
+    } catch {} finally {
+      setRetrying(false);
+    }
+  };
+
+  const exportDocuments = async () => {
+    if (!selectedMission) return;
+    try {
+      const res = await fetch(`/api/missions/${selectedMission.id}/documents`);
+      const data = await res.json();
+      if (!data.documents?.length) return;
+      const text = data.documents.map((d: { title: string; type: string; content: string }) =>
+        `# ${d.title}\nTipo: ${d.type}\n\n${d.content}`
+      ).join('\n\n---\n\n');
+      const blob = new Blob([text], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${selectedMission.title.replace(/\s+/g, '_')}_entregaveis.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {}
   };
 
   const runTask = async (task: Task) => {
@@ -388,11 +428,39 @@ export default function MissionsPage() {
             <button onClick={closePanel} className="mt-0.5 text-muted-foreground hover:text-foreground transition-colors flex-shrink-0">
               <ChevronLeft className="w-5 h-5" />
             </button>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h2 className="font-semibold text-foreground truncate">{selectedMission.title}</h2>
               <p className="text-xs text-muted-foreground mt-0.5">{selectedMission.client.name}</p>
             </div>
+            <button
+              onClick={exportDocuments}
+              className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 mt-0.5"
+              title="Exportar entregáveis"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => fetchTasks(selectedMission.id)}
+              className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 mt-0.5"
+              title="Atualizar tasks"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
           </div>
+
+          {/* Retry button when there are FAILED tasks */}
+          {tasks.some((t) => t.status === 'FAILED') && (
+            <div className="px-5 pb-3">
+              <button
+                onClick={retryFailed}
+                disabled={retrying}
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-red-400/10 border border-red-400/20 text-red-400 text-xs font-medium hover:bg-red-400/20 disabled:opacity-50 transition-all"
+              >
+                {retrying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                {retrying ? 'Reexecutando...' : `Retry ${tasks.filter(t => t.status === 'FAILED').length} task(s) FAILED`}
+              </button>
+            </div>
+          )}
 
           {/* Tasks */}
           <div className="flex-1 overflow-y-auto p-5 space-y-4">
@@ -544,8 +612,9 @@ function TaskCard({ task, onRun, isRunning }: { task: Task; onRun: (t: Task) => 
   const [expanded, setExpanded] = useState(task.status === 'COMPLETED');
   const statusCfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG['PENDING'];
   const icon = TASK_STATUS_ICON[task.status] ?? <Clock className="w-4 h-4 text-zinc-400" />;
-  const hasOutput = task.output && (task.output.text || (task.output.documents && task.output.documents.length > 0));
-  const canRun = (task.status === 'PENDING' || task.status === 'FAILED') && task.agent;
+  const dbDocs = task.documents ?? [];
+  const hasOutput = (task.output && (task.output.text || (task.output.documents && task.output.documents.length > 0))) || dbDocs.length > 0;
+  const canRun = (task.status === 'PENDING' || task.status === 'FAILED' || task.status === 'QUEUED') && task.agent;
 
   return (
     <div className={cn(
@@ -604,7 +673,21 @@ function TaskCard({ task, onRun, isRunning }: { task: Task; onRun: (t: Task) => 
             </div>
           )}
 
-          {task.output?.documents && task.output.documents.length > 0 && (
+          {/* DB-persisted documents (full content) */}
+          {dbDocs.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-emerald-400 uppercase tracking-wide flex items-center gap-1.5">
+                <FileText className="w-3 h-3" />
+                Entregáveis salvos ({dbDocs.length})
+              </p>
+              {dbDocs.map((doc) => (
+                <DocumentCard key={doc.id} doc={doc} />
+              ))}
+            </div>
+          )}
+
+          {/* In-memory doc list (titles only, shown when no DB docs) */}
+          {dbDocs.length === 0 && task.output?.documents && task.output.documents.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
                 <FileText className="w-3 h-3" />

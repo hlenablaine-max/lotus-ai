@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { executeTask, type ExecutorDB } from "@lotus/ai-engine";
+import { createRuntimeClient } from "@/lib/runtime-client";
 
 export const runtime = "nodejs";
 
@@ -11,7 +12,13 @@ export async function GET(
   const { id } = await params;
   const tasks = await prisma.task.findMany({
     where: { missionId: id },
-    include: { agent: { select: { id: true, name: true, slug: true, avatar: true } } },
+    include: {
+      agent: { select: { id: true, name: true, slug: true, avatar: true } },
+      documents: {
+        select: { id: true, title: true, content: true, type: true },
+        orderBy: { createdAt: "asc" },
+      },
+    },
     orderBy: { createdAt: "asc" },
   });
 
@@ -65,7 +72,8 @@ export async function POST(
 
   // Fire-and-forget execution if agent is assigned
   if (agentId) {
-    executeTask(task.id, prisma as unknown as ExecutorDB).catch(() => {});
+    const db = { ...(prisma as unknown as ExecutorDB), runtime: createRuntimeClient() };
+    executeTask(task.id, db).catch(() => {});
   }
 
   return Response.json({ task }, { status: 201 });

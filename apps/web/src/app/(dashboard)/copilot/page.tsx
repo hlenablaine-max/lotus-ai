@@ -49,6 +49,7 @@ export default function CopilotPage() {
   const [error, setError] = useState("");
   const [supported, setSupported] = useState(true);
   const [showTeleprompter, setShowTeleprompter] = useState(true);
+  const [manualInput, setManualInput] = useState("");
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
@@ -240,16 +241,44 @@ export default function CopilotPage() {
           <div ref={transcriptEndRef} />
         </div>
 
-        {/* Status bar */}
+        {/* Manual input */}
         <div className="p-3 border-t border-white/8">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (manualInput.trim()) {
+                addManual(manualInput.trim(), "client");
+                setManualInput("");
+              }
+            }}
+            className="flex gap-2"
+          >
+            <input
+              value={manualInput}
+              onChange={(e) => setManualInput(e.target.value)}
+              placeholder="Digite o que o cliente disse..."
+              className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder:text-white/25 focus:outline-none focus:border-pink-500/40"
+            />
+            <button
+              type="submit"
+              disabled={!manualInput.trim()}
+              className="px-3 py-2 rounded-lg bg-pink-500/15 border border-pink-500/25 text-pink-400 text-xs font-semibold disabled:opacity-30 hover:bg-pink-500/25 transition-all"
+            >
+              Enviar
+            </button>
+          </form>
+        </div>
+
+        {/* Status bar */}
+        <div className="px-3 pb-3">
           {!supported ? (
             <div className="flex items-center gap-2 text-amber-400 text-xs">
               <AlertCircle size={12} />
-              Navegador não suporta reconhecimento de voz. Use Chrome.
+              Reconhecimento de voz indisponível — use o input manual acima.
             </div>
           ) : error ? (
             <div className="flex items-center gap-2 text-red-400 text-xs">
-              <AlertCircle size={12} /> {error}
+              <AlertCircle size={12} /> {error} — use o input manual acima.
             </div>
           ) : (
             <div className={cn("flex items-center gap-2 text-xs",

@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
 
 export const dynamic = 'force-dynamic'
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const DRAEL_API_KEY = process.env.DRAEL_API_KEY || ''
+const DRAEL_BASE_URL = process.env.DRAEL_BASE_URL || 'https://drael.sh/v1'
 
 const SYSTEM_PROMPT = `Você é o Sales Copilot da LOTUS AI — uma IA de vendas que ajuda o vendedor (Ícaro) em reuniões ao vivo.
 
@@ -34,15 +34,26 @@ export async function POST(req: NextRequest) {
       ? `Contexto da conversa até agora:\n${context}\n\nO cliente acabou de dizer:\n"${clientSaid}"`
       : `O cliente disse:\n"${clientSaid}"`
 
-    const message = await client.messages.create({
-      model: 'claude-haiku-4-5',
-      max_tokens: 300,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userContent }],
+    const res = await fetch(`${DRAEL_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${DRAEL_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'drael-v1',
+        max_tokens: 300,
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: userContent },
+        ],
+        stream: false,
+      }),
     })
 
-    const raw = (message.content[0] as { type: string; text: string }).text.trim()
-    // Strip markdown code blocks if present
+    if (!res.ok) throw new Error(`Drael API error: ${res.status}`)
+    const data = await res.json() as { choices: { message: { content: string } }[] }
+    const raw = data.choices[0]?.message?.content?.trim() ?? ''
     const clean = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
     const parsed = JSON.parse(clean)
 

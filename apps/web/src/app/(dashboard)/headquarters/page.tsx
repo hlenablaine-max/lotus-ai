@@ -10,10 +10,10 @@ export default function HeadquartersPage() {
   const [chatOpen, setChatOpen] = useState(true);
 
   return (
-    <div className="relative w-full h-full flex overflow-hidden">
+    <div className="absolute inset-0 flex overflow-hidden">
       {/* 3D HQ — main view */}
       <div className={cn(
-        "flex-1 min-w-0 relative transition-all duration-300",
+        "flex-1 min-w-0 h-full relative transition-all duration-300",
         chatOpen ? "" : "w-full"
       )}>
         <LotusHQ3D />
@@ -35,7 +35,7 @@ export default function HeadquartersPage() {
 
       {/* Chat sidebar */}
       <div className={cn(
-        "flex flex-col border-l border-white/10 bg-background/95 backdrop-blur-xl transition-all duration-300 overflow-hidden shrink-0",
+        "h-full flex flex-col border-l border-white/10 bg-background/95 backdrop-blur-xl transition-all duration-300 overflow-hidden shrink-0",
         chatOpen ? "w-[380px]" : "w-0"
       )}>
         {chatOpen && (

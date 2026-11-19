@@ -404,7 +404,9 @@ export function CeoChat({ mini = false }: { mini?: boolean }) {
       </div>
 
       {/* Messages */}
-      <div className={cn("flex-1 overflow-y-auto space-y-3", mini ? "p-3" : "p-5")}>
+      <div className={cn("flex-1 overflow-y-auto flex flex-col", mini ? "p-3" : "p-5")}>
+        <div className="flex-1" />
+        <div className="space-y-3">
         <AnimatePresence initial={false}>
           {messages.map((message) => (
             <motion.div
@@ -461,6 +463,7 @@ export function CeoChat({ mini = false }: { mini?: boolean }) {
           ))}
         </AnimatePresence>
         <div ref={messagesEndRef} />
+        </div>
       </div>
 
       {/* Input */}
