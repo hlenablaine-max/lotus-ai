@@ -1,52 +1,49 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
-  Building2, Zap, Clock, CheckCircle2, XCircle,
-  AlertCircle, RefreshCw, TrendingUp, Users
+  Building2, Zap, CheckCircle2, AlertCircle, RefreshCw, Users
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+type AgentStatus = 'idle' | 'working' | 'thinking' | 'waiting_approval' | 'offline';
 
 interface Agent {
   id: string;
   name: string;
   role: string;
   departmentId: string;
-  status: string;
+  specialty?: string;
+  status: AgentStatus;
   tasksCompleted: number;
   tasksPending: number;
-  currentMission?: string;
+  currentTask: string | null;
+  currentMission: string | null;
+  lastActivity: string[];
 }
 
 const DEPT_LABELS: Record<string, { label: string; color: string }> = {
-  'ceo':            { label: 'CEO',                  color: 'text-purple-400 bg-purple-400/10 border-purple-400/20' },
-  'root-master':    { label: 'Root Master',           color: 'text-purple-400 bg-purple-400/10 border-purple-400/20' },
-  'bi':             { label: 'Business Intelligence', color: 'text-blue-400 bg-blue-400/10 border-blue-400/20' },
-  'copywriting':    { label: 'Copywriting',           color: 'text-amber-400 bg-amber-400/10 border-amber-400/20' },
-  'creative':       { label: 'Creative Studio',       color: 'text-pink-400 bg-pink-400/10 border-pink-400/20' },
-  'performance':    { label: 'Performance Marketing', color: 'text-green-400 bg-green-400/10 border-green-400/20' },
-  'web-dev':        { label: 'Web Development',       color: 'text-cyan-400 bg-cyan-400/10 border-cyan-400/20' },
-  'data-analytics': { label: 'Data & Analytics',      color: 'text-indigo-400 bg-indigo-400/10 border-indigo-400/20' },
-  'sales':          { label: 'Sales & CS',            color: 'text-orange-400 bg-orange-400/10 border-orange-400/20' },
-  'strategy':       { label: 'Strategy',              color: 'text-teal-400 bg-teal-400/10 border-teal-400/20' },
+  'ceo':             { label: 'CEO Office',            color: 'text-purple-400 bg-purple-400/10 border-purple-400/20' },
+  'root-master':     { label: 'Root Master',           color: 'text-purple-400 bg-purple-400/10 border-purple-400/20' },
+  'mission-control': { label: 'Mission Control',       color: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20' },
+  'bi':              { label: 'Business Intelligence', color: 'text-blue-400 bg-blue-400/10 border-blue-400/20' },
+  'bto':             { label: 'Business Transformation', color: 'text-sky-400 bg-sky-400/10 border-sky-400/20' },
+  'copywriting':     { label: 'Copywriting',           color: 'text-amber-400 bg-amber-400/10 border-amber-400/20' },
+  'creative':        { label: 'Creative Studio',       color: 'text-pink-400 bg-pink-400/10 border-pink-400/20' },
+  'performance':     { label: 'Performance Marketing', color: 'text-green-400 bg-green-400/10 border-green-400/20' },
+  'web-dev':         { label: 'Web Development',       color: 'text-cyan-400 bg-cyan-400/10 border-cyan-400/20' },
+  'data-analytics':  { label: 'Data & Analytics',      color: 'text-indigo-400 bg-indigo-400/10 border-indigo-400/20' },
+  'sales':           { label: 'Sales & CS',            color: 'text-orange-400 bg-orange-400/10 border-orange-400/20' },
+  'strategy':        { label: 'Strategy',              color: 'text-teal-400 bg-teal-400/10 border-teal-400/20' },
 };
 
-const STATUS_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
-  idle:              { label: 'Disponível',      color: 'text-emerald-400', dot: 'bg-emerald-400' },
-  available:         { label: 'Disponível',      color: 'text-emerald-400', dot: 'bg-emerald-400' },
-  planning:          { label: 'Planejando',      color: 'text-amber-400',   dot: 'bg-amber-400 animate-pulse' },
-  researching:       { label: 'Pesquisando',     color: 'text-amber-400',   dot: 'bg-amber-400 animate-pulse' },
-  writing:           { label: 'Escrevendo',      color: 'text-amber-400',   dot: 'bg-amber-400 animate-pulse' },
-  designing:         { label: 'Criando',         color: 'text-amber-400',   dot: 'bg-amber-400 animate-pulse' },
-  coding:            { label: 'Programando',     color: 'text-amber-400',   dot: 'bg-amber-400 animate-pulse' },
-  executing:         { label: 'Executando',      color: 'text-amber-400',   dot: 'bg-amber-400 animate-pulse' },
-  reviewing:         { label: 'Revisando',       color: 'text-blue-400',    dot: 'bg-blue-400 animate-pulse' },
-  in_meeting:        { label: 'Em reunião',      color: 'text-blue-400',    dot: 'bg-blue-400' },
-  waiting_approval:  { label: 'Aguardando',      color: 'text-yellow-400',  dot: 'bg-yellow-400 animate-pulse' },
-  blocked:           { label: 'Bloqueado',       color: 'text-red-400',     dot: 'bg-red-400' },
-  error:             { label: 'Erro',            color: 'text-red-400',     dot: 'bg-red-400' },
-  completed:         { label: 'Concluído',       color: 'text-emerald-400', dot: 'bg-emerald-400' },
-  offline:           { label: 'Offline',         color: 'text-zinc-500',    dot: 'bg-zinc-500' },
+// Status derivado do estado real no banco (tarefas e aprovações) — ver lib/agent-live.ts
+const STATUS_CONFIG: Record<AgentStatus, { label: string; color: string; dot: string }> = {
+  idle:             { label: 'Disponível',           color: 'text-emerald-400', dot: 'bg-emerald-400' },
+  working:          { label: 'Executando tarefa',    color: 'text-amber-400',   dot: 'bg-amber-400 animate-pulse' },
+  thinking:         { label: 'Tarefa na fila',       color: 'text-blue-400',    dot: 'bg-blue-400 animate-pulse' },
+  waiting_approval: { label: 'Aguardando aprovação', color: 'text-yellow-400',  dot: 'bg-yellow-400 animate-pulse' },
+  offline:          { label: 'Offline',              color: 'text-zinc-500',    dot: 'bg-zinc-500' },
 };
 
 function agentInitials(name: string) {
@@ -75,29 +72,38 @@ function agentColor(id: string) {
 export default function WorkforcePage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [filterDept, setFilterDept] = useState<string>('all');
 
-  const fetchAgents = async () => {
-    setLoading(true);
+  const fetchAgents = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     try {
-      const res = await fetch('/api/agents/status');
+      const res = await fetch('/api/agents/status', { cache: 'no-store' });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
       setAgents(data.agents ?? []);
+      setError(null);
     } catch {
-      setAgents([]);
+      // Mantém o último estado real recebido; nunca substitui por dados fictícios
+      setError('Não foi possível consultar os agentes no banco. Tente atualizar.');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { fetchAgents(); }, []);
+  useEffect(() => {
+    fetchAgents();
+    const timer = setInterval(() => fetchAgents(true), 10_000);
+    return () => clearInterval(timer);
+  }, [fetchAgents]);
 
   const departments = Array.from(new Set(agents.map((a) => a.departmentId))).sort();
   const filtered = filterDept === 'all' ? agents : agents.filter((a) => a.departmentId === filterDept);
 
   const stats = {
     total: agents.length,
-    active: agents.filter((a) => !['idle', 'available', 'offline'].includes(a.status)).length,
+    active: agents.filter((a) => a.status === 'working').length,
+    waiting: agents.filter((a) => a.status === 'waiting_approval').length,
     tasksCompleted: agents.reduce((s, a) => s + (a.tasksCompleted || 0), 0),
   };
 
@@ -108,11 +114,12 @@ export default function WorkforcePage() {
         <div>
           <h1 className="text-3xl font-bold text-foreground">Workforce</h1>
           <p className="text-muted-foreground mt-1">
-            {stats.total} agentes · {stats.active} em operação
+            {stats.total} agentes · {stats.active} executando agora
+            {stats.waiting > 0 && ` · ${stats.waiting} aguardando aprovação`}
           </p>
         </div>
         <button
-          onClick={fetchAgents}
+          onClick={() => fetchAgents()}
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-muted/50 hover:bg-muted border border-border text-sm text-muted-foreground hover:text-foreground transition-all"
         >
           <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
@@ -120,11 +127,18 @@ export default function WorkforcePage() {
         </button>
       </div>
 
+      {error && (
+        <div className="rounded-lg border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-400 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          {error}
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-3 gap-4">
         {[
           { label: 'Total de Agentes', value: stats.total, icon: Users, color: 'text-primary' },
-          { label: 'Em Operação',      value: stats.active, icon: Zap, color: 'text-amber-400' },
+          { label: 'Executando Agora', value: stats.active, icon: Zap, color: 'text-amber-400' },
           { label: 'Tasks Concluídas', value: stats.tasksCompleted, icon: CheckCircle2, color: 'text-emerald-400' },
         ].map((stat) => (
           <div key={stat.label} className="rounded-xl border border-border bg-card p-5">
@@ -228,6 +242,16 @@ export default function WorkforcePage() {
                   <div className={cn("w-2 h-2 rounded-full flex-shrink-0", statusCfg.dot)} />
                   <span className={cn("text-xs font-medium", statusCfg.color)}>{statusCfg.label}</span>
                 </div>
+
+                {/* Tarefa atual (real) */}
+                {agent.currentTask && (
+                  <div className="mb-4 rounded-lg border border-border bg-muted/20 px-3 py-2">
+                    <p className="text-xs text-foreground line-clamp-2">{agent.currentTask}</p>
+                    {agent.currentMission && (
+                      <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{agent.currentMission}</p>
+                    )}
+                  </div>
+                )}
 
                 {/* Task progress */}
                 {total > 0 && (

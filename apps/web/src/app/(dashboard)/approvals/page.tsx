@@ -24,6 +24,9 @@ const TYPE_LABELS: Record<string, string> = {
   SEND_EXTERNAL_MESSAGE: "Enviar Mensagem",
   EXTERNAL_ACTION: "Ação Externa",
   SEND_PROPOSAL: "Enviar Proposta",
+  CREATE_AGENT: "Contratar Agente",
+  GRANT_PERMISSION: "Conceder Permissão",
+  IMPLEMENT_IN_PRODUCTION: "Implementar em Produção",
   OTHER: "Outro",
 };
 
@@ -33,6 +36,9 @@ const TYPE_COLORS: Record<string, string> = {
   SEND_EXTERNAL_MESSAGE: "text-blue-400 bg-blue-400/10 border-blue-400/20",
   EXTERNAL_ACTION: "text-orange-400 bg-orange-400/10 border-orange-400/20",
   SEND_PROPOSAL: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20",
+  CREATE_AGENT: "text-pink-400 bg-pink-400/10 border-pink-400/20",
+  GRANT_PERMISSION: "text-cyan-400 bg-cyan-400/10 border-cyan-400/20",
+  IMPLEMENT_IN_PRODUCTION: "text-red-400 bg-red-400/10 border-red-400/20",
   OTHER: "text-muted-foreground bg-muted/50 border-border",
 };
 
@@ -94,7 +100,7 @@ function ApprovalCard({ approval, onDecision }: {
                   ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/20"
                   : "text-red-400 bg-red-400/10 border-red-400/20"
               )}>
-                {approval.status === "APPROVED" ? "Aprovado" : "Rejeitado"}
+                {approval.status === "APPROVED" ? "Aprovado" : approval.status === "EXPIRED" ? "Expirado" : "Rejeitado"}
               </span>
             )}
           </div>
@@ -177,18 +183,20 @@ export default function ApprovalsPage() {
   const [pendingCount, setPendingCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"PENDING" | "ALL">("PENDING");
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchApprovals = useCallback(async () => {
     setLoading(true);
     try {
-      const status = filter === "ALL" ? undefined : "PENDING";
-      const url = status ? `/api/approvals?status=${status}` : `/api/approvals?status=ALL`;
-      const res = await fetch(filter === "ALL" ? "/api/approvals?status=APPROVED" : "/api/approvals?status=PENDING");
+      const res = await fetch(`/api/approvals?status=${filter}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setApprovals(data.approvals ?? []);
       setPendingCount(data.pendingCount ?? 0);
-    } catch {
+      setLoadError(null);
+    } catch (err) {
       setApprovals([]);
+      setLoadError(`Não foi possível carregar as aprovações (${err instanceof Error ? err.message : String(err)})`);
     } finally {
       setLoading(false);
     }
@@ -202,11 +210,16 @@ export default function ApprovalsPage() {
   }, [fetchApprovals]);
 
   async function handleDecision(id: string, action: "APPROVED" | "REJECTED", note?: string) {
-    await fetch(`/api/approvals/${id}`, {
+    const res = await fetch(`/api/approvals/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, decisionNote: note }),
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      setLoadError(`A decisão não foi registrada (${data?.error ?? `HTTP ${res.status}`})`);
+      return;
+    }
     await fetchApprovals();
   }
 
@@ -273,9 +286,13 @@ export default function ApprovalsPage() {
           <Bell className="w-5 h-5 text-amber-400 flex-shrink-0" />
           <p className="text-sm text-amber-200">
             <span className="font-semibold">{pendingCount} ação{pendingCount !== 1 ? "ões aguardam" : " aguarda"} sua aprovação.</span>{" "}
-            Os agentes estão pausados esperando sua decisão.
+            As ações só são executadas depois da sua decisão.
           </p>
         </div>
+      )}
+
+      {loadError && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">{loadError}</div>
       )}
 
       {/* List */}

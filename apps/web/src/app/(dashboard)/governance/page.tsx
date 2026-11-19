@@ -41,10 +41,10 @@ const AUDIT_DOMAINS: AuditDomain[] = [
     items: [
       { id: "hq-1", name: "Renderização 3D WebGL", description: "Three.js + React Three Fiber carregando escritório", tag: "VERIFIED", level: "A", evidence: "Renderiza em /headquarters com agentes animados", impact: "high" },
       { id: "hq-2", name: "Animações de agentes", description: "Walking, sitting, thinking, idle animations via useFrame", tag: "VERIFIED", level: "A", evidence: "Character3D usa lerp + leg/arm cycle confirmado", impact: "high" },
-      { id: "hq-3", name: "Simulation loop ao vivo", description: "setInterval 3s muda status dos agentes automaticamente", tag: "VERIFIED", level: "A", evidence: "22% chance/agente/tick, STATUS_TRANSITIONS ponderado", impact: "critical" },
-      { id: "hq-4", name: "Feed de atividade em tempo real", description: "Eventos aparecem no painel direito conforme simulação", tag: "VERIFIED", level: "A", evidence: "feedEvents state populado pela simulation loop", impact: "medium" },
+      { id: "hq-3", name: "Status dos avatares", description: "Mudança de estado dos agentes no escritório 3D", tag: "IMPLEMENTED", level: "B", evidence: "Status derivado das tarefas reais (em execução, na fila, aguardando aprovação) via /api/hq/agents a cada 5s. Conferido pela API em 19/11/2026; a cena 3D não foi inspecionada visualmente depois da mudança", impact: "critical" },
+      { id: "hq-4", name: "Feed de atividade", description: "Eventos exibidos no painel do HQ", tag: "IMPLEMENTED", level: "B", evidence: "Feed lê o ActivityLog real (tarefas iniciadas/concluídas, aprovações, motores)", impact: "medium" },
       { id: "hq-5", name: "Chat com CEO (Luna)", description: "Interface de chat com Root Master integrada", tag: "IMPLEMENTED", level: "B", evidence: "CeoChat component em /headquarters", impact: "high" },
-      { id: "hq-6", name: "DB polling de agentes reais", description: "useEffect busca agentes do banco a cada 15s, merge por departamento", tag: "IMPLEMENTED", level: "B", evidence: "API /api/hq/agents (Prisma) retorna statuses reais, merge confirmado no código", impact: "medium" },
+      { id: "hq-6", name: "DB polling de agentes reais", description: "Busca agentes do banco a cada 15s, merge por departamento", tag: "IMPLEMENTED", level: "B", evidence: "Todos os agentes do banco aparecem, cada um no seu departamento, incluindo a sala do BTO", impact: "medium" },
     ],
   },
   {
@@ -53,13 +53,14 @@ const AUDIT_DOMAINS: AuditDomain[] = [
     description: "Pipeline da análise à receita atribuída — todos com API real",
     items: [
       { id: "eng-1", name: "Engine 1: Intelligence", description: "Coleta e análise de mercado, concorrentes, oportunidades", tag: "IMPLEMENTED", level: "B", evidence: "/api/engines/intelligence → IA real, retorna market/competitors/trends/opportunities JSON", impact: "high" },
-      { id: "eng-2", name: "Engine 2: Investigation", description: "Auditoria digital 360° com SSE streaming", tag: "VERIFIED", level: "A", evidence: "SSE real + 8 probes (meta/instagram/gmb/website/ads/seo/whatsapp/competitors)", impact: "high" },
-      { id: "eng-3", name: "Engine 3: Diagnóstico", description: "Diagnóstico 8 dimensões com score e ROI", tag: "VERIFIED", level: "A", evidence: "/diagnosis funcional, IA integrada, 8 dimensões com score 0-100", impact: "critical" },
+      { id: "eng-2", name: "Engine 2: Investigation", description: "Auditoria digital com coleta real e SSE streaming", tag: "IMPLEMENTED", level: "B", evidence: "/api/investigation coleta site, Instagram, SimilarWeb e Meta Ads Library. WhatsApp é apenas detectado no site — automação não é testada", impact: "high" },
+      { id: "eng-3", name: "Engine 3: Diagnóstico", description: "Score de oportunidade, achados críticos e projeção de ROI", tag: "IMPLEMENTED", level: "B", evidence: "/api/engines/diagnosis → IA real; projeções são estimativas da IA, não dados medidos", impact: "critical" },
       { id: "eng-4", name: "Engine 4: Strategy", description: "Plano de crescimento 90 dias com OKRs e canais", tag: "IMPLEMENTED", level: "B", evidence: "/api/engines/strategy → plano completo: público, posicionamento, canais, OKRs, quick wins", impact: "critical" },
       { id: "eng-5", name: "Engine 5: Solution Architecture", description: "Stack de soluções recomendada por cliente", tag: "IMPLEMENTED", level: "B", evidence: "/api/engines/solution-arch → componentes, tech stack, fases, automações, ROI esperado", impact: "high" },
       { id: "eng-6", name: "Engine 6: Build", description: "Geração real: landing page HTML, copy, automação WhatsApp", tag: "IMPLEMENTED", level: "B", evidence: "/api/engines/build: 4 tipos (landing_page|copy|whatsapp_automation|content_calendar)", impact: "critical" },
       { id: "eng-7", name: "Engine 7: Implementation", description: "Plano de implementação passo-a-passo, guias de setup", tag: "IMPLEMENTED", level: "B", evidence: "/api/engines/implementation → setup guides (Meta/GA/WhatsApp), cronograma semana a semana", impact: "critical" },
       { id: "eng-8", name: "Engine 8: Revenue Intelligence", description: "Projeções de receita, ROI, oportunidades, precificação", tag: "IMPLEMENTED", level: "B", evidence: "/api/engines/revenue → 3 cenários de projeção, benchmarks de mercado, KPIs, oportunidades", impact: "critical" },
+      { id: "eng-9", name: "Fallback de demonstração", description: "Resposta de exemplo quando o provedor de IA está fora do ar", tag: "SIMULATED", level: "C", evidence: "Os 8 motores devolvem dados genéricos marcados _demo; a página /motors exibe o aviso \"Dados de demonstração\" e a execução fica registrada no ActivityLog", impact: "high" },
     ],
   },
   {
@@ -68,10 +69,11 @@ const AUDIT_DOMAINS: AuditDomain[] = [
     description: "Integração de modelos de IA na plataforma",
     items: [
       { id: "ai-1", name: "Drael v1 — API integrada", description: "Modelo principal para diagnóstico e chat", tag: "VERIFIED", level: "A", evidence: "drael-v1 via OpenAI-compatible endpoint, testado", impact: "critical" },
-      { id: "ai-2", name: "Claude Haiku — Sales Copilot", description: "Sugestões em tempo real para vendas", tag: "IMPLEMENTED", level: "B", evidence: "/copilot usa Anthropic SDK diretamente", impact: "high" },
-      { id: "ai-3", name: "Luna — Root Master operacional", description: "CEO de operações, usa missões reais do Prisma", tag: "IMPLEMENTED", level: "B", evidence: "Root Master lê /api/missions (Prisma), system prompt dinâmico com dados reais, polling 30s", impact: "critical" },
+      { id: "ai-2", name: "Sales Copilot", description: "Sugestões em tempo real para vendas", tag: "PARTIAL", level: "C", evidence: "/api/copilot usa o provedor de IA configurado (Drael por padrão). Calls e sugestões ainda não são persistidas (sales_calls / call_suggestions vazias)", impact: "high" },
+      { id: "ai-3", name: "Luna — Root Master operacional", description: "CEO de operações com ferramentas reais do banco", tag: "VERIFIED", level: "A", evidence: "Testado em 19/11/2026: chat com streaming e ferramentas visíveis; criou cliente, missão e tarefas encadeadas (dependsOn) que rodaram sozinhas; tela /root-master corrigida", impact: "critical" },
       { id: "ai-4", name: "Página /motors — execução real", description: "8 engines executando IA real via UI", tag: "IMPLEMENTED", level: "B", evidence: "Client selector (Prisma), formulários por engine, fetch real para /api/engines/*", impact: "critical" },
-      { id: "ai-5", name: "Local Runtime (desktop app)", description: "Acesso a filesystem, terminal, browser", tag: "MISSING", level: "D", evidence: "Requer Electron/Tauri — não iniciado", impact: "critical" },
+      { id: "ai-5", name: "Local Runtime (desktop app)", description: "Acesso a filesystem, terminal, browser", tag: "VERIFIED", level: "A", evidence: "O app desktop sobe o servidor local e dá ao chat acesso ao PC. Testado em 19/11/2026: comando no terminal com confirmação, leitura e escrita de arquivos, automodificação do tema e desfazer. Controle do navegador (Playwright) não foi testado", impact: "critical" },
+      { id: "ai-6", name: "Troca de provedor de IA", description: "Drael, ChatGPT (OpenAI) e Claude (Anthropic) no mesmo chat", tag: "PARTIAL", level: "C", evidence: "Troca pelo chat (/provider) ou em Configurações, com chaves salvas só neste computador. Drael testado; OpenAI e Claude implementados mas não testados por falta de chave válida", impact: "high" },
     ],
   },
   {
@@ -80,10 +82,12 @@ const AUDIT_DOMAINS: AuditDomain[] = [
     description: "CRM, histórico e pipeline de clientes",
     items: [
       { id: "data-1", name: "Banco de dados (Prisma + DB)", description: "Schema e ORM configurados", tag: "IMPLEMENTED", level: "B", evidence: "Prisma schema com Agent, Mission, Client, Task models", impact: "high" },
-      { id: "data-2", name: "Autenticação de usuários", description: "Login e sessão da equipe LOTUS", tag: "IMPLEMENTED", level: "B", evidence: "Auth configurado no layout", impact: "high" },
+      { id: "data-2", name: "Autenticação de usuários", description: "Login e sessão da equipe LOTUS", tag: "PARTIAL", level: "C", evidence: "Login único do proprietário (variáveis de ambiente), agora com sessão validada por assinatura em todas as rotas. Sem multiusuário nem RBAC (ADMIN/VIEWER)", impact: "high" },
       { id: "data-3", name: "CRM de clientes", description: "CRUD completo de empresas atendidas", tag: "IMPLEMENTED", level: "B", evidence: "/api/clients (Prisma) — /clients page com fetch real", impact: "high" },
       { id: "data-4", name: "Pipeline de missões", description: "Tracking de tarefas por cliente e agente", tag: "IMPLEMENTED", level: "B", evidence: "/api/missions (Prisma) com CRUD, status transitions, Root Master cria missões reais", impact: "medium" },
-      { id: "data-5", name: "Histórico de diagnósticos", description: "Resultado de cada diagnóstico salvo por cliente", tag: "MISSING", level: "D", evidence: "Engines geram outputs mas não persistem resultados no banco por cliente", impact: "high" },
+      { id: "data-5", name: "Histórico de diagnósticos", description: "Resultado de cada diagnóstico salvo por cliente", tag: "MISSING", level: "D", evidence: "Engines geram outputs e registram a execução no ActivityLog, mas não persistem o resultado por cliente", impact: "high" },
+      { id: "data-6", name: "Memória empresarial", description: "Contexto persistente por cliente, missão e agente", tag: "PARTIAL", level: "C", evidence: "Cada tarefa concluída grava um resumo na memória do cliente e as próximas tarefas do mesmo cliente recebem isso no prompt (testado). Escopos GLOBAL, AGENT e DEPARTMENT ainda não são usados", impact: "critical" },
+      { id: "data-7", name: "Fluxo de aprovações", description: "Ações críticas param e aguardam decisão do proprietário", tag: "VERIFIED", level: "A", evidence: "Aprovação durável testada em 19/11/2026: o agente pede, a missão fica aguardando, o dono decide em /approvals ou no chat e o sistema executa o que foi aprovado (decisão dupla é bloqueada)", impact: "critical" },
     ],
   },
   {
@@ -91,11 +95,11 @@ const AUDIT_DOMAINS: AuditDomain[] = [
     name: "Interface e Navegação",
     description: "UX da plataforma operacional",
     items: [
-      { id: "ui-1", name: "Dashboard principal", description: "Overview de operações, métricas, agentes", tag: "IMPLEMENTED", level: "B", evidence: "Dashboard em / funcional", impact: "medium" },
-      { id: "ui-2", name: "Sidebar de navegação", description: "Links para todos os módulos", tag: "VERIFIED", level: "A", evidence: "12 itens, todos os módulos incluídos", impact: "medium" },
+      { id: "ui-1", name: "Dashboard principal", description: "Overview de operações, métricas, agentes", tag: "IMPLEMENTED", level: "B", evidence: "/ redireciona para /ceo; indicadores reais do banco em /metrics", impact: "medium" },
+      { id: "ui-2", name: "Sidebar de navegação", description: "Links para todos os módulos", tag: "VERIFIED", level: "A", evidence: "16 itens + Configurações, todos os módulos incluídos", impact: "medium" },
       { id: "ui-3", name: "Página /motors", description: "8 Engines com execução real de IA", tag: "IMPLEMENTED", level: "B", evidence: "Reconstruída com client selector (Prisma), formulários, fetch real, output viewer, Run All", impact: "high" },
-      { id: "ui-4", name: "Advisor estratégico", description: "Chat com IA focado em estratégia LOTUS", tag: "IMPLEMENTED", level: "B", evidence: "/advisor funcional", impact: "medium" },
-      { id: "ui-5", name: "Workforce — agentes/departamentos", description: "Visualização da força de trabalho IA", tag: "IMPLEMENTED", level: "B", evidence: "/workforce com 8 departamentos", impact: "medium" },
+      { id: "ui-4", name: "Advisor estratégico", description: "Chat com IA focado em estratégia LOTUS", tag: "IMPLEMENTED", level: "B", evidence: "/advisor com identidade própria (LOTUS AI CEO), ferramentas de leitura do banco, catálogo de soluções e registro de assessment de preço", impact: "medium" },
+      { id: "ui-5", name: "Workforce — agentes/departamentos", description: "Visualização da força de trabalho IA", tag: "IMPLEMENTED", level: "B", evidence: "/workforce lista os agentes cadastrados no banco, incluindo o BTO (9º departamento)", impact: "medium" },
       { id: "ui-6", name: "Design system dark mode", description: "Tema escuro consistente em toda a plataforma", tag: "VERIFIED", level: "A", evidence: "CSS variables + dark mode padrão", impact: "low" },
     ],
   },
@@ -162,6 +166,9 @@ export default function GovernancePage() {
             </h1>
             <p className="text-muted-foreground mt-1 text-sm">
               Transparência total sobre o que é real, implementado, parcial ou simulado no sistema LOTUS.
+            </p>
+            <p className="text-muted-foreground/60 mt-1 text-[11px]">
+              Lista mantida manualmente — última revisão: auditoria de 19/11/2026. Atualize os itens ao concluir cada correção.
             </p>
           </div>
           <div className="text-right">
@@ -232,7 +239,6 @@ export default function GovernancePage() {
                   {/* Mini tag breakdown */}
                   <div className="hidden md:flex gap-1.5">
                     {domain.items.map(item => {
-                      const c = TAG_CONFIG[item.tag];
                       return (
                         <div
                           key={item.id}

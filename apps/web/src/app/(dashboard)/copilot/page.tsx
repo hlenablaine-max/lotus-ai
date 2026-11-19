@@ -47,6 +47,7 @@ export default function CopilotPage() {
   const [copilotResp, setCopilotResp] = useState<CopilotResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [aiError, setAiError] = useState("");
   const [supported, setSupported] = useState(true);
   const [showTeleprompter, setShowTeleprompter] = useState(true);
   const [manualInput, setManualInput] = useState("");
@@ -82,11 +83,12 @@ export default function CopilotPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ clientSaid, context }),
       });
-      if (!res.ok) throw new Error("API error");
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.suggestion) throw new Error(data?.error ?? `HTTP ${res.status}`);
       setCopilotResp(data);
-    } catch {
-      setError("Erro ao gerar sugestão. Verifique a conexão.");
+      setAiError("");
+    } catch (err) {
+      setAiError(`Sugestão não gerada — ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoading(false);
     }
@@ -318,6 +320,14 @@ export default function CopilotPage() {
             <div className="flex flex-col items-center gap-4">
               <Loader2 className="w-8 h-8 text-pink-400 animate-spin" />
               <p className="text-sm text-white/40">Gerando resposta...</p>
+            </div>
+          ) : aiError ? (
+            <div className="w-full max-w-xl flex items-start gap-3 p-4 rounded-xl border border-red-500/30 bg-red-500/10 text-red-300">
+              <AlertCircle size={18} className="flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold">A IA não respondeu</p>
+                <p className="text-xs text-red-300/80 mt-1">{aiError}</p>
+              </div>
             </div>
           ) : copilotResp && showTeleprompter ? (
             <div className="w-full max-w-2xl space-y-4">

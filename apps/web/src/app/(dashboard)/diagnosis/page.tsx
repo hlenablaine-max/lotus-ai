@@ -29,7 +29,7 @@ interface InvestigationState {
   phase: "idle" | "investigating" | "done" | "error";
   agents: AgentActivity[];
   findings: Finding[];
-  whatsapp: { number: string | null; waiting: boolean; countdown: number; responded: boolean; automationDetected: boolean } | null;
+  whatsapp: { number: string | null; tested: boolean; note: string } | null;
   report: Record<string, unknown> | null;
   error: string | null;
 }
@@ -150,6 +150,7 @@ export default function DiagnosisPage() {
     error: null,
   });
   const [reportSent, setReportSent] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [postActions, setPostActions] = useState<{
     photos: { status: "idle" | "loading" | "done" | "error"; images?: { url: string }[]; error?: string };
     site: { status: "idle" | "loading" | "done" | "error"; html?: string; companyName?: string; error?: string };
@@ -170,6 +171,7 @@ export default function DiagnosisPage() {
 
     setState({ phase: "investigating", agents: [], findings: [], whatsapp: null, report: null, error: null });
     setReportSent(false);
+    setSendError(null);
 
     const encoded = encodeURIComponent(url.trim());
     const es = new EventSource(`/api/investigation?url=${encoded}`);
@@ -202,36 +204,9 @@ export default function DiagnosisPage() {
                 a.agentId === event.agentId ? { ...a, status: "done" } : a
               ),
               findings: [...prev.findings, { agentId: event.agentId, name: event.name, category: event.category, data: event.data }],
-            };
-          case "whatsapp_sending":
-            return {
-              ...prev,
-              whatsapp: { number: event.number || null, waiting: false, countdown: 30, responded: false, automationDetected: false },
-              agents: prev.agents.map(a =>
-                a.agentId === "agent-sales" ? { ...a, status: "working", task: event.number ? `Mensagem enviada para +${event.number} — aguardando resposta...` : "WhatsApp não encontrado no site" } : a
-              ),
-            };
-          case "whatsapp_waiting":
-            return {
-              ...prev,
-              whatsapp: prev.whatsapp ? { ...prev.whatsapp, waiting: true, countdown: event.seconds } : prev.whatsapp,
-              agents: prev.agents.map(a =>
-                a.agentId === "agent-sales" ? { ...a, status: "waiting", task: `Aguardando resposta automática... ${event.seconds}s restantes` } : a
-              ),
-            };
-          case "whatsapp_result":
-            return {
-              ...prev,
-              whatsapp: prev.whatsapp
-                ? { ...prev.whatsapp, waiting: false, responded: event.responded, automationDetected: event.automationDetected }
-                : { number: event.number, waiting: false, countdown: 0, responded: event.responded, automationDetected: event.automationDetected },
-              agents: prev.agents.map(a =>
-                a.agentId === "agent-sales" ? {
-                  ...a,
-                  status: "done",
-                  task: event.responded ? "Resposta automática detectada ✓" : "Sem resposta automática — oportunidade de automação",
-                } : a
-              ),
+              whatsapp: event.category === "whatsapp"
+                ? { number: event.data?.number ?? null, tested: !!event.data?.tested, note: String(event.data?.note ?? "") }
+                : prev.whatsapp,
             };
           case "synthesis_start":
             return {
@@ -268,15 +243,16 @@ export default function DiagnosisPage() {
     try {
       const r = state.report as Record<string, unknown>;
       const summary = `🔍 **Investigação completa: ${r.companyName ?? "empresa"}**\n\nScore geral: **${r.overallScore}/100** — ${r.urgency}\n\n**Pontos fortes:** ${(r.strengths as string[])?.slice(0, 2).join(", ")}\n\n**Gaps críticos:** ${(r.gaps as string[])?.slice(0, 2).join(", ")}\n\n**ROI estimado:** ${r.estimatedROI}\n\n**Próximo passo:** ${(r.suggestedSolutions as string[])?.[0] ?? "Contrate a LOTUS AI"}`;
-      await fetch("/api/chat/inject", {
+      const res = await fetch("/api/chat/inject", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: summary }),
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setReportSent(true);
-    } catch {
-      // silent — not critical
-      setReportSent(true); // show success anyway (chat inject may not exist yet)
+      setSendError(null);
+    } catch (err) {
+      setSendError(`Não foi possível enviar ao CEO Chat (${err instanceof Error ? err.message : String(err)})`);
     }
   };
 
@@ -403,35 +379,19 @@ export default function DiagnosisPage() {
             <div className="space-y-4">
               {/* WhatsApp status */}
               {state.whatsapp && (
-                <div className={cn(
-                  "rounded-2xl border p-4 transition-all",
-                  state.whatsapp.responded
-                    ? "border-green-500/30 bg-green-500/8"
-                    : state.whatsapp.waiting
-                    ? "border-amber-500/30 bg-amber-500/8"
-                    : "border-white/10 bg-white/3"
-                )}>
+                <div className="rounded-2xl border border-white/10 bg-white/3 p-4">
                   <div className="flex items-center gap-2 mb-2">
-                    <MessageCircle size={15} className={state.whatsapp.waiting ? "text-amber-400 animate-pulse" : state.whatsapp.responded ? "text-green-400" : "text-white/40"} />
-                    <span className="text-xs font-semibold text-white/70">WhatsApp Business</span>
-                    {state.whatsapp.waiting && (
-                      <div className="ml-auto flex items-center gap-1.5 text-amber-400">
-                        <Clock size={11} />
-                        <span className="text-xs font-mono">{state.whatsapp.countdown}s</span>
-                      </div>
-                    )}
+                    <MessageCircle size={15} className={state.whatsapp.number ? "text-green-400" : "text-white/40"} />
+                    <span className="text-xs font-semibold text-white/70">WhatsApp</span>
                   </div>
-                  {state.whatsapp.number ? (
-                    <p className="text-xs text-white/50">
-                      {state.whatsapp.waiting
-                        ? `Mensagem de teste enviada para +${state.whatsapp.number}. Aguardando resposta automática...`
-                        : state.whatsapp.responded
-                        ? `✓ Resposta automática detectada em +${state.whatsapp.number}`
-                        : `Sem resposta automática em +${state.whatsapp.number} — gap crítico: perda de leads`}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-white/50">WhatsApp não encontrado no site — oportunidade de captura de leads</p>
-                  )}
+                  <p className="text-xs text-white/50">
+                    {state.whatsapp.number
+                      ? `WhatsApp encontrado no site: +${state.whatsapp.number}`
+                      : "WhatsApp não encontrado no site"}
+                  </p>
+                  <p className="text-[11px] text-white/30 mt-1">
+                    {state.whatsapp.note || "Teste de automação não realizado (requer integração WhatsApp e aprovação)"}
+                  </p>
                 </div>
               )}
 
@@ -457,6 +417,7 @@ export default function DiagnosisPage() {
                           {f.category === "site" && `Site: ${f.data.accessible ? "✓ acessível" : "✗ inacessível"} · WhatsApp: ${f.data.hasWhatsApp ? `✓ +${f.data.waNumber}` : "✗ ausente"} · Pixel: ${f.data.hasPixel ? "✓" : "✗"}`}
                           {f.category === "instagram" && (f.data.found ? `@${(f.data as { username?: string }).username} · ${((f.data as { followers?: number }).followers ?? 0).toLocaleString()} seguidores · ${(f.data as { posts?: number }).posts ?? 0} posts` : "Instagram não encontrado/acessível")}
                           {f.category === "traffic" && (f.data.found ? `Tráfego mensal: ${((f.data as { visits?: number }).visits ?? 0).toLocaleString()} visitas · Rank global: #${(f.data as { rank?: number }).rank?.toLocaleString() ?? "N/A"}` : "Dados de tráfego não disponíveis")}
+                          {f.category === "whatsapp" && (f.data.found ? `WhatsApp no site: +${f.data.number} · automação não testada` : "WhatsApp não encontrado no site")}
                           {f.category === "ads" && `Meta Ads: ${f.data.found ? `${(f.data as { count?: number }).count ?? 0} anúncio(s) detectado(s)` : "sem dados"}`}
                         </p>
                       </div>
@@ -486,6 +447,11 @@ export default function DiagnosisPage() {
                 {reportSent ? <><CheckCircle size={12} /> Enviado ao CEO Chat</> : <><Send size={12} /> Enviar ao CEO Chat</>}
               </button>
             </div>
+            {sendError && (
+              <div className="flex items-center gap-2 text-red-400 text-xs p-3 rounded-xl border border-red-400/20 bg-red-400/5">
+                <AlertCircle size={14} /> {sendError}
+              </div>
+            )}
 
             {/* Score header */}
             <div className="rounded-2xl border border-white/10 bg-white/3 p-6">
@@ -498,7 +464,7 @@ export default function DiagnosisPage() {
                     <span className="text-xs font-semibold text-amber-400">{r.urgency as string}</span>
                   </div>
                   {/* WhatsApp insight */}
-                  {(r as Record<string, unknown>).whatsappInsight && (
+                  {!!(r as Record<string, unknown>).whatsappInsight && (
                     <div className="mt-2 flex items-center gap-2">
                       <MessageCircle size={12} className="text-green-400" />
                       <span className="text-xs text-white/50">{(r as Record<string, unknown>).whatsappInsight as string}</span>
@@ -768,7 +734,7 @@ export default function DiagnosisPage() {
                         {postActions.whatsapp.waNumber && <span className="text-white/30 ml-1">+{postActions.whatsapp.waNumber}</span>}
                       </div>
                       {/* Welcome message preview */}
-                      {(postActions.whatsapp.setup as Record<string, unknown>).welcomeMessage && (
+                      {!!(postActions.whatsapp.setup as Record<string, unknown>).welcomeMessage && (
                         <div className="rounded-lg bg-green-500/8 border border-green-500/15 p-2.5">
                           <div className="text-[10px] text-green-400/60 mb-1 uppercase tracking-wider">Boas-vindas</div>
                           <p className="text-[11px] text-white/60 leading-relaxed line-clamp-3">

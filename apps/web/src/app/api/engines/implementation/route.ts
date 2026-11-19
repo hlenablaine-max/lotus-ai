@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initializeProviders, registry } from "@lotus/ai-engine";
-import { updateAgentStatus } from "@/lib/agent-service";
+import { logEngineRun } from "@/lib/engine-log";
 import { demoImplementation } from "@/lib/engine-demos";
 
 export const dynamic = "force-dynamic";
@@ -110,8 +110,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "clientName é obrigatório" }, { status: 400 });
     }
 
-    await updateAgentStatus("agent-web", "EXECUTING", `Criando plano de implementação para ${clientName}`);
-    await updateAgentStatus("agent-mc", "PLANNING", `Organizando cronograma de ${clientName}`);
+    await logEngineRun("implementation", clientName, "started");
 
     const contextData = `
 CLIENTE: ${clientName}
@@ -144,8 +143,7 @@ Seja específico com URLs, nomes de campos, e configurações exatas.
       implementation = { overview: result.content, error: "parsing_error" };
     }
 
-    await updateAgentStatus("agent-web", "COMPLETED", `Plano de implementação de ${clientName} pronto`);
-    await updateAgentStatus("agent-mc", "IDLE", null);
+    await logEngineRun("implementation", clientName, "completed");
 
     return NextResponse.json({ success: true, engine: "implementation", implementation, clientName });
   } catch (error) {
@@ -154,14 +152,14 @@ Seja específico com URLs, nomes de campos, e configurações exatas.
                    errorMsg.includes('No AI provider') || errorMsg.includes('502') || errorMsg.includes('504');
     if (aiDown) {
       const cn = body?.clientName || "";
-      await updateAgentStatus("agent-web", "COMPLETED", `Demo: Implementação de ${cn}`);
-      await updateAgentStatus("agent-mc", "IDLE", null);
+      await logEngineRun("implementation", cn, "demo");
       return NextResponse.json({
         success: true, engine: "implementation",
         implementation: demoImplementation(cn, body?.niche || ""),
         clientName: cn, _demo: true,
       });
     }
+    await logEngineRun("implementation", body?.clientName || "", "failed", { error: errorMsg });
     console.error("Engine Implementation error:", error);
     return NextResponse.json({ error: `Erro ao executar motor de implementação: ${errorMsg}` }, { status: 500 });
   }

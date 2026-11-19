@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initializeProviders, registry } from "@lotus/ai-engine";
-import { updateAgentStatus } from "@/lib/agent-service";
+import { logEngineRun } from "@/lib/engine-log";
 import { demoStrategy } from "@/lib/engine-demos";
 
 export const dynamic = "force-dynamic";
@@ -105,8 +105,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "clientName é obrigatório" }, { status: 400 });
     }
 
-    await updateAgentStatus("agent-strat", "PLANNING", `Criando estratégia para ${clientName}`);
-    await updateAgentStatus("agent-mc", "REVIEWING", `Revisando plano estratégico`);
+    await logEngineRun("strategy", clientName, "started");
 
     const contextData = `
 CLIENTE: ${clientName}
@@ -142,8 +141,7 @@ Use benchmarks reais do setor de saúde brasileiro.
       strategy = { executive_summary: result.content, error: "parsing_error" };
     }
 
-    await updateAgentStatus("agent-strat", "COMPLETED", `Estratégia de ${clientName} pronta`);
-    await updateAgentStatus("agent-mc", "IDLE", null);
+    await logEngineRun("strategy", clientName, "completed");
 
     return NextResponse.json({ success: true, engine: "strategy", strategy, clientName });
   } catch (error) {
@@ -152,14 +150,14 @@ Use benchmarks reais do setor de saúde brasileiro.
                    errorMsg.includes('No AI provider') || errorMsg.includes('502') || errorMsg.includes('504');
     if (aiDown) {
       const cn = body?.clientName || "";
-      await updateAgentStatus("agent-strat", "COMPLETED", `Demo: Estratégia de ${cn}`);
-      await updateAgentStatus("agent-mc", "IDLE", null);
+      await logEngineRun("strategy", cn, "demo");
       return NextResponse.json({
         success: true, engine: "strategy",
         strategy: demoStrategy(cn, body?.niche || "", body?.city || ""),
         clientName: cn, _demo: true,
       });
     }
+    await logEngineRun("strategy", body?.clientName || "", "failed", { error: errorMsg });
     console.error("Engine Strategy error:", error);
     return NextResponse.json({ error: `Erro ao executar motor de estratégia: ${errorMsg}` }, { status: 500 });
   }

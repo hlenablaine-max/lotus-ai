@@ -48,14 +48,17 @@ export default function ActivityPage() {
   const [loading, setLoading] = useState(true);
   const [filterLevel, setFilterLevel] = useState("ALL");
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchLogs = useCallback(async () => {
     try {
       const res = await fetch("/api/activity");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setLogs(data.logs || []);
-    } catch {
-      /* silent */
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(`Não foi possível carregar o log (${err instanceof Error ? err.message : String(err)})`);
     } finally {
       setLoading(false);
     }
@@ -132,6 +135,12 @@ export default function ActivityPage() {
           {filtered.length} eventos
         </span>
       </div>
+
+      {loadError && (
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          <AlertCircle className="w-4 h-4 shrink-0" /> {loadError}
+        </div>
+      )}
 
       {/* Log feed */}
       <div className="space-y-1">

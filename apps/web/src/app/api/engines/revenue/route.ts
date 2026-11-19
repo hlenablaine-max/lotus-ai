@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initializeProviders, registry } from "@lotus/ai-engine";
-import { updateAgentStatus } from "@/lib/agent-service";
+import { logEngineRun } from "@/lib/engine-log";
 import { demoRevenue } from "@/lib/engine-demos";
 
 export const dynamic = "force-dynamic";
@@ -111,8 +111,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "clientName é obrigatório" }, { status: 400 });
     }
 
-    await updateAgentStatus("agent-bi", "RESEARCHING", `Analisando revenue de ${clientName}`);
-    await updateAgentStatus("agent-data", "RESEARCHING", `Calculando projeções financeiras`);
+    await logEngineRun("revenue", clientName, "started");
 
     const contextData = `
 CLIENTE: ${clientName}
@@ -148,8 +147,7 @@ Seja conservador nas projeções mas ambicioso nas oportunidades.
       revenueAnalysis = { summary: result.content, error: "parsing_error" };
     }
 
-    await updateAgentStatus("agent-bi", "COMPLETED", `Revenue Intelligence de ${clientName} pronto`);
-    await updateAgentStatus("agent-data", "IDLE", null);
+    await logEngineRun("revenue", clientName, "completed");
 
     return NextResponse.json({ success: true, engine: "revenue", revenueAnalysis, clientName });
   } catch (error) {
@@ -158,14 +156,14 @@ Seja conservador nas projeções mas ambicioso nas oportunidades.
                    errorMsg.includes('No AI provider') || errorMsg.includes('502') || errorMsg.includes('504');
     if (aiDown) {
       const cn = body?.clientName || "";
-      await updateAgentStatus("agent-bi", "COMPLETED", `Demo: Revenue de ${cn}`);
-      await updateAgentStatus("agent-data", "IDLE", null);
+      await logEngineRun("revenue", cn, "demo");
       return NextResponse.json({
         success: true, engine: "revenue",
         revenueAnalysis: demoRevenue(cn, body?.niche || "", body?.city || ""),
         clientName: cn, _demo: true,
       });
     }
+    await logEngineRun("revenue", body?.clientName || "", "failed", { error: errorMsg });
     console.error("Engine Revenue error:", error);
     return NextResponse.json({ error: `Erro ao executar motor de revenue: ${errorMsg}` }, { status: 500 });
   }

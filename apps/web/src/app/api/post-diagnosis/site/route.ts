@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
           content: `Você é um expert em criação de landing pages de alta conversão para o mercado brasileiro.
 Crie uma landing page HTML completa, moderna e profissional para uma empresa específica.
 A página deve ser auto-contida (CSS inline), responsiva, com dark theme elegante, e focada em conversão.
-Inclua: hero com headline forte, problemas/dores, solução LOTUS, prova social, CTA claro.
+Inclua: hero com headline forte, problemas/dores, solução LOTUS, prova social (apenas placeholders marcados para dados reais — nunca invente depoimentos ou números), CTA claro.
 Retorne APENAS o HTML completo (sem markdown, sem explicação).`,
         },
         {
@@ -50,7 +50,7 @@ Requisitos da landing page:
 - Subheadline com a SOLUÇÃO
 - Seção "O problema que você enfrenta" (3 dores baseadas no diagnóstico)
 - Seção "Nossa solução" com as 3 soluções recomendadas
-- Seção de prova social com números fictícios mas realistas
+- Seção de prova social com placeholders explícitos "[INSERIR DEPOIMENTO REAL]" e "[NÚMERO REAL]" — NUNCA invente depoimentos, nomes, avaliações ou números; o cliente preencherá com dados reais
 - CTA principal: "Quero meu diagnóstico gratuito" (WhatsApp link)
 - Design: dark theme, gradiente roxo/rosa (como a LOTUS), fonte Inter
 - CSS totalmente inline, sem dependências externas

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initializeProviders, registry } from "@lotus/ai-engine";
-import { updateAgentStatus } from "@/lib/agent-service";
+import { logEngineRun } from "@/lib/engine-log";
 import { demoDiagnosis } from "@/lib/engine-demos";
 
 export const dynamic = "force-dynamic";
@@ -99,8 +99,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "clientName é obrigatório" }, { status: 400 });
     }
 
-    await updateAgentStatus("agent-bi", "RESEARCHING", `Calculando score de oportunidade para ${clientName}`);
-    await updateAgentStatus("agent-data", "RESEARCHING", `Projetando ROI para ${clientName}`);
+    await logEngineRun("diagnosis", clientName, "started");
 
     const contextData = `
 CLIENTE: ${clientName}
@@ -135,8 +134,7 @@ O diagnóstico deve ser orientado a venda da LOTUS como solução.
       diagnosis = { summary: result.content, error: "parsing_error" };
     }
 
-    await updateAgentStatus("agent-bi", "COMPLETED", `Diagnóstico de ${clientName} concluído`);
-    await updateAgentStatus("agent-data", "IDLE", null);
+    await logEngineRun("diagnosis", clientName, "completed");
 
     return NextResponse.json({ success: true, engine: "diagnosis", diagnosis, clientName });
   } catch (error) {
@@ -145,14 +143,14 @@ O diagnóstico deve ser orientado a venda da LOTUS como solução.
                    errorMsg.includes('No AI provider') || errorMsg.includes('502') || errorMsg.includes('504');
     if (aiDown) {
       const cn = body?.clientName || "";
-      await updateAgentStatus("agent-bi", "COMPLETED", `Demo: Diagnóstico de ${cn}`);
-      await updateAgentStatus("agent-data", "IDLE", null);
+      await logEngineRun("diagnosis", cn, "demo");
       return NextResponse.json({
         success: true, engine: "diagnosis",
         diagnosis: demoDiagnosis(cn, body?.niche || "", body?.city || ""),
         clientName: cn, _demo: true,
       });
     }
+    await logEngineRun("diagnosis", body?.clientName || "", "failed", { error: errorMsg });
     console.error("Engine Diagnosis error:", error);
     return NextResponse.json({ error: `Erro ao executar motor de diagnóstico: ${errorMsg}` }, { status: 500 });
   }

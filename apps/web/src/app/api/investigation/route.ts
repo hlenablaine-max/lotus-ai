@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { updateAgentStatus } from "@/lib/agent-service";
+import { logEngineRun } from "@/lib/engine-log";
 import { initializeProviders, registry } from "@lotus/ai-engine";
 
 export const dynamic = "force-dynamic";
@@ -132,12 +132,11 @@ export async function GET(req: NextRequest) {
 
       try {
         // ── Step 0: Julia starts orchestrating ──────────────────────────────
-        await updateAgentStatus("agent-mc", "working", `Iniciando investigação: ${targetUrl}`);
+        await logEngineRun("site-investigation", targetUrl, "started");
         send({ type: "agent_start", agentId: "agent-mc", name: "Julia Ferreira", task: "Iniciando investigação completa..." });
         await delay(1200);
 
         // ── Step 1: Pedro fetches site (immediate) ───────────────────────────
-        await updateAgentStatus("agent-web", "working", `Analisando site: ${targetUrl}`);
         send({ type: "agent_start", agentId: "agent-web", name: "Pedro Alves", task: "Baixando e analisando o site..." });
 
         const siteResult = await fetchWithTimeout(targetUrl);
@@ -158,25 +157,27 @@ export async function GET(req: NextRequest) {
           bodyPreview: meta?.bodyText?.slice(0, 200),
         };
 
-        await updateAgentStatus("agent-web", "working", `Site analisado: ${meta?.title ?? "sem título"}`);
         send({ type: "finding", agentId: "agent-web", name: "Pedro Alves", category: "site", data: siteFinding });
         await delay(600);
 
-        // ── Step 2: Rodrigo finds WhatsApp and queues message ─────────────────
+        // ── Step 2: Rodrigo only DETECTS the WhatsApp number — nothing is sent ──
         const waNumber = meta?.phone ?? meta?.waLink?.match(/\d{10,15}/)?.[0];
-        if (waNumber) {
-          await updateAgentStatus("agent-sales", "working", `Contactando WhatsApp: +${waNumber}`);
-          send({ type: "agent_start", agentId: "agent-sales", name: "Rodrigo Castro", task: `WhatsApp encontrado: +${waNumber} — enviando mensagem de teste` });
-          send({ type: "whatsapp_sending", number: waNumber });
-        } else {
-          await updateAgentStatus("agent-sales", "working", "Procurando WhatsApp no site...");
-          send({ type: "agent_start", agentId: "agent-sales", name: "Rodrigo Castro", task: "Nenhum WhatsApp encontrado no site — verificando redes sociais..." });
-          send({ type: "whatsapp_sending", number: "" });
-        }
+        const waNote = "Teste de automação não realizado (requer integração WhatsApp e aprovação)";
+        send({
+          type: "agent_start",
+          agentId: "agent-sales",
+          name: "Rodrigo Castro",
+          task: waNumber ? `WhatsApp encontrado no site: +${waNumber}` : "Procurando WhatsApp no site...",
+        });
+        send({
+          type: "finding",
+          agentId: "agent-sales",
+          name: "Rodrigo Castro",
+          category: "whatsapp",
+          data: { found: !!waNumber, number: waNumber ?? null, tested: false, note: waNote },
+        });
 
         // ── Step 3: Ana & Marcos in parallel ──────────────────────────────────
-        await updateAgentStatus("agent-data", "working", "Analisando perfil do Instagram");
-        await updateAgentStatus("agent-bi", "working", "Verificando tráfego no SimilarWeb");
         send({ type: "agent_start", agentId: "agent-data", name: "Ana Souza", task: "Verificando Instagram e métricas de engajamento..." });
         send({ type: "agent_start", agentId: "agent-bi", name: "Marcos Andrade", task: "Consultando dados de tráfego no SimilarWeb..." });
 
@@ -189,45 +190,25 @@ export async function GET(req: NextRequest) {
         ]);
 
         if (igData.found) {
-          const ig = igData as { found: boolean; username?: string; fullName?: string; bio?: string; followers?: number; posts?: number; isBusiness?: boolean; category?: string };
-          await updateAgentStatus("agent-data", "working", `Instagram @${ig.username}: ${ig.followers?.toLocaleString()} seguidores`);
           send({ type: "finding", agentId: "agent-data", name: "Ana Souza", category: "instagram", data: igData });
         } else {
-          await updateAgentStatus("agent-data", "working", igHandle ? "Instagram não acessível (login necessário)" : "Sem Instagram identificado no site");
           send({ type: "finding", agentId: "agent-data", name: "Ana Souza", category: "instagram", data: { found: false, handle: igHandle } });
         }
 
         if (swData.found) {
-          await updateAgentStatus("agent-bi", "working", `Tráfego mensal: ${swData.visits?.toLocaleString() ?? "N/A"} visitas`);
           send({ type: "finding", agentId: "agent-bi", name: "Marcos Andrade", category: "traffic", data: swData });
         } else {
-          await updateAgentStatus("agent-bi", "thinking", "SimilarWeb: dados não disponíveis (site pequeno ou bloqueado)");
           send({ type: "finding", agentId: "agent-bi", name: "Marcos Andrade", category: "traffic", data: { found: false } });
         }
 
         // ── Step 4: Lucas checks Meta Ads ────────────────────────────────────
-        await updateAgentStatus("agent-perf", "working", "Verificando Meta Ads Library");
         send({ type: "agent_start", agentId: "agent-perf", name: "Lucas Rodrigues", task: "Verificando anúncios na Meta Ads Library..." });
 
         const companyName = meta?.title ?? meta?.ogTitle ?? domain.replace("www.", "");
         const adsData = await fetchMetaAds(companyName);
-        await updateAgentStatus("agent-perf", "working", adsData.found ? `Meta Ads: ${adsData.count} anúncios detectados` : "Meta Ads Library verificada");
         send({ type: "finding", agentId: "agent-perf", name: "Lucas Rodrigues", category: "ads", data: adsData });
 
-        // ── Step 5: WhatsApp countdown (30s) ──────────────────────────────────
-        const waWaitSeconds = 30;
-        for (let i = waWaitSeconds; i > 0; i -= 5) {
-          send({ type: "whatsapp_waiting", seconds: i });
-          await delay(5000);
-        }
-
-        // Simulate WhatsApp result (no real API = no automation = real finding)
-        const waResponded = false; // Real: would check webhook/inbox for auto-reply
-        await updateAgentStatus("agent-sales", "idle", waNumber ? "WhatsApp: sem resposta automática (oportunidade de automação)" : "WhatsApp não encontrado no site");
-        send({ type: "whatsapp_result", responded: waResponded, automationDetected: false, number: waNumber ?? null });
-
         // ── Step 6: Felipe synthesizes all data ──────────────────────────────
-        await updateAgentStatus("agent-strat", "working", "Sintetizando todos os dados coletados...");
         send({ type: "synthesis_start" });
         send({ type: "agent_start", agentId: "agent-strat", name: "Felipe Costa", task: "Sintetizando todos os dados e gerando relatório..." });
 
@@ -237,7 +218,7 @@ export async function GET(req: NextRequest) {
           instagram: igData,
           traffic: swData,
           ads: adsData,
-          whatsapp: { number: waNumber ?? null, responded: waResponded, automationDetected: false },
+          whatsapp: { foundOnSite: !!waNumber, number: waNumber ?? null, automationTested: false, note: waNote },
         });
 
         const synthesis = await registry.getDefault().complete({
@@ -282,8 +263,12 @@ Retorne APENAS JSON válido (sem markdown) com esta estrutura:
   "suggestedSolutions": ["Solução LOTUS A", "Solução LOTUS B", "Solução LOTUS C"],
   "estimatedROI": "X-Yx em Z meses",
   "urgency": "Alta/Média/Baixa — motivo",
-  "whatsappInsight": "análise da automação de WhatsApp"
-}`,
+  "whatsappInsight": "presença/ausência de WhatsApp no site — sem afirmar nada sobre resposta automática"
+}
+
+REGRAS DE HONESTIDADE:
+- Baseie-se somente nos dados coletados. Quando um dado não foi coletado (found: false), diga "não verificado" em vez de estimar como se fosse fato.
+- O WhatsApp NÃO foi testado (automationTested: false). Nunca afirme que a empresa responde ou não responde automaticamente, nem que perde leads por falta de automação: diga apenas se há WhatsApp no site e que o teste de automação não foi realizado.`,
             },
             {
               role: "user",
@@ -302,8 +287,7 @@ Retorne APENAS JSON válido (sem markdown) com esta estrutura:
         }
 
         // ── Step 7: Julia completes ───────────────────────────────────────────
-        await updateAgentStatus("agent-strat", "idle", "Relatório gerado com sucesso");
-        await updateAgentStatus("agent-mc", "working", "Investigação concluída — relatório pronto");
+        await logEngineRun("site-investigation", targetUrl, "completed", { companyName });
         send({
           type: "complete",
           report: parsed,
@@ -313,23 +297,12 @@ Retorne APENAS JSON válido (sem markdown) com esta estrutura:
             swFound: swData.found,
             adsChecked: adsData.found,
             waNumber: waNumber ?? null,
-            waAutomation: waResponded,
+            waAutomationTested: false,
             collectedAt: new Date().toISOString(),
           },
         });
-
-        // Reset agents after 5s
-        await delay(5000);
-        await Promise.all([
-          updateAgentStatus("agent-mc", "working", "Monitorando 7 missões ativas"),
-          updateAgentStatus("agent-web", "working", "Aguardando próxima missão"),
-          updateAgentStatus("agent-data", "working", "Aguardando próxima missão"),
-          updateAgentStatus("agent-bi", "working", "Análise competitiva em standby"),
-          updateAgentStatus("agent-perf", "idle", "Aguardando nova campanha"),
-          updateAgentStatus("agent-sales", "idle", "Pipeline atualizado"),
-          updateAgentStatus("agent-strat", "thinking", "Estratégia de expansão"),
-        ]);
       } catch (err) {
+        await logEngineRun("site-investigation", targetUrl, "failed", { error: String(err) });
         sse(controller, { type: "error", message: String(err) });
       } finally {
         controller.close();

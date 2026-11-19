@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useEffect, useState, useCallback, Suspense, useMemo } from 'react'
+import Link from 'next/link'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, Text, Html } from '@react-three/drei'
 import * as THREE from 'three'
@@ -11,8 +12,9 @@ import { cn } from '@/lib/utils'
 // ============================================================
 // TYPES
 // ============================================================
-type AgentStatus = 'idle' | 'working' | 'meeting' | 'thinking' | 'offline'
+type AgentStatus = 'idle' | 'working' | 'thinking' | 'waiting_approval' | 'offline'
 type ViewMode = 'exterior' | 'dollhouse' | 'interior'
+type Connection = 'connecting' | 'live' | 'offline'
 
 interface Agent {
   id: string
@@ -20,11 +22,23 @@ interface Agent {
   role: string
   departmentId: string
   status: AgentStatus
-  currentMission?: string
+  currentTask: string | null
+  currentMission: string | null
   tasksCompleted: number
   tasksPending: number
   lastActivity: string[]
 }
+
+interface FeedItem {
+  id: string
+  agentName: string
+  role: string
+  departmentId: string
+  action: string
+  time: string
+}
+
+const VALID_STATUSES: AgentStatus[] = ['idle', 'working', 'thinking', 'waiting_approval', 'offline']
 
 // ============================================================
 // CONSTANTS
@@ -40,7 +54,8 @@ const DEPTS: DeptDef[] = [
   { id: 'web-dev',         name: 'Web Development',       floor: 1, color: '#3b82f6', side: 'left',  icon: '💻' },
   { id: 'data-analytics',  name: 'Data & Analytics',      floor: 1, color: '#a855f7', side: 'right', icon: '📊' },
   { id: 'sales',           name: 'Sales & CS',            floor: 2, color: '#06b6d4', side: 'full',  icon: '💼' },
-  { id: 'performance',     name: 'Performance Marketing', floor: 3, color: '#10b981', side: 'full',  icon: '📈' },
+  { id: 'performance',     name: 'Performance Marketing', floor: 3, color: '#10b981', side: 'left',  icon: '📈' },
+  { id: 'bto',             name: 'Business Transformation Office', floor: 3, color: '#38bdf8', side: 'right', icon: '⚙️' },
   { id: 'copywriting',     name: 'Copywriting',           floor: 4, color: '#f97316', side: 'left',  icon: '✍️' },
   { id: 'creative',        name: 'Creative Studio',       floor: 4, color: '#ef4444', side: 'right', icon: '🎨' },
   { id: 'bi',              name: 'Business Intelligence', floor: 5, color: '#6366f1', side: 'left',  icon: '🔭' },
@@ -49,215 +64,13 @@ const DEPTS: DeptDef[] = [
   { id: 'ceo',             name: 'CEO Office',            floor: 6, color: '#f59e0b', side: 'right', icon: '👑' },
 ]
 
-const FLOOR_NAMES = ['Mission Control', 'Operations', 'Commercial', 'Marketing', 'Creative', 'Intelligence', 'Executive']
+const FLOOR_NAMES = ['Mission Control', 'Operations', 'Commercial', 'Marketing & Transformação', 'Creative', 'Intelligence', 'Executive']
 
 const STATUS_COLOR: Record<AgentStatus, string> = {
-  idle: '#6b7280', working: '#22c55e', meeting: '#f59e0b', thinking: '#3b82f6', offline: '#374151',
+  idle: '#6b7280', working: '#22c55e', waiting_approval: '#f59e0b', thinking: '#3b82f6', offline: '#374151',
 }
 const STATUS_LABEL: Record<AgentStatus, string> = {
-  idle: 'Disponível', working: 'Trabalhando', meeting: 'Em reunião', thinking: 'Pensando', offline: 'Offline',
-}
-
-// ============================================================
-// AGENTES — NOMES PROFISSIONAIS REAIS POR FUNÇÃO
-// ============================================================
-const DEMO_AGENTS: Agent[] = [
-  {
-    id: 'agent-ceo', name: 'Aurora Mendes', role: 'CEO & Estrategista-chefe',
-    departmentId: 'ceo', status: 'working',
-    currentMission: 'Revisando estratégia de expansão Q1',
-    tasksCompleted: 47, tasksPending: 3,
-    lastActivity: ['Aprovou plano de entrada em 3 cidades', 'Revisou OKRs do trimestre', 'Alinhamento com squad executivo'],
-  },
-  {
-    id: 'agent-root', name: 'Luna', role: 'Root Master (IA Central)',
-    departmentId: 'root-master', status: 'thinking',
-    currentMission: 'Processando 3 missões simultâneas',
-    tasksCompleted: 112, tasksPending: 7,
-    lastActivity: ['Orquestrou diagnóstico de clínica', 'Despachou tasks para 4 agentes', 'Validou entregáveis do sprint'],
-  },
-  {
-    id: 'agent-bi', name: 'Marcos Andrade', role: 'Analista de BI',
-    departmentId: 'bi', status: 'working',
-    currentMission: 'Análise competitiva — mercado saúde SP',
-    tasksCompleted: 38, tasksPending: 2,
-    lastActivity: ['Mapeou 42 concorrentes em SP', 'Relatório de benchmark finalizado', 'Identificou gap de posicionamento'],
-  },
-  {
-    id: 'agent-copy1', name: 'Beatriz Carvalho', role: 'Copywriter Sênior',
-    departmentId: 'copywriting', status: 'working',
-    currentMission: 'VSL para Clínica Estética Renata',
-    tasksCompleted: 61, tasksPending: 4,
-    lastActivity: ['Escreveu hook de abertura impactante', 'Revisou email sequence pós-lead', 'Entregou landing page copy'],
-  },
-  {
-    id: 'agent-copy2', name: 'Rafael Nunes', role: 'Copywriter de Roteiros',
-    departmentId: 'copywriting', status: 'thinking',
-    currentMission: 'Revisando script para vídeo de vendas',
-    tasksCompleted: 29, tasksPending: 2,
-    lastActivity: ['Adaptou roteiro para formato reels', 'Pesquisou gatilhos emocionais saúde', 'Rascunhou CTA de alta conversão'],
-  },
-  {
-    id: 'agent-creative', name: 'Camila Dias', role: 'Diretora de Criação',
-    departmentId: 'creative', status: 'working',
-    currentMission: 'Identidade visual — cliente fitness',
-    tasksCompleted: 43, tasksPending: 3,
-    lastActivity: ['Criou paleta de cores da marca', 'Exportou 12 criativos para Meta Ads', 'Revisou brand book v2'],
-  },
-  {
-    id: 'agent-perf', name: 'Lucas Rodrigues', role: 'Gestor de Tráfego',
-    departmentId: 'performance', status: 'working',
-    currentMission: 'Meta Ads — ROAS 4.2x campanha ativa',
-    tasksCompleted: 85, tasksPending: 5,
-    lastActivity: ['Otimizou 3 conjuntos de anúncios', 'CPL reduzido em 18%', 'Escalonou campanha vencedora'],
-  },
-  {
-    id: 'agent-web', name: 'Pedro Alves', role: 'Desenvolvedor Full-Stack',
-    departmentId: 'web-dev', status: 'idle',
-    currentMission: undefined,
-    tasksCompleted: 52, tasksPending: 1,
-    lastActivity: ['Publicou landing page para clínica', 'Corrigiu bug em formulário de captação', 'Aguardando próxima task'],
-  },
-  {
-    id: 'agent-data', name: 'Ana Souza', role: 'Analista de Dados',
-    departmentId: 'data-analytics', status: 'working',
-    currentMission: 'Dashboard Q4 — análise de conversões',
-    tasksCompleted: 34, tasksPending: 2,
-    lastActivity: ['Conectou CRM ao data warehouse', 'Criou relatório de funil completo', 'Identificou gargalo em retenção'],
-  },
-  {
-    id: 'agent-sales', name: 'Rodrigo Castro', role: 'Head de Vendas',
-    departmentId: 'sales', status: 'meeting',
-    currentMission: 'Sprint semanal — 5 leads qualificados',
-    tasksCompleted: 21, tasksPending: 5,
-    lastActivity: ['Fechou contrato com clínica dermatológica', 'Qualificou 3 novos leads', 'Em reunião de alinhamento'],
-  },
-  {
-    id: 'agent-strat', name: 'Felipe Costa', role: 'Estrategista de Growth',
-    departmentId: 'strategy', status: 'meeting',
-    currentMission: 'Plano de crescimento — clínicas odonto',
-    tasksCompleted: 19, tasksPending: 4,
-    lastActivity: ['Mapeou jornada do cliente', 'Definiu OKRs de aquisição', 'Em reunião estratégica'],
-  },
-  {
-    id: 'agent-mc', name: 'Julia Ferreira', role: 'Coord. de Operações',
-    departmentId: 'mission-control', status: 'working',
-    currentMission: 'Monitorando 7 missões ativas em tempo real',
-    tasksCompleted: 94, tasksPending: 7,
-    lastActivity: ['Alerta: aprovação pendente para Clínica X', 'Coordenou entrega de relatório', 'Dashboard operacional atualizado'],
-  },
-]
-
-// ============================================================
-// SIMULAÇÃO AO VIVO — AÇÕES POR STATUS E DEPARTAMENTO
-// ============================================================
-const LIVE_ACTIONS: Record<string, Record<AgentStatus, string[]>> = {
-  'ceo': {
-    working: ['Revisando OKRs do trimestre', 'Aprovando estratégia de cliente', 'Avaliando performance da equipe', 'Definindo prioridades do sprint'],
-    thinking: ['Calculando ROI de nova campanha...', 'Analisando posicionamento...', 'Formulando estratégia de expansão...'],
-    meeting: ['Em reunião executiva', 'Alinhamento com board', 'Revisão de resultados com equipe'],
-    idle: ['Disponível para novas missões', 'Monitorando painel executivo', 'Aguardando briefing'],
-    offline: ['Offline'],
-  },
-  'root-master': {
-    working: ['Orquestrando missão crítica', 'Despachando tasks para agentes', 'Processando análise de cliente', 'Validando entregáveis'],
-    thinking: ['Calculando melhor estratégia...', 'Processando dados do cliente...', 'Avaliando próximo passo...'],
-    meeting: ['Briefing de nova missão', 'Revisão de operações com equipe'],
-    idle: ['Aguardando próxima missão', 'Monitorando sistema', 'Pronto para nova tarefa'],
-    offline: ['Offline'],
-  },
-  'bi': {
-    working: ['Analisando dados competitivos', 'Gerando relatório de mercado', 'Mapeando oportunidades', 'Processando pesquisa de benchmark'],
-    thinking: ['Cruzando dados de 3 fontes...', 'Identificando padrão nos dados...', 'Calculando market share...'],
-    meeting: ['Apresentando análise para equipe', 'Revisão de intelligence com CEO'],
-    idle: ['Aguardando próxima análise', 'Revisando dashboard'],
-    offline: ['Offline'],
-  },
-  'copywriting': {
-    working: ['Escrevendo VSL de alta conversão', 'Criando email sequence', 'Desenvolvendo copy para ads', 'Revisando headline principal'],
-    thinking: ['Formulando abertura impactante...', 'Pesquisando gatilhos emocionais...', 'Testando variações de CTA...'],
-    meeting: ['Briefing de novo projeto copy', 'Revisão de copy com cliente'],
-    idle: ['Aguardando próximo briefing', 'Revisando banco de swipe files'],
-    offline: ['Offline'],
-  },
-  'creative': {
-    working: ['Criando identidade visual', 'Desenvolvendo criativos para Meta Ads', 'Exportando assets para campanha', 'Revisando brand book'],
-    thinking: ['Explorando direções criativas...', 'Avaliando paleta de cores...', 'Refinando tipografia da marca...'],
-    meeting: ['Apresentação de criativo para cliente', 'Briefing de nova identidade'],
-    idle: ['Aguardando aprovação de arte', 'Organizando biblioteca de assets'],
-    offline: ['Offline'],
-  },
-  'performance': {
-    working: ['Otimizando campanha Meta Ads', 'Escalonando conjunto vencedor', 'Testando novos criativos', 'Analisando métricas de ROAS'],
-    thinking: ['Calculando bid ideal...', 'Analisando funil de conversão...', 'Avaliando segmentação de público...'],
-    meeting: ['Revisão semanal de performance', 'Briefing de nova campanha'],
-    idle: ['Monitorando campanhas ativas', 'Aguardando novos criativos'],
-    offline: ['Offline'],
-  },
-  'web-dev': {
-    working: ['Desenvolvendo landing page', 'Implementando integração de CRM', 'Corrigindo bug crítico', 'Publicando funil de vendas'],
-    thinking: ['Revisando arquitetura...', 'Analisando problema técnico...', 'Otimizando performance do site...'],
-    meeting: ['Revisão técnica com equipe', 'Alinhamento de requisitos'],
-    idle: ['Aguardando próxima task de dev', 'Revisando backlog técnico'],
-    offline: ['Offline'],
-  },
-  'data-analytics': {
-    working: ['Construindo dashboard de resultados', 'Analisando funil de conversão', 'Conectando fontes de dados', 'Gerando relatório semanal'],
-    thinking: ['Interpretando anomalia nos dados...', 'Calculando projeção de crescimento...', 'Validando modelo preditivo...'],
-    meeting: ['Apresentando insights para equipe', 'Revisão de métricas com gestores'],
-    idle: ['Monitorando alertas de dados', 'Aguardando novos dados'],
-    offline: ['Offline'],
-  },
-  'sales': {
-    working: ['Qualificando lead de clínica', 'Enviando proposta comercial', 'Fazendo follow-up estratégico', 'Atualizando pipeline de vendas'],
-    thinking: ['Formulando abordagem personalizada...', 'Analisando objeções do lead...', 'Calculando proposta ideal...'],
-    meeting: ['Em reunião de fechamento', 'Sprint semanal de vendas', 'Alinhamento com squad'],
-    idle: ['Monitorando leads no CRM', 'Aguardando próximo contato'],
-    offline: ['Offline'],
-  },
-  'strategy': {
-    working: ['Desenvolvendo plano de crescimento', 'Mapeando jornada do cliente', 'Definindo posicionamento', 'Revisando OKRs do cliente'],
-    thinking: ['Formulando estratégia de entrada...', 'Avaliando oportunidades de mercado...', 'Calculando potencial de expansão...'],
-    meeting: ['Sessão estratégica com equipe', 'Alinhamento de growth hacking'],
-    idle: ['Revisando playbook de estratégias', 'Monitorando resultados'],
-    offline: ['Offline'],
-  },
-  'mission-control': {
-    working: ['Coordenando missões ativas', 'Despachando alertas de aprovação', 'Monitorando entregáveis', 'Atualizando dashboard operacional'],
-    thinking: ['Avaliando prioridade das missões...', 'Verificando gargalos no pipeline...'],
-    meeting: ['Reunião de ops com líderes', 'Briefing de emergência'],
-    idle: ['Monitorando painel de controle', 'Todos os sistemas operacionais'],
-    offline: ['Offline'],
-  },
-}
-
-const DEFAULT_ACTIONS: Record<AgentStatus, string[]> = {
-  working: ['Executando task de alta prioridade', 'Desenvolvendo entregável', 'Processando análise'],
-  thinking: ['Avaliando melhor estratégia...', 'Calculando próximo passo...'],
-  meeting: ['Em reunião estratégica', 'Alinhamento com equipe'],
-  idle: ['Disponível para nova task', 'Monitorando sistema'],
-  offline: ['Offline'],
-}
-
-const STATUS_TRANSITIONS: Record<AgentStatus, Array<{ s: AgentStatus; w: number }>> = {
-  idle:     [{ s: 'working', w: 55 }, { s: 'thinking', w: 25 }, { s: 'meeting', w: 15 }, { s: 'idle', w: 5 }],
-  working:  [{ s: 'working', w: 40 }, { s: 'thinking', w: 22 }, { s: 'idle', w: 23 }, { s: 'meeting', w: 15 }],
-  thinking: [{ s: 'working', w: 55 }, { s: 'idle', w: 25 }, { s: 'meeting', w: 10 }, { s: 'thinking', w: 10 }],
-  meeting:  [{ s: 'working', w: 50 }, { s: 'idle', w: 30 }, { s: 'thinking', w: 10 }, { s: 'meeting', w: 10 }],
-  offline:  [{ s: 'offline', w: 100 }],
-}
-
-function pickNextStatus(current: AgentStatus): AgentStatus {
-  const opts = STATUS_TRANSITIONS[current] ?? STATUS_TRANSITIONS.idle
-  const total = opts.reduce((s, o) => s + o.w, 0)
-  let r = Math.random() * total
-  for (const o of opts) { r -= o.w; if (r <= 0) return o.s }
-  return opts[opts.length - 1].s
-}
-
-function pickLiveAction(deptId: string, status: AgentStatus): string {
-  const pool = LIVE_ACTIONS[deptId]?.[status] ?? DEFAULT_ACTIONS[status] ?? ['Executando task']
-  return pool[Math.floor(Math.random() * pool.length)]
+  idle: 'Disponível', working: 'Trabalhando', waiting_approval: 'Aguardando aprovação', thinking: 'Na fila', offline: 'Offline',
 }
 
 // ============================================================
@@ -285,51 +98,56 @@ const DEPT_CHAIRS: Record<string, Array<[number, number]>> = {
   'web-dev':         [[-10, -4.8], [-7, -4.8], [-10, -1.3]],
   'data-analytics':  [[4, -4.8], [7.5, -4.8], [4, -1.3]],
   'sales':           [[-8, -4.8], [-4, -4.8], [0, -4.8], [4, -4.8], [8, -4.8]],
-  'performance':     [[-7, -4.8], [-3.5, -4.8], [0, -4.8], [3.5, -4.8], [7, -4.8]],
+  'performance':     [[-10, -4.8], [-7, -4.8], [-10, -1.3]],
+  'bto':             [[4, -4.8], [7.5, -4.8], [4, -1.3]],
   'copywriting':     [[-10, -4.8], [-7, -4.8], [-10, -1.3]],
   'creative':        [[4, -4.8], [7.5, -4.8], [4, -1.3]],
   'bi':              [[-10, -4.8], [-7, -4.8], [-10, -1.3]],
   'strategy':        [[4, -4.8], [7.5, -3.3]],
   'root-master':     [[-10, -0.8], [-7, -0.8]],
-  'ceo':             [[8, -1.6]],
+  // 2º lugar: cadeira da mesa de reunião do CEO Office (LOTUS AI CEO)
+  'ceo':             [[8, -1.6], [7, 4]],
 }
 
-// Centro das mesas de reunião [x, z]
-const DEPT_MEETING_CENTERS: Record<string, [number, number]> = {
-  'mission-control': [0, -0.5],
-  'sales':           [0, 4.5],
-  'performance':     [0, 4.5],
-  'strategy':        [6, 3.5],
-  'ceo':             [5, 4],
-}
+interface AgentPlacement { pos: THREE.Vector3; seated: boolean }
 
-function getAgentWorldPos(agent: Agent): THREE.Vector3 {
+// Posição de cada agente calculada a partir da lista AO VIVO do seu departamento.
+// Quem tem cadeira senta; excedentes e quem está na fila/aguardando ficam em pé.
+function getAgentPlacement(agent: Agent, agents: Agent[]): AgentPlacement {
   const dept = DEPTS.find(d => d.id === agent.departmentId)
-  if (!dept) return new THREE.Vector3(0, getFloorY(0), 0)
-  const floorY = getFloorY(dept.floor)
-  const isSitting = agent.status === 'working' || agent.status === 'meeting'
-  // Y na altura da cadeira (floorY + 0.44) para animação sitting ficar correta
-  const seatY = floorY + (isSitting ? 0.44 : 0.1)
+  const peers = agents
+    .filter(a => a.departmentId === agent.departmentId)
+    .sort((a, b) => a.id.localeCompare(b.id))
+  const idx = Math.max(peers.findIndex(a => a.id === agent.id), 0)
 
-  if (agent.status === 'meeting') {
-    const mc = DEPT_MEETING_CENTERS[agent.departmentId]
-    if (mc) {
-      const deptAgents = DEMO_AGENTS.filter(a => a.departmentId === agent.departmentId && a.status === 'meeting')
-      const idx = deptAgents.findIndex(a => a.id === agent.id)
-      const ang = (idx / Math.max(deptAgents.length, 1)) * Math.PI * 2
-      return new THREE.Vector3(mc[0] + Math.cos(ang) * 2.0, seatY, mc[1] + Math.sin(ang) * 2.0)
+  if (!dept) {
+    // Departamento sem sala: fica em pé no lobby do térreo
+    return {
+      pos: new THREE.Vector3(-9 + (idx % 10) * 2, getFloorY(0) + 0.1, 6.2 - Math.floor(idx / 10) * 1.3),
+      seated: false,
     }
   }
 
-  const chairs = DEPT_CHAIRS[agent.departmentId]
-  if (chairs) {
-    const deptAgents = DEMO_AGENTS.filter(a => a.departmentId === agent.departmentId)
-    const idx = deptAgents.findIndex(a => a.id === agent.id)
-    const pos = chairs[Math.min(idx, chairs.length - 1)]
-    return new THREE.Vector3(pos[0], seatY, pos[1])
+  const floorY = getFloorY(dept.floor)
+  const chairs = DEPT_CHAIRS[dept.id] ?? []
+
+  if (idx < chairs.length) {
+    const [cx, cz] = chairs[idx]
+    const seated = agent.status === 'idle' || agent.status === 'working'
+    // Em pé: um passo atrás da cadeira para não atravessar o móvel
+    return { pos: new THREE.Vector3(cx, floorY + (seated ? 0.44 : 0.1), seated ? cz : cz + 0.9), seated }
   }
 
-  return new THREE.Vector3(0, floorY, 0)
+  // Mais agentes que cadeiras: distribui em pé na área livre da sala, sem sobrepor
+  const extra = idx - chairs.length
+  const xOff = dept.side === 'full' ? 0 : dept.side === 'left' ? -6 : 6
+  const perRow = dept.side === 'full' ? 8 : 4
+  const col = extra % perRow
+  const row = Math.floor(extra / perRow)
+  return {
+    pos: new THREE.Vector3(xOff + (col - (perRow - 1) / 2) * 1.5, floorY + 0.1, 1.6 + row * 1.3),
+    seated: false,
+  }
 }
 
 // ============================================================
@@ -668,7 +486,7 @@ function LightFixture({ pos, color = '#fffde0' }: { pos: [number, number, number
 // Cor de tela por departamento
 const SCREEN_COLORS: Record<string, string> = {
   'mission-control': '#00e676', 'web-dev': '#0a84ff', 'data-analytics': '#c678ff',
-  'sales': '#00e5ff', 'performance': '#00e676', 'copywriting': '#ff9a3c',
+  'sales': '#00e5ff', 'performance': '#00e676', 'bto': '#38bdf8', 'copywriting': '#ff9a3c',
   'creative': '#ff5a5a', 'bi': '#4d7cff', 'strategy': '#9d6cff',
   'root-master': '#ff79c6', 'ceo': '#ffc107',
 }
@@ -738,18 +556,35 @@ function DeptFurniture({ dept, bx, by }: { dept: DeptDef; bx: number; by: number
 
     case 'performance':
       return <>
-        {[-7, -3.5, 0, 3.5, 7].map((x, i) => (
-          <group key={i}>
-            <Desk pos={[bx + x, by, -5.5]} screenColor={sc} />
-            <Chair pos={[bx + x, by, -4.8]} rot={Math.PI} />
-          </group>
+        <Desk pos={[bx - 10, by, -5.5]} screenColor={sc} />
+        <Chair pos={[bx - 10, by, -4.8]} rot={Math.PI} />
+        <Desk pos={[bx - 7, by, -5.5]} screenColor={sc} />
+        <Chair pos={[bx - 7, by, -4.8]} rot={Math.PI} />
+        <Desk pos={[bx - 10, by, -2]} screenColor={sc} />
+        <Chair pos={[bx - 10, by, -1.3]} rot={Math.PI} />
+        <Whiteboard pos={[bx - 9, by + 2.2, BD / 2 - 0.6]} color="#08200e" />
+        <Whiteboard pos={[bx - 5, by + 2.2, BD / 2 - 0.6]} color="#08200e" />
+        <MeetingTable pos={[bx - 5, by, 3.8]} />
+        {[0, 90, 180, 270].map((a, i) => (
+          <Chair key={i} pos={[bx - 5 + Math.cos(a * Math.PI / 180) * 2, by, 3.8 + Math.sin(a * Math.PI / 180) * 2]} />
         ))}
-        {[-6, 0, 6].map(x => <Whiteboard key={x} pos={[bx + x, by + 2.2, BD / 2 - 0.6]} color="#08200e" />)}
-        <MeetingTable pos={[bx, by, 4.5]} />
-        {[0, 60, 120, 180, 240, 300].map((a, i) => (
-          <Chair key={i} pos={[bx + Math.cos(a * Math.PI / 180) * 2.2, by, 4.5 + Math.sin(a * Math.PI / 180) * 2.2]} />
-        ))}
-        <Plant pos={[bx - 10.5, by, 6]} />
+        <Plant pos={[bx - 11.5, by, 6]} />
+      </>
+
+    case 'bto':
+      return <>
+        <Desk pos={[bx + 4, by, -5.5]} screenColor={sc} />
+        <Chair pos={[bx + 4, by, -4.8]} rot={Math.PI} />
+        <Desk pos={[bx + 7.5, by, -5.5]} screenColor={sc} />
+        <Chair pos={[bx + 7.5, by, -4.8]} rot={Math.PI} />
+        <Desk pos={[bx + 4, by, -2]} screenColor={sc} />
+        <Chair pos={[bx + 4, by, -1.3]} rot={Math.PI} />
+        <ServerRack pos={[bx + 11, by, -5]} />
+        <Whiteboard pos={[bx + 4.5, by + 2.2, BD / 2 - 0.6]} color="#04202e" />
+        <Whiteboard pos={[bx + 8.5, by + 2.2, BD / 2 - 0.6]} color="#04202e" />
+        <Sofa pos={[bx + 10, by, 3.5]} rot={-Math.PI / 2} />
+        <Plant pos={[bx + 10.5, by, 6]} />
+        <Plant pos={[bx + 2.5, by, 6]} />
       </>
 
     case 'copywriting':
@@ -856,7 +691,7 @@ function DeptRoom({ dept, floorY }: { dept: DeptDef; floorY: number }) {
   // PISO — tint suave da cor do dept (40% saturação)
   const floorColor = ({
     'mission-control': '#123820', 'web-dev': '#0e1e52', 'data-analytics': '#220854',
-    'sales': '#0c3e3e', 'performance': '#0a3020', 'copywriting': '#3e1808',
+    'sales': '#0c3e3e', 'performance': '#0a3020', 'bto': '#0a2c44', 'copywriting': '#3e1808',
     'creative': '#3e0a1a', 'bi': '#080e52', 'strategy': '#120452',
     'root-master': '#320054', 'ceo': '#3e2206',
   } as Record<string, string>)[dept.id] ?? '#10103e'
@@ -864,7 +699,7 @@ function DeptRoom({ dept, floorY }: { dept: DeptDef; floorY: number }) {
   // PAREDE — 50% da cor do dept, bem saturada e claramente colorida
   const wallColor = ({
     'mission-control': '#145a2c', 'web-dev': '#1a4d8a', 'data-analytics': '#4a2070',
-    'sales': '#065a62', 'performance': '#0a5038', 'copywriting': '#6a3010',
+    'sales': '#065a62', 'performance': '#0a5038', 'bto': '#0e4a70', 'copywriting': '#6a3010',
     'creative': '#6a2020', 'bi': '#2c2e70', 'strategy': '#3e2870',
     'root-master': '#6a2244', 'ceo': '#6a4408',
   } as Record<string, string>)[dept.id] ?? '#181868'
@@ -872,7 +707,7 @@ function DeptRoom({ dept, floorY }: { dept: DeptDef; floorY: number }) {
   // TAPETE — 60% da cor do dept, mais saturado que o piso
   const rugColor = ({
     'mission-control': '#186634', 'web-dev': '#1e58a0', 'data-analytics': '#562680',
-    'sales': '#086e78', 'performance': '#0c5e44', 'copywriting': '#7a3814',
+    'sales': '#086e78', 'performance': '#0c5e44', 'bto': '#125c8a', 'copywriting': '#7a3814',
     'creative': '#7a2828', 'bi': '#323880', 'strategy': '#483282',
     'root-master': '#7c284e', 'ceo': '#7c5010',
   } as Record<string, string>)[dept.id] ?? '#1e1e78'
@@ -957,11 +792,12 @@ function DeptRoom({ dept, floorY }: { dept: DeptDef; floorY: number }) {
 interface CharProps {
   agent: Agent
   targetPos: THREE.Vector3
+  seated: boolean
   onSelect: (a: Agent) => void
   selected: boolean
 }
 
-function Character3D({ agent, targetPos, onSelect, selected }: CharProps) {
+function Character3D({ agent, targetPos, seated, onSelect, selected }: CharProps) {
   const root = useRef<THREE.Group>(null!)
   const head = useRef<THREE.Mesh>(null!)
   const lArmGroup = useRef<THREE.Group>(null!)
@@ -978,9 +814,10 @@ function Character3D({ agent, targetPos, onSelect, selected }: CharProps) {
   const shirt = useMemo(() => getDeptColor(agent.departmentId), [agent.departmentId])
   const statusC = STATUS_COLOR[agent.status]
 
-  // Agent sits at desk if their department has chairs AND they aren't offline/thinking
-  const hasDesk = !!DEPT_CHAIRS[agent.departmentId]
-  const isSitting = hasDesk && agent.status !== 'offline' && agent.status !== 'thinking'
+  // Senta apenas quem tem cadeira própria e está disponível/trabalhando (definido pelo placement)
+  const isSitting = seated
+  // Na fila ou aguardando aprovação: em pé, animação de "pensando"
+  const isPondering = agent.status === 'thinking' || agent.status === 'waiting_approval'
 
   useFrame(state => {
     if (!root.current) return
@@ -1035,7 +872,7 @@ function Character3D({ agent, targetPos, onSelect, selected }: CharProps) {
       if (lLegGroup.current) lLegGroup.current.rotation.x = THREE.MathUtils.lerp(lLegGroup.current.rotation.x, 0, 0.06)
       if (rLegGroup.current) rLegGroup.current.rotation.x = THREE.MathUtils.lerp(rLegGroup.current.rotation.x, 0, 0.06)
 
-      if (agent.status === 'thinking') {
+      if (isPondering) {
         if (head.current) head.current.rotation.y = Math.sin(t * 2.3) * 0.42
         if (rArmGroup.current) rArmGroup.current.rotation.x = THREE.MathUtils.lerp(rArmGroup.current.rotation.x, -0.9, 0.05)
         root.current.rotation.y = Math.sin(t * 0.38) * 0.12
@@ -1167,10 +1004,10 @@ function Character3D({ agent, targetPos, onSelect, selected }: CharProps) {
             <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: statusC, flexShrink: 0, boxShadow: `0 0 4px ${statusC}` }} />
             <span style={{ fontSize: '9px', color: statusC, fontWeight: 600 }}>{STATUS_LABEL[agent.status]}</span>
           </span>
-          {/* Missão atual */}
-          {agent.currentMission && (
+          {/* Tarefa atual (real) */}
+          {agent.currentTask && (
             <span style={{ display: 'block', fontSize: '9px', color: '#d1d5db', fontWeight: 400, marginTop: '2px', opacity: 0.9, whiteSpace: 'normal', lineHeight: 1.3 }}>
-              {agent.currentMission.length > 40 ? agent.currentMission.slice(0, 40) + '…' : agent.currentMission}
+              {agent.currentTask.length > 40 ? agent.currentTask.slice(0, 40) + '…' : agent.currentTask}
             </span>
           )}
         </div>
@@ -1305,11 +1142,13 @@ function Building({ viewMode, activeFloor, agents, selectedAgent, onSelectAgent 
         const floorLevel = dept?.floor ?? 0
         const show = activeFloor === null || activeFloor === floorLevel
         if (!show) return null
+        const placement = getAgentPlacement(agent, agents)
         return (
           <Character3D
             key={agent.id}
             agent={agent}
-            targetPos={getAgentWorldPos(agent)}
+            targetPos={placement.pos}
+            seated={placement.seated}
             onSelect={onSelectAgent}
             selected={selectedAgent?.id === agent.id}
           />
@@ -1435,11 +1274,20 @@ function AgentPanel({ agent, onClose }: { agent: Agent; onClose: () => void }) {
             <div className="w-2.5 h-2.5 rounded-full" style={{ background: STATUS_COLOR[agent.status], boxShadow: `0 0 6px ${STATUS_COLOR[agent.status]}` }} />
             <span className="text-sm font-medium text-white">{STATUS_LABEL[agent.status]}</span>
           </div>
+          {agent.currentTask && (
+            <div className="mt-2 p-2.5 rounded-lg bg-white/5 border border-white/5">
+              <p className="text-xs text-white/35 mb-1">{agent.status === 'working' ? 'Tarefa em execução' : 'Próxima tarefa'}</p>
+              <p className="text-xs text-white/75">{agent.currentTask}</p>
+            </div>
+          )}
           {agent.currentMission && (
             <div className="mt-2 p-2.5 rounded-lg bg-white/5 border border-white/5">
-              <p className="text-xs text-white/35 mb-1">Missão atual</p>
+              <p className="text-xs text-white/35 mb-1">Missão</p>
               <p className="text-xs text-white/75">{agent.currentMission}</p>
             </div>
+          )}
+          {!agent.currentTask && agent.status === 'idle' && (
+            <p className="mt-2 text-xs text-white/35">Sem tarefa atribuída no momento.</p>
           )}
         </div>
 
@@ -1455,6 +1303,9 @@ function AgentPanel({ agent, onClose }: { agent: Agent; onClose: () => void }) {
         <div className="p-4 flex-1">
           <p className="text-xs font-semibold text-white/35 uppercase tracking-wider mb-2.5">Atividade recente</p>
           <div className="space-y-2">
+            {agent.lastActivity.length === 0 && (
+              <p className="text-xs text-white/30">Sem atividade registrada</p>
+            )}
             {agent.lastActivity.map((a, i) => (
               <div key={i} className="flex gap-2 items-start">
                 <div className="w-1.5 h-1.5 rounded-full bg-white/20 mt-1.5 shrink-0" />
@@ -1465,11 +1316,11 @@ function AgentPanel({ agent, onClose }: { agent: Agent; onClose: () => void }) {
         </div>
 
         <div className="p-4 pt-0">
-          <button className="w-full py-2.5 rounded-lg text-sm font-semibold text-white transition-all hover:opacity-90 flex items-center justify-center gap-2"
+          <Link href="/ceo" className="w-full py-2.5 rounded-lg text-sm font-semibold text-white transition-all hover:opacity-90 flex items-center justify-center gap-2"
             style={{ background: c }}>
             <MessageCircle size={15} />
             Falar com {agent.name.split(' ')[0]}
-          </button>
+          </Link>
         </div>
       </div>
     </motion.div>
@@ -1526,13 +1377,18 @@ function ViewToggle({ mode, onChange }: { mode: ViewMode; onChange: (m: ViewMode
 // ============================================================
 // UI — BARRA SUPERIOR
 // ============================================================
-function TopBar({ agents, connected }: { agents: Agent[]; connected: boolean }) {
+function TopBar({ agents, connection }: { agents: Agent[]; connection: Connection }) {
   const counts = {
     working: agents.filter(a => a.status === 'working').length,
-    meeting: agents.filter(a => a.status === 'meeting').length,
+    waiting: agents.filter(a => a.status === 'waiting_approval').length,
     thinking: agents.filter(a => a.status === 'thinking').length,
     idle: agents.filter(a => a.status === 'idle').length,
   }
+  const conn = {
+    live: { dot: 'bg-green-400', label: 'Live' },
+    connecting: { dot: 'bg-amber-400 animate-pulse', label: 'Conectando…' },
+    offline: { dot: 'bg-red-500', label: 'Sem conexão' },
+  }[connection]
   return (
     <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-3 bg-black/70 backdrop-blur-sm border-b border-white/5 pointer-events-auto">
       <div className="flex items-center gap-3">
@@ -1545,8 +1401,8 @@ function TopBar({ agents, connected }: { agents: Agent[]; connected: boolean }) 
       <div className="flex items-center gap-4">
         {[
           ['Trabalhando', counts.working, '#22c55e'],
-          ['Reunião', counts.meeting, '#f59e0b'],
-          ['Pensando', counts.thinking, '#3b82f6'],
+          ['Aguardando aprovação', counts.waiting, '#f59e0b'],
+          ['Na fila', counts.thinking, '#3b82f6'],
           ['Livre', counts.idle, '#6b7280'],
         ].map(([lbl, cnt, col]) => (
           <div key={lbl as string} className="flex items-center gap-1.5">
@@ -1555,8 +1411,8 @@ function TopBar({ agents, connected }: { agents: Agent[]; connected: boolean }) 
           </div>
         ))}
         <div className="flex items-center gap-1.5 ml-2">
-          <div className={cn('w-2 h-2 rounded-full', connected ? 'bg-green-400' : 'bg-gray-600')} />
-          <span className="text-xs text-white/35">{connected ? 'Live' : 'Demo'}</span>
+          <div className={cn('w-2 h-2 rounded-full', conn.dot)} />
+          <span className={cn('text-xs', connection === 'offline' ? 'text-red-400' : 'text-white/35')}>{conn.label}</span>
         </div>
       </div>
     </div>
@@ -1577,25 +1433,6 @@ function ControlsHint() {
 // ACTIVITY FEED + AGENCY EVALUATION
 // ============================================================
 
-type FeedEvent = {
-  id: number
-  agentName: string
-  role: string
-  deptId: string
-  action: string
-  color: string
-  time: string
-}
-
-const ALL_FEED_EVENTS: Omit<FeedEvent, 'id' | 'time'>[] = DEMO_AGENTS.flatMap(agent =>
-  agent.lastActivity.map(action => ({
-    agentName: agent.name.split(' ')[0],
-    role: agent.role,
-    deptId: agent.departmentId,
-    action,
-    color: getDeptColor(agent.departmentId),
-  }))
-)
 
 const MISSING_ROLES = [
   { role: 'PR & Relações Públicas', icon: '📣' },
@@ -1611,11 +1448,16 @@ const MISSING_ROLES = [
   { role: 'WhatsApp / CRM', icon: '💬' },
 ]
 
-function getTimeStr() {
-  return new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+function formatFeedTime(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const sameDay = d.toDateString() === new Date().toDateString()
+  return sameDay
+    ? d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
-function ActivityFeed({ events, onClose }: { events: FeedEvent[]; onClose: () => void }) {
+function ActivityFeed({ events, onClose }: { events: FeedItem[]; onClose: () => void }) {
   return (
     <motion.div
       initial={{ x: -300, opacity: 0 }}
@@ -1629,35 +1471,41 @@ function ActivityFeed({ events, onClose }: { events: FeedEvent[]; onClose: () =>
         <div className="p-3 border-b border-white/5 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-[11px] font-semibold text-white/60 uppercase tracking-wider">Feed ao Vivo</span>
+            <span className="text-[11px] font-semibold text-white/60 uppercase tracking-wider">Atividade real</span>
           </div>
           <button onClick={onClose} className="text-white/30 hover:text-white/80 transition-colors"><X size={13} /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+          {events.length === 0 && (
+            <p className="text-[11px] text-white/30 text-center py-6 px-2">Nenhuma atividade registrada ainda.</p>
+          )}
           <AnimatePresence initial={false}>
-            {events.map(ev => (
-              <motion.div
-                key={ev.id}
-                initial={{ opacity: 0, x: -12, height: 0 }}
-                animate={{ opacity: 1, x: 0, height: 'auto' }}
-                transition={{ duration: 0.2 }}
-                className="flex gap-2 p-2 rounded-lg bg-white/4 border border-white/5"
-              >
-                <div
-                  className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5"
-                  style={{ background: `${ev.color}25`, color: ev.color }}
+            {events.map(ev => {
+              const color = getDeptColor(ev.departmentId)
+              return (
+                <motion.div
+                  key={ev.id}
+                  initial={{ opacity: 0, x: -12, height: 0 }}
+                  animate={{ opacity: 1, x: 0, height: 'auto' }}
+                  transition={{ duration: 0.2 }}
+                  className="flex gap-2 p-2 rounded-lg bg-white/4 border border-white/5"
                 >
-                  {ev.agentName.charAt(0)}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="text-[11px] font-semibold text-white/75 truncate">{ev.agentName}</span>
-                    <span className="text-[9px] text-white/22 flex-shrink-0">{ev.time}</span>
+                  <div
+                    className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5"
+                    style={{ background: `${color}25`, color }}
+                  >
+                    {ev.agentName.charAt(0)}
                   </div>
-                  <p className="text-[10px] text-white/40 mt-0.5 leading-snug line-clamp-2">{ev.action}</p>
-                </div>
-              </motion.div>
-            ))}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-[11px] font-semibold text-white/75 truncate">{ev.agentName.split(' ')[0]}</span>
+                      <span className="text-[9px] text-white/22 flex-shrink-0">{formatFeedTime(ev.time)}</span>
+                    </div>
+                    <p className="text-[10px] text-white/40 mt-0.5 leading-snug line-clamp-2">{ev.action}</p>
+                  </div>
+                </motion.div>
+              )
+            })}
           </AnimatePresence>
         </div>
       </div>
@@ -1665,8 +1513,9 @@ function ActivityFeed({ events, onClose }: { events: FeedEvent[]; onClose: () =>
   )
 }
 
-function AgencyEvalPanel({ onClose }: { onClose: () => void }) {
-  const coverage = Math.round((DEMO_AGENTS.length / (DEMO_AGENTS.length + MISSING_ROLES.length)) * 100)
+function AgencyEvalPanel({ agents, onClose }: { agents: Agent[]; onClose: () => void }) {
+  const hired = agents.filter(a => a.status !== 'offline')
+  const coverage = hired.length === 0 ? 0 : Math.round((hired.length / (hired.length + MISSING_ROLES.length)) * 100)
   return (
     <motion.div
       initial={{ y: 32, opacity: 0 }}
@@ -1695,11 +1544,11 @@ function AgencyEvalPanel({ onClose }: { onClose: () => void }) {
           <div className="grid grid-cols-2 gap-6">
             <div>
               <p className="text-[10px] font-semibold text-green-400 uppercase tracking-wider mb-2">
-                ✅ Contratado — {DEMO_AGENTS.length} agentes
+                ✅ Contratado — {hired.length} agentes
               </p>
               <div className="space-y-1">
-                {DEMO_AGENTS.map((a, i) => (
-                  <div key={i} className="flex items-center gap-1.5 py-0.5 border-b border-white/4 last:border-0">
+                {hired.map(a => (
+                  <div key={a.id} className="flex items-center gap-1.5 py-0.5 border-b border-white/4 last:border-0">
                     <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: getDeptColor(a.departmentId) }} />
                     <span className="text-[11px] text-white/55 truncate">{a.role}</span>
                   </div>
@@ -1730,123 +1579,71 @@ function AgencyEvalPanel({ onClose }: { onClose: () => void }) {
 // EXPORT PRINCIPAL
 // ============================================================
 export function LotusHQ3D() {
-  const [agents, setAgents] = useState<Agent[]>(DEMO_AGENTS)
-  const [selected, setSelected] = useState<Agent | null>(null)
+  const [agents, setAgents] = useState<Agent[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>('exterior')
   const [activeFloor, setActiveFloor] = useState<number | null>(null)
-  const [connected, setConnected] = useState(false)
+  const [connection, setConnection] = useState<Connection>('connecting')
   const [showFeed, setShowFeed] = useState(false)
   const [showEval, setShowEval] = useState(false)
-  const [feedEvents, setFeedEvents] = useState<FeedEvent[]>([])
-  const eventCounterRef = useRef(0)
-  const feedIndexRef = useRef(0)
-  const agentsRef = useRef<Agent[]>(DEMO_AGENTS)
+  const [feedEvents, setFeedEvents] = useState<FeedItem[]>([])
+  const snapshotRef = useRef('')
 
-  // Prime activity feed and cycle every 2.5s
-  useEffect(() => {
-    const initial = ALL_FEED_EVENTS.slice(0, 8).map((ev, i) => ({ ...ev, id: i, time: getTimeStr() }))
-    setFeedEvents(initial)
-    eventCounterRef.current = 8
-    feedIndexRef.current = 8
-    const timer = setInterval(() => {
-      const ev = ALL_FEED_EVENTS[feedIndexRef.current % ALL_FEED_EVENTS.length]
-      feedIndexRef.current++
-      setFeedEvents(prev => [{ ...ev, id: eventCounterRef.current++, time: getTimeStr() }, ...prev.slice(0, 24)])
-    }, 2500)
-    return () => clearInterval(timer)
-  }, [])
-
-  // Poll real DB agent states and merge into DEMO_AGENTS (preserves 3D positions/roles)
+  // Estado REAL: agentes e atividade vêm do banco via /api/hq/agents (poll a cada 5s).
+  // Nenhum dado é simulado — se a API falhar, o HQ mostra "Sem conexão".
   useEffect(() => {
     let cancelled = false
 
     const pollAgents = async () => {
       try {
-        const res = await fetch('/api/hq/agents')
-        if (!res.ok) return
-        const data = await res.json() as { agents: Array<{ id: string; name: string; status: string; department: string; tasksCompleted: number; tasksTotal: number; currentTask: string | null; currentMission: string | null }> }
+        const res = await fetch('/api/hq/agents', { cache: 'no-store' })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const data = await res.json() as {
+          agents?: Array<Omit<Agent, 'status'> & { status: string }>
+          feed?: FeedItem[]
+        }
         if (cancelled) return
+        if (!Array.isArray(data.agents)) throw new Error('Resposta inválida')
 
-        setConnected(true)
-        setAgents(prev => {
-          // Merge real statuses into existing agent list by department
-          const dbByDept = new Map(data.agents.map(a => [a.department?.toLowerCase(), a]))
-          return prev.map(a => {
-            // Try to match by department ID
-            const dbAgent = dbByDept.get(a.departmentId)
-            if (!dbAgent) return a
-            const dbStatus = dbAgent.status as AgentStatus
-            const validStatuses: AgentStatus[] = ['idle', 'working', 'meeting', 'thinking', 'offline']
-            return {
-              ...a,
-              status: validStatuses.includes(dbStatus) ? dbStatus : a.status,
-              tasksCompleted: dbAgent.tasksCompleted ?? a.tasksCompleted,
-              currentMission: dbAgent.currentMission ?? dbAgent.currentTask ?? a.currentMission,
-            }
-          })
-        })
+        const live: Agent[] = data.agents.map(a => ({
+          id: a.id,
+          name: a.name,
+          role: a.role,
+          departmentId: a.departmentId,
+          status: VALID_STATUSES.includes(a.status as AgentStatus) ? (a.status as AgentStatus) : 'idle',
+          currentTask: a.currentTask ?? null,
+          currentMission: a.currentMission ?? null,
+          tasksCompleted: a.tasksCompleted ?? 0,
+          tasksPending: a.tasksPending ?? 0,
+          lastActivity: Array.isArray(a.lastActivity) ? a.lastActivity : [],
+        }))
+        const feed = Array.isArray(data.feed) ? data.feed : []
+
+        // Só atualiza o estado (e re-renderiza a cena) quando algo mudou de fato
+        const snapshot = JSON.stringify([live, feed])
+        if (snapshot !== snapshotRef.current) {
+          snapshotRef.current = snapshot
+          setAgents(live)
+          setFeedEvents(feed)
+        }
+        setConnection('live')
       } catch {
-        // Keep demo data on error — don't break the 3D scene
-        setConnected(false)
+        if (!cancelled) setConnection('offline')
       }
     }
 
     pollAgents()
-    const timer = setInterval(pollAgents, 15000)
+    const timer = setInterval(pollAgents, 5000)
     return () => { cancelled = true; clearInterval(timer) }
   }, [])
 
-  // Keep agentsRef in sync so the simulation loop never has stale state
-  useEffect(() => { agentsRef.current = agents }, [agents])
-
-  // ======= LIVE SIMULATION LOOP — agents mudam status a cada 3s =======
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const current = agentsRef.current
-      const updated = [...current]
-      const newFeedItems: Array<Omit<FeedEvent, 'id'>> = []
-      let hasChanges = false
-
-      for (let i = 0; i < updated.length; i++) {
-        const agent = updated[i]
-        if (agent.status === 'offline') continue
-        if (Math.random() > 0.22) continue // ~22% chance por agente por tick
-
-        const newStatus = pickNextStatus(agent.status)
-        if (newStatus === agent.status) continue
-
-        const action = pickLiveAction(agent.departmentId, newStatus)
-        updated[i] = {
-          ...agent,
-          status: newStatus,
-          currentMission: newStatus !== 'idle' ? action : agent.currentMission,
-        }
-        hasChanges = true
-        newFeedItems.push({
-          agentName: agent.name.split(' ')[0],
-          role: agent.role,
-          deptId: agent.departmentId,
-          action,
-          color: getDeptColor(agent.departmentId),
-          time: getTimeStr(),
-        })
-      }
-
-      if (hasChanges) {
-        setAgents(updated)
-        if (newFeedItems.length > 0) {
-          setFeedEvents(prev => [
-            ...newFeedItems.map(ev => ({ ...ev, id: eventCounterRef.current++ })),
-            ...prev.slice(0, 24),
-          ])
-        }
-      }
-    }, 3000)
-    return () => clearInterval(timer)
-  }, [])
+  const selected = useMemo(
+    () => agents.find(a => a.id === selectedId) ?? null,
+    [agents, selectedId]
+  )
 
   const handleSelect = useCallback((a: Agent) => {
-    setSelected(p => p?.id === a.id ? null : a)
+    setSelectedId(p => p === a.id ? null : a.id)
   }, [])
 
   // Ao entrar no modo interior sem andar selecionado, auto-seleciona andar 0
@@ -1859,14 +1656,14 @@ export function LotusHQ3D() {
 
   return (
     <div className="absolute inset-0 bg-[#060614]">
-      <TopBar agents={agents} connected={connected} />
+      <TopBar agents={agents} connection={connection} />
       <Canvas
         shadows
         dpr={[1, 1.5]}
         performance={{ min: 0.5 }}
         camera={{ position: [24, 24, 24], fov: 45, near: 0.1, far: 500 }}
         style={{ position: 'absolute', inset: 0 }}
-        onPointerMissed={() => setSelected(null)}
+        onPointerMissed={() => setSelectedId(null)}
       >
         <Suspense fallback={null}>
           <Scene
@@ -1884,6 +1681,17 @@ export function LotusHQ3D() {
         <FloorSelector active={activeFloor} onChange={setActiveFloor} />
         <ViewToggle mode={viewMode} onChange={handleViewChange} />
         <ControlsHint />
+
+        {connection === 'offline' && (
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 px-4 py-2 rounded-lg bg-red-500/15 border border-red-500/40 text-red-300 text-xs font-medium">
+            Sem conexão com o banco — {agents.length > 0 ? 'exibindo o último estado real recebido' : 'nenhum agente carregado'}
+          </div>
+        )}
+        {connection === 'live' && agents.length === 0 && (
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 px-4 py-2 rounded-lg bg-black/70 border border-white/10 text-white/60 text-xs">
+            Nenhum agente cadastrado no banco.
+          </div>
+        )}
 
         {/* Feed + Eval toggle buttons */}
         <div className="absolute bottom-4 left-16 flex gap-2 pointer-events-auto z-20">
@@ -1913,8 +1721,8 @@ export function LotusHQ3D() {
 
         <AnimatePresence>
           {showFeed && <ActivityFeed events={feedEvents} onClose={() => setShowFeed(false)} />}
-          {showEval && <AgencyEvalPanel onClose={() => setShowEval(false)} />}
-          {selected && <AgentPanel agent={selected} onClose={() => setSelected(null)} />}
+          {showEval && <AgencyEvalPanel agents={agents} onClose={() => setShowEval(false)} />}
+          {selected && <AgentPanel agent={selected} onClose={() => setSelectedId(null)} />}
         </AnimatePresence>
       </div>
     </div>

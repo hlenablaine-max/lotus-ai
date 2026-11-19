@@ -14,13 +14,13 @@ interface Metrics {
   documents: number;
   agents: number;
   pendingApprovals: number;
-  successRate: number;
+  successRate: number | null;
   recentActivity: Array<{
     id: string;
     action: string;
     level: string;
     createdAt: string;
-    details: Record<string, unknown>;
+    details: Record<string, unknown> | null;
     mission?: { title: string; client: { name: string } };
   }>;
 }
@@ -69,6 +69,24 @@ const ACTION_LABELS: Record<string, string> = {
   CLIENT_CREATED: "Cliente criado",
 };
 
+const ENGINE_OUTCOME: Record<string, string> = {
+  STARTED: "iniciado",
+  COMPLETED: "concluído",
+  DEMO: "respondeu com dados de demonstração",
+  FAILED: "falhou",
+};
+
+function describeAction(action: string, details: Record<string, unknown> | null): string {
+  if (ACTION_LABELS[action]) return ACTION_LABELS[action];
+  const m = action.match(/^ENGINE_(.+)_(STARTED|COMPLETED|DEMO|FAILED)$/);
+  if (m) {
+    const engine = m[1].toLowerCase().replace(/_/g, " ");
+    const client = typeof details?.clientName === "string" && details.clientName ? ` — ${details.clientName}` : "";
+    return `Motor ${engine} ${ENGINE_OUTCOME[m[2]]}${client}`;
+  }
+  return action;
+}
+
 export default function MetricsPage() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [loading, setLoading] = useState(true);
@@ -77,14 +95,15 @@ export default function MetricsPage() {
   const fetchMetrics = async () => {
     setLoading(true);
     try {
-      const [metricsRes, runtimeRes] = await Promise.all([
-        fetch("/api/metrics"),
-        fetch("/api/runtime/proxy"),
-      ]);
-      const m = await metricsRes.json();
-      const r = await runtimeRes.json();
-      setMetrics(m);
-      setRuntimeAvailable(r.available ?? false);
+      // The runtime check must never hide the metrics (and vice versa)
+      fetch("/api/runtime/proxy")
+        .then((r) => (r.ok ? r.json() : { available: false }))
+        .then((r) => setRuntimeAvailable(r.available ?? false))
+        .catch(() => setRuntimeAvailable(false));
+
+      const metricsRes = await fetch("/api/metrics");
+      if (!metricsRes.ok) throw new Error(`HTTP ${metricsRes.status}`);
+      setMetrics(await metricsRes.json());
     } catch {
       setMetrics(null);
     } finally {
@@ -175,9 +194,10 @@ export default function MetricsPage() {
             />
             <StatCard
               label="Taxa de Sucesso"
-              value={`${metrics.successRate}%`}
+              value={metrics.successRate === null ? "—" : `${metrics.successRate}%`}
               icon={TrendingUp}
-              color={metrics.successRate >= 80 ? "green" : metrics.successRate >= 50 ? "amber" : "red"}
+              color={metrics.successRate === null ? "default" : metrics.successRate >= 80 ? "green" : metrics.successRate >= 50 ? "amber" : "red"}
+              sub="concluídas ÷ (concluídas + falhadas)"
             />
             {metrics.pendingApprovals > 0 && (
               <StatCard
@@ -216,7 +236,7 @@ export default function MetricsPage() {
                     )} />
                     <div className="flex-1 min-w-0">
                       <p className="text-xs text-foreground">
-                        {ACTION_LABELS[log.action] ?? log.action}
+                        {describeAction(log.action, log.details)}
                         {log.mission && (
                           <span className="text-muted-foreground">
                             {" "}— {log.mission.client.name}: {log.mission.title}

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initializeProviders, registry } from "@lotus/ai-engine";
-import { updateAgentStatus } from "@/lib/agent-service";
+import { logEngineRun } from "@/lib/engine-log";
 import { demoSolutionArch } from "@/lib/engine-demos";
 
 export const dynamic = "force-dynamic";
@@ -96,8 +96,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "clientName é obrigatório" }, { status: 400 });
     }
 
-    await updateAgentStatus("agent-data", "RESEARCHING", `Arquitetando solução para ${clientName}`);
-    await updateAgentStatus("agent-perf", "PLANNING", `Desenhando funil de ${niche}`);
+    await logEngineRun("solution-arch", clientName, "started");
 
     const contextData = `
 CLIENTE: ${clientName}
@@ -130,8 +129,7 @@ Foque em ferramentas acessíveis para PMEs brasileiras (RD Station, ManyChat, Ho
       architecture = { overview: result.content, error: "parsing_error" };
     }
 
-    await updateAgentStatus("agent-data", "COMPLETED", `Arquitetura de ${clientName} pronta`);
-    await updateAgentStatus("agent-perf", "IDLE", null);
+    await logEngineRun("solution-arch", clientName, "completed");
 
     return NextResponse.json({ success: true, engine: "solution-arch", architecture, clientName });
   } catch (error) {
@@ -140,14 +138,14 @@ Foque em ferramentas acessíveis para PMEs brasileiras (RD Station, ManyChat, Ho
                    errorMsg.includes('No AI provider') || errorMsg.includes('502') || errorMsg.includes('504');
     if (aiDown) {
       const cn = body?.clientName || "";
-      await updateAgentStatus("agent-data", "COMPLETED", `Demo: Arquitetura de ${cn}`);
-      await updateAgentStatus("agent-perf", "IDLE", null);
+      await logEngineRun("solution-arch", cn, "demo");
       return NextResponse.json({
         success: true, engine: "solution-arch",
         architecture: demoSolutionArch(cn, body?.niche || "", body?.city || ""),
         clientName: cn, _demo: true,
       });
     }
+    await logEngineRun("solution-arch", body?.clientName || "", "failed", { error: errorMsg });
     console.error("Engine Solution-Arch error:", error);
     return NextResponse.json({ error: `Erro ao executar motor de arquitetura: ${errorMsg}` }, { status: 500 });
   }

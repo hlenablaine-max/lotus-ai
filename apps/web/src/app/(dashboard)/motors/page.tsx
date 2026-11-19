@@ -54,7 +54,7 @@ const ENGINES = [
     route: "/api/engines/intelligence",
     buildPayload: (client: Client, _form: Record<string, string>) => ({
       clientName: client.name,
-      niche: client.niche || "Odontologia",
+      niche: client.niche || "Saúde",
       city: client.city || "Brasil",
       instagram: client.instagram,
       website: client.website,
@@ -73,7 +73,7 @@ const ENGINES = [
     route: "/api/engines/investigation",
     buildPayload: (client: Client, _form: Record<string, string>) => ({
       clientName: client.name,
-      niche: client.niche || "Odontologia",
+      niche: client.niche || "Saúde",
       city: client.city || "Brasil",
       instagram: client.instagram,
       website: client.website,
@@ -93,7 +93,7 @@ const ENGINES = [
     route: "/api/engines/diagnosis",
     buildPayload: (client: Client, _form: Record<string, string>) => ({
       clientName: client.name,
-      niche: client.niche || "Odontologia",
+      niche: client.niche || "Saúde",
       city: client.city || "Brasil",
       instagram: client.instagram,
     }),
@@ -111,7 +111,7 @@ const ENGINES = [
     route: "/api/engines/strategy",
     buildPayload: (client: Client, form: Record<string, string>) => ({
       clientName: client.name,
-      niche: client.niche || "Odontologia",
+      niche: client.niche || "Saúde",
       city: client.city || "Brasil",
       goals: form.goals || "",
       currentRevenue: form.currentRevenue || "",
@@ -130,7 +130,7 @@ const ENGINES = [
     route: "/api/engines/solution-arch",
     buildPayload: (client: Client, form: Record<string, string>) => ({
       clientName: client.name,
-      niche: client.niche || "Odontologia",
+      niche: client.niche || "Saúde",
       city: client.city || "Brasil",
       budget: form.budget || "",
       needs: form.needs || "",
@@ -150,7 +150,7 @@ const ENGINES = [
     buildPayload: (client: Client, form: Record<string, string>) => ({
       type: form.buildType || "landing_page",
       clientName: client.name,
-      niche: client.niche || "Odontologia",
+      niche: client.niche || "Saúde",
       city: client.city || "Brasil",
       whatsapp: client.whatsapp,
       instagram: client.instagram,
@@ -170,7 +170,7 @@ const ENGINES = [
     route: "/api/engines/implementation",
     buildPayload: (client: Client, form: Record<string, string>) => ({
       clientName: client.name,
-      niche: client.niche || "Odontologia",
+      niche: client.niche || "Saúde",
       timeline: form.timeline || "4 semanas",
       selectedComponents: form.components ? form.components.split(",") : [],
     }),
@@ -188,7 +188,7 @@ const ENGINES = [
     route: "/api/engines/revenue",
     buildPayload: (client: Client, form: Record<string, string>) => ({
       clientName: client.name,
-      niche: client.niche || "Odontologia",
+      niche: client.niche || "Saúde",
       city: client.city || "Brasil",
       currentRevenue: form.currentRevenue || "",
       averageTicket: form.averageTicket || "",
@@ -245,6 +245,7 @@ function EnginePanel({
   const isError = state.status === "error";
 
   const resultData = isDone && state.result ? state.result[engine.resultKey] as Record<string, unknown> : null;
+  const isDemo = isDone && state.result?._demo === true;
   const summary = resultData ? getNestedValue(resultData, engine.summaryPath) : "";
 
   // special: build engine html output
@@ -278,6 +279,9 @@ function EnginePanel({
             )}
           </div>
           <div className="font-medium text-sm text-foreground truncate">{engine.name}</div>
+          {isDemo && (
+            <div className="text-[10px] font-bold text-amber-400 uppercase tracking-wider mt-0.5">Dados de demonstração — IA indisponível</div>
+          )}
           {summary && (
             <div className="text-[11px] text-muted-foreground truncate mt-0.5">{summary}</div>
           )}
@@ -296,7 +300,7 @@ function EnginePanel({
           <p className="text-xs text-muted-foreground">{engine.description}</p>
 
           {/* Per-engine form fields */}
-          {engine.id === "strategy" || engine.id === "revenue" ? (
+          {engine.id === "strategy" ? (
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Objetivo</label>
@@ -382,7 +386,17 @@ function EnginePanel({
               </select>
             </div>
           ) : engine.id === "revenue" ? (
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Faturamento Atual (R$)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: 15000"
+                  value={form.currentRevenue || ""}
+                  onChange={e => setForm(f => ({ ...f, currentRevenue: e.target.value }))}
+                  className="mt-1 w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-white/30"
+                />
+              </div>
               <div>
                 <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Ticket Médio (R$)</label>
                 <input
@@ -447,6 +461,15 @@ function EnginePanel({
           )}
 
           {/* Result */}
+          {isDemo && (
+            <div className="flex items-start gap-2 p-3 bg-amber-500/15 border border-amber-500/40 rounded-lg text-xs text-amber-300">
+              <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
+              <div>
+                <div className="font-bold uppercase tracking-wider">Dados de demonstração — IA indisponível</div>
+                <div className="text-amber-300/80 mt-0.5">O provedor de IA não respondeu. O conteúdo abaixo é um exemplo genérico, NÃO uma análise real deste cliente. Não use em propostas. Re-execute quando a IA voltar.</div>
+              </div>
+            </div>
+          )}
           {isDone && resultData && (
             <div className="space-y-2">
               {/* Landing page preview */}
@@ -530,11 +553,11 @@ export default function MotoresPage() {
     fetch("/api/clients")
       .then(r => r.json())
       .then(data => {
-        const list = Array.isArray(data) ? data : data.clients || [];
+        const raw = (Array.isArray(data) ? data : data.clients || []) as Array<Client & { segment?: string }>;
+        // The CRM stores the market as "segment"; engines call it "niche"
+        const list: Client[] = raw.map(c => ({ ...c, niche: c.niche || c.segment || undefined }));
         setClients(list);
-        // Auto-select Odonto Marco if present
-        const marco = list.find((c: Client) => c.name?.toLowerCase().includes("odonto") || c.name?.toLowerCase().includes("marco"));
-        if (marco) setSelectedClient(marco);
+        if (list.length === 1) setSelectedClient(list[0]);
       })
       .catch(() => setClients([]))
       .finally(() => setLoadingClients(false));

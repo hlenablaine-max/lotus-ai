@@ -2,8 +2,10 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET(_request: NextRequest) {
+  try {
   const [
     totalClients,
     totalMissions,
@@ -25,7 +27,7 @@ export async function GET(_request: NextRequest) {
     prisma.task.count({ where: { status: "COMPLETED" } }),
     prisma.task.count({ where: { status: "FAILED" } }),
     prisma.document.count(),
-    prisma.agent.count(),
+    prisma.agent.count({ where: { isActive: true } }),
     prisma.approval.count({ where: { status: "PENDING" } }),
     prisma.activityLog.findMany({
       orderBy: { createdAt: "desc" },
@@ -49,6 +51,11 @@ export async function GET(_request: NextRequest) {
     agents: totalAgents,
     pendingApprovals,
     recentActivity,
-    successRate: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0,
+    // Success rate over tasks that already finished (completed vs failed); null while nothing finished
+    successRate: completedTasks + failedTasks > 0 ? Math.round((completedTasks / (completedTasks + failedTasks)) * 100) : null,
   });
+  } catch (err) {
+    console.error("[API /metrics GET]", err);
+    return Response.json({ error: "Falha ao consultar o banco de dados" }, { status: 500 });
+  }
 }

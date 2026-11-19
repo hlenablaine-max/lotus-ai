@@ -25,8 +25,7 @@ interface Mission {
 interface Client {
   id: string;
   name: string;
-  segment: string;
-  whatsapp?: string;
+  segment?: string;
   website?: string;
 }
 
@@ -39,24 +38,24 @@ interface PortalData {
 const DOC_TYPE_LABELS: Record<string, string> = {
   COPY: "Copy",
   ANALYSIS: "Análise",
-  REPORT: "Relatório",
   STRATEGY: "Estratégia",
   CREATIVE_BRIEF: "Brief Criativo",
   DELIVERABLE: "Entregável",
   PROPOSAL: "Proposta",
-  RESEARCH_REPORT: "Pesquisa",
+  RESEARCH_REPORT: "Relatório de Pesquisa",
+  CAMPAIGN_STRUCTURE: "Estrutura de Campanha",
   OTHER: "Outro",
 };
 
 const DOC_TYPE_COLORS: Record<string, string> = {
   COPY: "text-violet-400 bg-violet-400/10 border-violet-400/20",
   ANALYSIS: "text-blue-400 bg-blue-400/10 border-blue-400/20",
-  REPORT: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20",
   STRATEGY: "text-amber-400 bg-amber-400/10 border-amber-400/20",
   CREATIVE_BRIEF: "text-pink-400 bg-pink-400/10 border-pink-400/20",
   DELIVERABLE: "text-cyan-400 bg-cyan-400/10 border-cyan-400/20",
   PROPOSAL: "text-orange-400 bg-orange-400/10 border-orange-400/20",
   RESEARCH_REPORT: "text-indigo-400 bg-indigo-400/10 border-indigo-400/20",
+  CAMPAIGN_STRUCTURE: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20",
   OTHER: "text-muted-foreground bg-muted/50 border-border",
 };
 
@@ -147,7 +146,7 @@ function MissionCard({ mission }: { mission: Mission }) {
                 ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/20"
                 : "text-amber-400 bg-amber-400/10 border-amber-400/20"
             )}>
-              {isCompleted ? "Concluída" : "Em andamento"}
+              {isCompleted ? "Concluída" : mission.status === "FAILED" ? "Em revisão" : mission.status === "PENDING" ? "Agendada" : "Em andamento"}
             </span>
             {mission.documents.length > 0 && (
               <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border text-muted-foreground bg-muted/30 border-border">
@@ -175,7 +174,7 @@ function MissionCard({ mission }: { mission: Mission }) {
 
       {expanded && mission.documents.length === 0 && (
         <div className="px-5 pb-5 border-t border-border pt-4 text-center text-muted-foreground text-sm">
-          Nenhum entregável ainda
+          {isCompleted ? "Nenhum entregável nesta missão" : "Os entregáveis aparecem aqui quando a missão for concluída"}
         </div>
       )}
     </div>
@@ -190,9 +189,9 @@ export default function PortalPage({ params }: { params: Promise<{ clientId: str
 
   useEffect(() => {
     fetch(`/api/portal/${clientId}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.error) setError(d.error);
+      .then(async (r) => {
+        const d = await r.json().catch(() => null);
+        if (!r.ok || !d || d.error) setError(d?.error ?? "Erro ao carregar dados");
         else setData(d);
       })
       .catch(() => setError("Erro ao carregar dados"))

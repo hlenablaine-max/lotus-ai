@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initializeProviders, registry } from "@lotus/ai-engine";
-import { updateAgentStatus } from "@/lib/agent-service";
+import { logEngineRun } from "@/lib/engine-log";
 import { demoIntelligence } from "@/lib/engine-demos";
 
 export const dynamic = "force-dynamic";
@@ -69,8 +69,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Update agents status
-    await updateAgentStatus("agent-bi", "RESEARCHING", `Analisando mercado de ${niche} em ${city || "Brasil"}`);
-    await updateAgentStatus("agent-strat", "PLANNING", `Mapeando concorrentes de ${clientName}`);
+    await logEngineRun("intelligence", clientName, "started");
 
     const contextData = `
 CLIENTE: ${clientName}
@@ -117,8 +116,7 @@ Use dados realistas baseados no contexto brasileiro de saúde/odontologia/estét
       };
     }
 
-    await updateAgentStatus("agent-bi", "COMPLETED", `Análise de mercado de ${niche} concluída`);
-    await updateAgentStatus("agent-strat", "IDLE", null);
+    await logEngineRun("intelligence", clientName, "completed");
 
     return NextResponse.json({ success: true, engine: "intelligence", analysis, clientName, niche, city });
   } catch (error) {
@@ -129,14 +127,14 @@ Use dados realistas baseados no contexto brasileiro de saúde/odontologia/estét
       const cn = body?.clientName || "";
       const n = body?.niche || "";
       const c = body?.city || "";
-      await updateAgentStatus("agent-bi", "COMPLETED", `Demo: Análise de ${cn}`);
-      await updateAgentStatus("agent-strat", "IDLE", null);
+      await logEngineRun("intelligence", cn, "demo");
       return NextResponse.json({
         success: true, engine: "intelligence",
         analysis: demoIntelligence(cn, n, c),
         clientName: cn, niche: n, city: c, _demo: true,
       });
     }
+    await logEngineRun("intelligence", body?.clientName || "", "failed", { error: errorMsg });
     console.error("Engine Intelligence error:", error);
     return NextResponse.json({ error: `Erro ao executar motor de inteligência: ${errorMsg}` }, { status: 500 });
   }

@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { initializeProviders, registry } from '@lotus/ai-engine'
 
 export const dynamic = 'force-dynamic'
-
-const DRAEL_API_KEY = process.env.DRAEL_API_KEY || ''
-const DRAEL_BASE_URL = process.env.DRAEL_BASE_URL || 'https://drael.sh/v1'
 
 const SYSTEM_PROMPT = `Você é o Sales Copilot da LOTUS AI — uma IA de vendas que ajuda o vendedor (Ícaro) em reuniões ao vivo.
 
@@ -14,6 +12,7 @@ REGRAS:
 2. Nunca diga "eu sugiro que você diga..." — escreva a resposta como se fosse Ícaro falando.
 3. Identifique a tática correta: Rapport, Objeção, Fechamento, "Valor & ROI", Descoberta, ou Urgência.
 4. Confidence: 0.0 a 1.0 — quão certo você está de que esta é a melhor resposta.
+5. Nunca invente números, resultados de clientes ou garantias que não estejam no contexto.
 
 Responda SEMPRE em JSON puro, sem markdown:
 {
@@ -23,45 +22,48 @@ Responda SEMPRE em JSON puro, sem markdown:
 }`
 
 export async function POST(req: NextRequest) {
+  let clientSaid = ''
+  let context: string | undefined
   try {
-    const { clientSaid, context } = await req.json() as { clientSaid: string; context?: string }
+    const body = await req.json() as { clientSaid?: string; context?: string }
+    clientSaid = body.clientSaid ?? ''
+    context = body.context
+  } catch {
+    return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
+  }
 
-    if (!clientSaid?.trim()) {
-      return NextResponse.json({ error: 'clientSaid required' }, { status: 400 })
-    }
+  if (!clientSaid.trim()) {
+    return NextResponse.json({ error: 'clientSaid required' }, { status: 400 })
+  }
 
-    const userContent = context
-      ? `Contexto da conversa até agora:\n${context}\n\nO cliente acabou de dizer:\n"${clientSaid}"`
-      : `O cliente disse:\n"${clientSaid}"`
+  const userContent = context
+    ? `Contexto da conversa até agora:\n${context}\n\nO cliente acabou de dizer:\n"${clientSaid}"`
+    : `O cliente disse:\n"${clientSaid}"`
 
-    const res = await fetch(`${DRAEL_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${DRAEL_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'drael-v1',
-        max_tokens: 300,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: userContent },
-        ],
-        stream: false,
-      }),
+  try {
+    initializeProviders()
+    const result = await registry.getDefault().complete({
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userContent },
+      ],
+      maxTokens: 300,
     })
 
-    if (!res.ok) throw new Error(`Drael API error: ${res.status}`)
-    const data = await res.json() as { choices: { message: { content: string } }[] }
-    const raw = data.choices[0]?.message?.content?.trim() ?? ''
-    const clean = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
-    const parsed = JSON.parse(clean)
+    const raw = result.content.trim()
+    const jsonMatch = raw.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) throw new Error('A IA não retornou uma sugestão em formato válido')
+    const parsed = JSON.parse(jsonMatch[0]) as { suggestion?: string; tactic?: string; confidence?: number }
+    if (!parsed.suggestion) throw new Error('A IA retornou uma sugestão vazia')
 
-    return NextResponse.json(parsed)
+    return NextResponse.json({
+      suggestion: parsed.suggestion,
+      tactic: parsed.tactic ?? 'Descoberta',
+      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
+    })
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
     console.error('[API /copilot POST]', err)
-    return NextResponse.json(
-      { suggestion: 'Entendo. Pode me contar mais sobre essa situação?', tactic: 'Descoberta', confidence: 0.5 },
-    )
+    return NextResponse.json({ error: `Copilot indisponível: ${message}` }, { status: 502 })
   }
 }

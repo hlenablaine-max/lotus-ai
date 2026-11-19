@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initializeProviders, registry } from "@lotus/ai-engine";
-import { updateAgentStatus } from "@/lib/agent-service";
+import { logEngineRun } from "@/lib/engine-log";
 import { demoInvestigation } from "@/lib/engine-demos";
 
 export const dynamic = "force-dynamic";
@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "clientName é obrigatório" }, { status: 400 });
     }
 
-    await updateAgentStatus("agent-creative", "RESEARCHING", `Auditando presença digital de ${clientName}`);
+    await logEngineRun("investigation", clientName, "started");
 
     const contextData = `
 CLIENTE: ${clientName}
@@ -153,7 +153,7 @@ Seja específico nas recomendações de quick wins.
       investigation = { summary: result.content, error: "parsing_error" };
     }
 
-    await updateAgentStatus("agent-creative", "COMPLETED", `Investigação de ${clientName} concluída`);
+    await logEngineRun("investigation", clientName, "completed");
 
     return NextResponse.json({ success: true, engine: "investigation", investigation, clientName });
   } catch (error) {
@@ -162,13 +162,14 @@ Seja específico nas recomendações de quick wins.
                    errorMsg.includes('No AI provider') || errorMsg.includes('502') || errorMsg.includes('504');
     if (aiDown) {
       const cn = body?.clientName || "";
-      await updateAgentStatus("agent-creative", "COMPLETED", `Demo: Investigação de ${cn}`);
+      await logEngineRun("investigation", cn, "demo");
       return NextResponse.json({
         success: true, engine: "investigation",
         investigation: demoInvestigation(cn, body?.niche || "", body?.city || ""),
         clientName: cn, _demo: true,
       });
     }
+    await logEngineRun("investigation", body?.clientName || "", "failed", { error: errorMsg });
     console.error("Engine Investigation error:", error);
     return NextResponse.json({ error: `Erro ao executar motor de investigação: ${errorMsg}` }, { status: 500 });
   }

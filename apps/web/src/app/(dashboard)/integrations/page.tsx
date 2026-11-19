@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plug, CheckCircle2, XCircle, AlertCircle, RefreshCw, ExternalLink } from "lucide-react";
+import { Plug, CheckCircle2, XCircle, AlertCircle, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Integration {
@@ -12,6 +12,8 @@ interface Integration {
   status: 'connected' | 'disconnected' | 'error';
   description: string;
   envKey?: string;
+  checked?: 'live' | 'env';
+  errorMessage?: string;
 }
 
 interface Summary {
@@ -65,7 +67,10 @@ export default function IntegrationsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Integrações</h1>
-          <p className="text-muted-foreground mt-1">APIs e serviços conectados ao LOTUS</p>
+          <p className="text-muted-foreground mt-1">APIs e serviços do LOTUS</p>
+          <p className="text-xs text-muted-foreground/60 mt-1">
+            Só o banco de dados é testado de verdade. Nos demais, &quot;Chave configurada&quot; indica apenas que a variável de ambiente existe.
+          </p>
         </div>
         <button
           onClick={fetchIntegrations}
@@ -87,14 +92,14 @@ export default function IntegrationsPage() {
         </div>
         <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-5">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-sm text-muted-foreground">Conectadas</span>
+            <span className="text-sm text-muted-foreground">Configuradas</span>
             <CheckCircle2 className="w-5 h-5 text-emerald-400" />
           </div>
           <div className="text-3xl font-bold text-emerald-400">{summary.connected}</div>
         </div>
         <div className="rounded-xl border border-zinc-500/20 bg-zinc-500/5 p-5">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-sm text-muted-foreground">Desconectadas</span>
+            <span className="text-sm text-muted-foreground">Não configuradas</span>
             <XCircle className="w-5 h-5 text-zinc-500" />
           </div>
           <div className="text-3xl font-bold text-zinc-500">{summary.disconnected}</div>
@@ -171,14 +176,24 @@ export default function IntegrationsPage() {
                                   ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/20"
                                   : "text-zinc-500 bg-zinc-500/10 border-zinc-500/20"
                               )}>
-                                {isConnected ? 'Conectada' : 'Desconectada'}
+                                {integration.status === 'error'
+                                  ? 'Erro'
+                                  : isConnected
+                                  ? (integration.checked === 'live' ? 'Conectada' : 'Chave configurada')
+                                  : 'Não configurada'}
                               </span>
                             </div>
                             <p className="text-xs text-muted-foreground leading-relaxed">{integration.description}</p>
                           </div>
                         </div>
 
-                        {!isConnected && integration.envKey && (
+                        {integration.status === 'error' && integration.errorMessage && (
+                          <div className="mt-3 pt-3 border-t border-border flex items-center gap-2">
+                            <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+                            <p className="text-xs text-red-400 break-all">{integration.errorMessage}</p>
+                          </div>
+                        )}
+                        {integration.status === 'disconnected' && integration.envKey && (
                           <div className="mt-3 pt-3 border-t border-border flex items-center gap-2">
                             <AlertCircle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
                             <p className="text-xs text-muted-foreground">
