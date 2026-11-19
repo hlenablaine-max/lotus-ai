@@ -1593,8 +1593,12 @@ export function LotusHQ3D() {
   // Nenhum dado é simulado — se a API falhar, o HQ mostra "Sem conexão".
   useEffect(() => {
     let cancelled = false
+    let inFlight = false
 
     const pollAgents = async () => {
+      // Não empilha requisições quando o banco demora mais que o intervalo
+      if (inFlight) return
+      inFlight = true
       try {
         const res = await fetch('/api/hq/agents', { cache: 'no-store' })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -1629,6 +1633,8 @@ export function LotusHQ3D() {
         setConnection('live')
       } catch {
         if (!cancelled) setConnection('offline')
+      } finally {
+        inFlight = false
       }
     }
 
