@@ -9,7 +9,9 @@ import { LocalRuntime } from './local-runtime'
 
 const PORT_START = 3777
 const PORT_FILE = path.join(os.homedir(), 'LOTUS_Workspace', '.runtime-port')
+const MAX_BODY_BYTES = 20 * 1024 * 1024
 
+// Servidor local (somente 127.0.0.1 + token) que o backend do LOTUS usa para agir no computador.
 export class RuntimeHttpServer {
   private server: http.Server
   private wss: WebSocketServer
@@ -25,30 +27,25 @@ export class RuntimeHttpServer {
     this.setupWebSocket()
   }
 
-  // ===  HTTP ===
+  private isLocal(req: http.IncomingMessage): boolean {
+    const addr = req.socket.remoteAddress || ''
+    return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1'
+  }
 
   private createServer(): http.Server {
     return http.createServer(async (req, res) => {
-      // Só aceita conexões do localhost
-      const addr = req.socket.remoteAddress || ''
-      if (!addr.includes('127.0.0.1') && !addr.includes('::1')) {
+      if (!this.isLocal(req)) {
         res.writeHead(403)
         res.end('Forbidden')
         return
       }
 
-      res.setHeader('Access-Control-Allow-Origin', '*')
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Runtime-Token')
-
-      if (req.method === 'OPTIONS') {
-        res.writeHead(200)
-        res.end()
-        return
-      }
-
-      // Autenticação por token
-      if (req.headers['x-runtime-token'] !== this.token) {
+      // Sem CORS: só o backend do LOTUS (server-side) fala com este servidor, nunca uma página web.
+      const provided = String(req.headers['x-runtime-token'] || '')
+      const valid =
+        provided.length === this.token.length &&
+        crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(this.token))
+      if (!valid) {
         res.writeHead(401)
         res.end('Unauthorized')
         return
@@ -57,77 +54,86 @@ export class RuntimeHttpServer {
       try {
         const body = await readBody(req)
         const data = body ? JSON.parse(body) : {}
-        const result = await this.handleRequest(req.url || '/', data)
+        const result = await this.handleRequest((req.url || '/').split('?')[0], data)
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(result))
       } catch (err: any) {
         res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: err.message }))
+        res.end(JSON.stringify({ error: err?.message ?? String(err) }))
       }
     })
   }
 
   private async handleRequest(url: string, data: any): Promise<unknown> {
+    const rt = this.runtime
     switch (url) {
       case '/ping':
-        return { ok: true, version: '1.0' }
+        return { ok: true, version: '2.0', repoDir: rt.getRepoDir() }
       case '/runtime/status':
-        return this.runtime.getStatus()
+        return rt.getStatus()
       case '/runtime/device-info':
-        return this.runtime.getDeviceInfo()
+        return rt.getDeviceInfo()
+
       case '/runtime/exec':
-        return this.runtime.execCommand(data.cmd, data.cwd)
+        return rt.execCommand(data.cmd, data.cwd, data.timeoutMs)
       case '/runtime/exec-python':
-        return this.runtime.execPython(data.script, data.cwd)
+        return rt.execPython(data.script, data.cwd)
       case '/runtime/exec-node':
-        return this.runtime.execNode(data.script, data.cwd)
+        return rt.execNode(data.script, data.cwd)
+
       case '/runtime/fs/read':
-        return { content: await this.runtime.readFile(data.path) }
+        return rt.readFile(data.path, data.offset, data.limit)
       case '/runtime/fs/write':
-        await this.runtime.writeFile(data.path, data.content)
-        return { ok: true }
+        return rt.writeFile(data.path, data.content ?? '')
+      case '/runtime/fs/edit':
+        return rt.editFile(data.path, data.oldString, data.newString, !!data.replaceAll)
       case '/runtime/fs/mkdir':
-        await this.runtime.createDir(data.path)
+        await rt.createDir(data.path)
         return { ok: true }
       case '/runtime/fs/list':
-        return { files: await this.runtime.listDir(data.path) }
+        return rt.listDir(data.path)
       case '/runtime/fs/exists':
-        return { exists: await this.runtime.fileExists(data.path) }
+        return { exists: await rt.fileExists(data.path) }
+      case '/runtime/fs/search':
+        return rt.searchFiles(data.pattern, data.path, data.glob, data.maxResults)
+
+      case '/runtime/backups/list':
+        return { backups: rt.listBackups(data.limit) }
+      case '/runtime/backups/restore':
+        return rt.restoreBackups({ id: data.id, count: data.count })
+
       case '/runtime/browser/open':
-        await this.runtime.browserOpen(data.url)
-        return { ok: true }
       case '/runtime/browser/navigate':
-        await this.runtime.browserNavigate(data.url)
+        await rt.browserOpen(data.url)
         return { ok: true }
       case '/runtime/browser/click':
-        await this.runtime.browserClick(data.selector)
+        await rt.browserClick(data.selector)
         return { ok: true }
       case '/runtime/browser/type':
-        await this.runtime.browserType(data.selector, data.text)
+        await rt.browserType(data.selector, data.text)
         return { ok: true }
       case '/runtime/browser/get-text':
-        return { text: await this.runtime.browserGetText(data.selector) }
+        return { text: await rt.browserGetText(data.selector) }
       case '/runtime/browser/screenshot':
-        return { screenshot: await this.runtime.browserScreenshot() }
+        return rt.browserScreenshot()
       case '/runtime/browser/close':
-        await this.runtime.browserClose()
+        await rt.browserClose()
         return { ok: true }
+
       default:
         throw new Error(`Endpoint desconhecido: ${url}`)
     }
   }
 
-  // === WebSocket (streaming terminal) ===
+  // === WebSocket (terminal com saída em tempo real) ===
 
   private setupWebSocket(): void {
     this.wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
-      const addr = req.socket.remoteAddress || ''
-      if (!addr.includes('127.0.0.1') && !addr.includes('::1')) {
+      if (!this.isLocal(req)) {
         ws.close(1008, 'Forbidden')
         return
       }
 
-      // Aguarda mensagem de auth antes de processar
       ws.once('message', (raw: Buffer) => {
         try {
           const msg = JSON.parse(raw.toString())
@@ -135,23 +141,17 @@ export class RuntimeHttpServer {
             ws.close(1008, 'Unauthorized')
             return
           }
-
-          // Autenenticado — inicia o terminal
           const { cmd, cwd } = msg
           if (!cmd) {
             ws.close(1003, 'Missing cmd')
             return
           }
 
-          const workDir = cwd || path.join(os.homedir(), 'LOTUS_Workspace')
+          const workDir = cwd ? this.runtime.resolvePath(cwd) : path.join(os.homedir(), 'LOTUS_Workspace')
           const proc = spawn(cmd, { shell: true, cwd: workDir })
-
           const sendOut = (text: string) => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: 'output', data: text }))
-            }
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'output', data: text }))
           }
-
           proc.stdout.on('data', (data: Buffer) => sendOut(data.toString()))
           proc.stderr.on('data', (data: Buffer) => sendOut(`[stderr] ${data.toString()}`))
           proc.on('close', (code: number) => {
@@ -160,6 +160,7 @@ export class RuntimeHttpServer {
               ws.close()
             }
           })
+          ws.on('close', () => proc.kill())
         } catch {
           ws.close(1003, 'Invalid message')
         }
@@ -201,7 +202,11 @@ export class RuntimeHttpServer {
   private writePortFile(): void {
     const dir = path.dirname(PORT_FILE)
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(PORT_FILE, JSON.stringify({ port: this.port, token: this.token }), 'utf-8')
+    fs.writeFileSync(
+      PORT_FILE,
+      JSON.stringify({ port: this.port, token: this.token, repoDir: this.runtime.getRepoDir(), pid: process.pid }),
+      { encoding: 'utf-8', mode: 0o600 }
+    )
   }
 
   stop(): void {
@@ -216,9 +221,18 @@ export class RuntimeHttpServer {
 
 function readBody(req: http.IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
-    let data = ''
-    req.on('data', (chunk: Buffer) => { data += chunk.toString() })
-    req.on('end', () => resolve(data))
+    const chunks: Buffer[] = []
+    let size = 0
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length
+      if (size > MAX_BODY_BYTES) {
+        reject(new Error('Corpo da requisição grande demais'))
+        req.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')))
     req.on('error', reject)
   })
 }

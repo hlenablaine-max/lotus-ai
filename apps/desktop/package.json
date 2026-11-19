@@ -5,29 +5,22 @@
   "main": "dist/electron/main.js",
   "private": true,
   "scripts": {
-    "dev": "concurrently \"npm run build:watch\" \"npm run electron:dev\"",
     "build": "tsc -p tsconfig.json",
-    "build:watch": "tsc -p tsconfig.json --watch",
-    "electron:dev": "wait-on dist/electron/main.js && cross-env NODE_ENV=development electron .",
-    "electron:prod": "npm run build && electron .",
+    "start": "tsc -p tsconfig.json && electron .",
+    "dev": "tsc -p tsconfig.json && electron .",
     "package": "npm run build && electron-builder --win",
     "package:dir": "npm run build && electron-builder --win --dir"
   },
   "dependencies": {
-    "axios": "^1.7.9",
-    "node-pty": "^1.0.0",
     "playwright": "^1.49.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@types/ws": "^8.5.13",
-    "concurrently": "^9.1.2",
-    "cross-env": "^7.0.3",
     "electron": "32.3.3",
     "electron-builder": "^25.1.8",
-    "typescript": "^5.7.2",
-    "wait-on": "^8.0.1"
+    "typescript": "^5.7.2"
   },
   "build": {
     "appId": "ai.lotus.desktop",
