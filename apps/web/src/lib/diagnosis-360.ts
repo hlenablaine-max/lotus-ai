@@ -671,6 +671,8 @@ const PRODUCTION_RULES = [
   "- Isto é PRODUÇÃO, não análise: entregue o material final, pronto para copiar e usar. Nada de \"recomenda-se\"; escreva a peça.",
   "- Parta do Diagnóstico 360 (entregável anterior) e dos dados do contexto. Siga o guia de publicidade em saúde produzido nesta missão.",
   "- Nunca invente depoimentos, números, preços, nomes de profissionais, registros (CRO/CRM) ou resultados. O que só o cliente sabe vira [PREENCHER COM O CLIENTE: o que falta].",
+  "- Nenhum texto (nem a IA de atendimento) pode orientar o paciente a tomar remédio, nem genérico: em dor ou urgência, a orientação é procurar atendimento e falar com a equipe.",
+  "- Revise a ortografia antes de salvar.",
   "- Nada é publicado nem enviado agora. Não use request_approval, exec_local nem run_browser: quem instala na operação do cliente é o Ícaro.",
   "- Termine com a seção \"Como instalar\": passo a passo simples (o Ícaro é iniciante), o que pedir ao cliente (acessos, informações) e como saber se funcionou.",
   "- Salve com save_document.",
@@ -808,6 +810,7 @@ async function createProductionTasks(p: ProductionContext): Promise<string[]> {
       description: "Entregar a página de captação do cliente em HTML completo, pronta para publicar.",
       instructions: [
         "Escreva a página de agendamento deste negócio em UM arquivo HTML completo (CSS embutido, sem dependências externas, responsiva, rápida), dentro de um único bloco de código ```html.",
+        "O arquivo precisa terminar em </html>: mantenha o HTML enxuto (até uns 20 mil caracteres, CSS curto, sem ícones SVG longos) e salve tudo com save_document, código incluído.",
         "Seções: topo com promessa clara e botão de WhatsApp, para quem é, serviços, como funciona a primeira consulta, prova (onde entram depoimentos reais: deixe o espaço marcado, não invente), equipe, localização e horário, perguntas frequentes, chamada final.",
         "O botão de WhatsApp usa o número encontrado no contexto (formato https://wa.me/NUMERO?text=...). Se não houver número, deixe [PREENCHER COM O CLIENTE].",
         "Inclua no código, como comentário, onde colar o Pixel da Meta e o Google Analytics.",

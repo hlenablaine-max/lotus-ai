@@ -1,6 +1,6 @@
 # LOTUS AI Enterprise — Status de Implementação
 
-## Versão: 2.1.0
+## Versão: 2.2.0
 ## Data: 2026-11-19 (auditoria completa + reestruturação do aplicativo desktop)
 
 Este arquivo é o retrato honesto do sistema depois da auditoria: o que funciona (e como foi testado),
@@ -68,6 +68,12 @@ como alcançar o computador do dono — por isso "o site não controla o PC". Ag
 | Advisor (LOTUS AI CEO) | ✅ | Pergunta "qual cliente tem mais risco de churn?" respondida com dados reais do banco e encaminhando a execução ao Root Master. Registro de assessment não exercitado |
 | 18 telas do menu | ✅ | Todas respondem 200 sem erro de servidor; zero erros de TypeScript |
 | Audit trail | ✅ | TASK_CREATED / STARTED / COMPLETED / FAILED, APPROVAL_*, LOCAL_TOOL, ENGINE_* |
+| **Diagnóstico 360** (a partir do Instagram do lead) | ✅ | Testado em uma clínica real: o navegador do app leu perfil, 9 posts, 3 Reels (fala transcrita no próprio PC), link da bio, site, Biblioteca de Anúncios da Meta (achou 5 anúncios ativos do negócio) e Google Maps; 9 agentes analisaram e a equipe fechou o diagnóstico consolidado com notas, gargalos e plano |
+| **Produção das soluções** | ✅ | No mesmo teste, 8 agentes produziram: IA de atendimento no WhatsApp (prompt, fluxo, respostas, follow-ups, objeções), campanhas da Meta com públicos e verba, copies de 10 anúncios, criativos e roteiros de vídeo, perfil novo + calendário de 30 dias, funil no CRM, página de agendamento em HTML e o pacote de entrega. 20 de 20 etapas, zero falhas, PC sem travar (memória livre mínima 0,5 GB) |
+| Pacote de entrega em pasta | ✅ | Ao terminar, tudo é gravado em `~/LOTUS_Workspace/entregas/<perfil>/` (um `.md` por peça e a página em `.html`) |
+| Retomada automática | ✅ | App fechado no meio de um diagnóstico; ao reabrir, o log mostrou `trabalho retomado: { requeued: 2, started: 6 }` e a equipe seguiu sem ninguém clicar em nada |
+| App continua trabalhando com a janela fechada | ⚠️ não conferido na tela | Fechar a janela esconde o app (ícone perto do relógio); só "Sair" encerra. Código compilado, comportamento visual não inspecionado |
+| Acesso do sócio | ⚠️ não testado | Login do sócio por `PARTNER_EMAIL`/`PARTNER_PASSWORD` e `Instalar LOTUS.cmd` prontos; nunca rodados em um segundo computador |
 
 ---
 
@@ -105,10 +111,30 @@ como alcançar o computador do dono — por isso "o site não controla o PC". Ag
 
 ---
 
+## Diagnóstico 360 + Produção (como funciona)
+
+1. Você cola o Instagram do lead em **Diagnóstico** (ou manda no chat do Root Master).
+2. **Coleta** (2 a 10 min): o navegador do app lê os dados públicos. Nada é estimado.
+3. **Diagnóstico** (9 análises + consolidado + roteiro da reunião): perfil, copy, vídeos, tráfego pago, site, reputação local, funil, operação e regras de publicidade em saúde.
+4. **Produção** (8 entregas): IA de atendimento no WhatsApp (prompt, fluxo, respostas e follow-ups), campanhas de tráfego prontas para subir, copies dos anúncios, criativos e roteiros de vídeo, perfil novo + calendário de 30 dias, página de agendamento em HTML, funil no CRM e o pacote de entrega com o plano de instalação.
+5. O que só o cliente sabe aparece como `[PREENCHER COM O CLIENTE: ...]`. Depoimentos, preços e registros profissionais nunca são inventados.
+
+**O que a produção NÃO faz sozinha (ainda):** não publica anúncios (precisa do acesso à conta de anúncios do cliente), não liga a IA no número de WhatsApp do cliente (precisa de uma plataforma de atendimento e do número dele) e não coloca a página no ar. Ela entrega tudo pronto; a instalação é manual.
+
+**Memória do computador:** este PC tem 7,6 GB e trabalha no limite. A coleta agora fecha o navegador antes de transcrever os vídeos e escolhe o modelo de transcrição pela memória livre; no máximo 2 agentes pensam ao mesmo tempo. Mesmo assim, feche programas pesados antes de um diagnóstico.
+
+---
+
 ## O que está pendente (lista honesta)
 
 | Item | Situação |
 |---|---|
+| Teste de atendimento no WhatsApp do lead | Código pronto, **nunca executado**: precisa conectar o WhatsApp Web em Diagnóstico → "conectar WhatsApp" (QR code) |
+| Instagram com login | Não testado. Sem login o app lê só o que é público (sem contagem de visualizações, destaques limitados) |
+| Instalar a IA de atendimento no WhatsApp do cliente | Não existe integração; a IA é entregue como prompt + fluxo para colar em uma plataforma |
+| Entrega salva sem o agente pedir | Corrigido: o agente da página escreveu a entrega como resposta e não chamou `save_document`; a página sumiu do pacote. Agora o sistema salva a resposta final quando o agente esquece |
+| Página cortada no meio | Corrigido: o limite de resposta da IA era 4 mil tokens e o HTML não terminava. Subiu para 16 mil, e o agente é instruído a fazer um HTML enxuto |
+| Tela do Diagnóstico | API e página respondem certo; **a tela não foi inspecionada visualmente** depois de ganhar a fase de produção |
 | ChatGPT (OpenAI) | Implementado. A variável `OPENAI_API_KEY` deste computador é **inválida** (a API respondeu 401); cole uma chave válida em Configurações |
 | Claude (Anthropic) | Implementado, nunca testado (sem chave) |
 | Controle do navegador (Playwright) pelo chat | Código pronto, não testado nesta auditoria |

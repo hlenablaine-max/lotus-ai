@@ -418,7 +418,8 @@ export async function executeTask(taskId: string, db: ExecutorDB, opts: ExecuteT
       {
         model: opts.model,
         messages,
-        maxTokens: 4096,
+        // Entregas de produção (página em HTML, calendário de 30 dias) passam de 4 mil tokens
+        maxTokens: 16000,
         maxIterations: 15,
         tools,
       },
@@ -693,6 +694,15 @@ export async function executeTask(taskId: string, db: ExecutorDB, opts: ExecuteT
         return `Ferramenta "${toolName}" executada.`;
       }
     );
+
+    // O agente entregou o trabalho como resposta, mas esqueceu de salvar: o sistema salva por ele,
+    // para nenhuma entrega sumir do pacote (aconteceu com uma página de 22 mil tokens).
+    if (savedDocuments.length === 0 && db.document && (result.content ?? "").trim().length >= 800) {
+      await db.document.create({
+        data: { title: task.title, content: result.content, type: "DELIVERABLE", taskId: task.id, missionId: task.missionId },
+      });
+      savedDocuments.push({ title: task.title, type: "auto" });
+    }
 
     await db.task.update({
       where: { id: taskId },
