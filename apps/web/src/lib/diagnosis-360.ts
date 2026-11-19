@@ -2,10 +2,13 @@
 // negócio (perfil, posts, vídeos, link da bio, anúncios, Google) e a equipe de agentes analisa
 // cada frente, fecha um diagnóstico consolidado e prepara a reunião de apresentação.
 
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createRuntimeClient, type RuntimeClient } from "@/lib/runtime-client";
-import { runTask } from "@/lib/task-runner";
+import { markRunning, runTask, unmarkRunning } from "@/lib/task-runner";
 
 export interface DiagnosisInput {
   instagram: string;
@@ -13,6 +16,8 @@ export interface DiagnosisInput {
   city?: string;
   // O dono marcou, ao pedir o diagnóstico, que quer o teste de atendimento no WhatsApp
   testWhatsApp?: boolean;
+  // Depois do diagnóstico, a equipe já produz as soluções (padrão: sim)
+  produce?: boolean;
 }
 
 interface InstagramPost {
@@ -149,7 +154,7 @@ export async function startDiagnosis(input: DiagnosisInput): Promise<{ missionId
       priority: "HIGH",
       status: "IN_PROGRESS",
       startedAt: new Date(),
-      context: { diagnosis360: true, handle, city: input.city ?? null, testWhatsApp: !!input.testWhatsApp },
+      context: { diagnosis360: true, handle, city: input.city ?? null, website: input.website ?? null, testWhatsApp: !!input.testWhatsApp, produce: input.produce !== false, host: os.hostname() },
     },
   });
 
@@ -161,6 +166,9 @@ export async function startDiagnosis(input: DiagnosisInput): Promise<{ missionId
       title: "Coleta de dados públicos (Instagram, vídeos, site, anúncios, Google)",
       description: "O navegador do aplicativo lê o perfil, os posts e vídeos recentes, o link da bio, a biblioteca de anúncios da Meta e o Google Maps.",
       instructions: "Etapa automática do sistema: nenhum dado é estimado, só o que foi lido das páginas.",
+      // Marca a etapa como do sistema: se o app fechar no meio, ela é retomada sozinha ao reabrir
+      input: { systemStep: "diagnosis_collect" },
+      output: { host: os.hostname() },
       status: "IN_PROGRESS",
       startedAt: new Date(),
     },
@@ -169,20 +177,30 @@ export async function startDiagnosis(input: DiagnosisInput): Promise<{ missionId
     data: { clientId: client.id, missionId: mission.id, taskId: collectTask.id, agentId: collectorId, action: "DIAGNOSIS_STARTED", details: { handle }, level: "INFO" },
   });
 
-  const job = collectAndAnalyze({ input, handle, clientId: client.id, missionId: mission.id, collectTaskId: collectTask.id, runtime }).catch(async (err) => {
-    console.error("[diagnosis-360]", err);
-    const message = err instanceof Error ? err.message : String(err);
-    await prisma.task.update({ where: { id: collectTask.id }, data: { status: "FAILED", output: { error: message } } }).catch(() => {});
-    await prisma.mission.update({ where: { id: mission.id }, data: { status: "FAILED" } }).catch(() => {});
-    await prisma.activityLog.create({ data: { missionId: mission.id, clientId: client.id, action: "DIAGNOSIS_FAILED", details: { error: message }, level: "ERROR" } }).catch(() => {});
-  });
+  launchCollection({ input, handle, clientId: client.id, missionId: mission.id, collectTaskId: collectTask.id, runtime });
+
+  return { missionId: mission.id, clientId: client.id, clientName: client.name, handle };
+}
+
+type CollectionContext = Parameters<typeof collectAndAnalyze>[0];
+
+// Roda a coleta em segundo plano e registra a falha na missão se algo der errado.
+function launchCollection(ctx: CollectionContext): void {
+  markRunning(ctx.collectTaskId);
+  const job = collectAndAnalyze(ctx)
+    .catch(async (err) => {
+      console.error("[diagnosis-360]", err);
+      const message = err instanceof Error ? err.message : String(err);
+      await prisma.task.update({ where: { id: ctx.collectTaskId }, data: { status: "FAILED", output: { error: message } } }).catch(() => {});
+      await prisma.mission.update({ where: { id: ctx.missionId }, data: { status: "FAILED" } }).catch(() => {});
+      await prisma.activityLog.create({ data: { missionId: ctx.missionId, clientId: ctx.clientId, action: "DIAGNOSIS_FAILED", details: { error: message }, level: "ERROR" } }).catch(() => {});
+    })
+    .finally(() => unmarkRunning(ctx.collectTaskId));
   try {
     after(job);
   } catch {
     // fora de um contexto de requisição: segue em segundo plano
   }
-
-  return { missionId: mission.id, clientId: client.id, clientName: client.name, handle };
 }
 
 async function collectAndAnalyze(ctx: {
@@ -249,10 +267,22 @@ async function collectAndAnalyze(ctx: {
 
   // 5) Vídeos: transcrição da fala e quadros dos 3 reels mais recentes
   const reels = profile.posts.filter((p) => p.type === "reel").slice(0, 3);
-  const videos: Json[] = [];
+  // Primeiro baixa tudo com o navegador, depois fecha o navegador e só então transcreve:
+  // navegador + transcrição ao mesmo tempo estouram a memória em computadores com 8 GB.
+  const downloads: Array<{ reel: (typeof reels)[number]; files: string[]; erro?: string }> = [];
   for (const reel of reels) {
-    const media = await safeCollect("Vídeo", () => runtime.call("/runtime/research/reel", { url: reel.url, name: handle }, 660_000) as Promise<Json>);
-    videos.push({ ...reel, ...(hasError(media) ? { analise: media.erro } : media) });
+    const dl = await safeCollect("Vídeo", () => runtime.call("/runtime/research/reel-download", { url: reel.url, name: handle }, 180_000) as Promise<Json>);
+    downloads.push(hasError(dl) ? { reel, files: [], erro: dl.erro } : { reel, files: (dl.files as string[] | undefined) ?? [] });
+  }
+  await runtime.call("/runtime/research/release", {}, 30_000).catch(() => {});
+  const videos: Json[] = [];
+  for (const dl of downloads) {
+    if (dl.erro) {
+      videos.push({ ...dl.reel, analise: dl.erro });
+      continue;
+    }
+    const media = await safeCollect("Vídeo", () => runtime.call("/runtime/research/reel-analyze", { url: dl.reel.url, name: handle, files: dl.files }, 660_000) as Promise<Json>);
+    videos.push({ ...dl.reel, ...(hasError(media) ? { analise: media.erro } : media) });
   }
 
   // WhatsApp encontrado na bio ou no site
@@ -323,7 +353,7 @@ async function collectAndAnalyze(ctx: {
     data: { clientId, missionId, taskId: collectTaskId, action: "DIAGNOSIS_DATA_COLLECTED", details: { handle, posts: profile.posts.length, videos: videos.length, ads: matchingAds.length, whatsapp: whatsapp.length }, level: "INFO" },
   });
 
-  await createAnalysisTasks({ missionId, businessName, handle, profile, metrics, videos, site, mainSite, candidateSite, ads: collected.anuncios as Json, maps, whatsapp });
+  await createAnalysisTasks({ missionId, businessName, handle, profile, metrics, videos, site, mainSite, candidateSite, ads: collected.anuncios as Json, maps, whatsapp, produce: input.produce !== false });
 
   // Teste de atendimento no WhatsApp
   if (whatsapp.length > 0) {
@@ -361,6 +391,7 @@ interface AnalysisContext {
   ads: Json;
   maps: Json | { erro: string };
   whatsapp: string[];
+  produce: boolean;
 }
 
 const RULES = [
@@ -609,8 +640,311 @@ async function createAnalysisTasks(c: AnalysisContext): Promise<void> {
     });
   }
 
+  // Resumo dos dados reais do negócio: é o ponto de partida de toda a produção
+  const brief: Json = {
+    perfil: profileSlim,
+    indicadores: c.metrics,
+    whatsappEncontrado: c.whatsapp,
+    linkDaBio: c.candidateSite,
+    site: stripShots(c.mainSite ?? c.site),
+    anunciosAtivosDoProprioNegocio: ((c.ads.anunciosDoProprioNegocio as unknown[] | undefined) ?? []).slice(0, 5),
+    legendasRecentes: postsSlim.slice(0, 6).map((p) => ({ tipo: p.tipo, legenda: p.legenda.slice(0, 500), curtidas: p.curtidas })),
+  };
+  const mission = await prisma.mission.findUnique({ where: { id: c.missionId }, select: { context: true } });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await prisma.mission.update({ where: { id: c.missionId }, data: { context: { ...((mission?.context ?? {}) as Json), brief } as any } });
+
+  if (c.produce && synthesis) {
+    await createProductionTasks({ missionId: c.missionId, businessName: c.businessName, handle: c.handle, synthesisId: synthesis.id, brief });
+  }
+
   const all = await prisma.task.findMany({ where: { missionId: c.missionId, status: "QUEUED" }, select: { id: true } });
   for (const task of all) runTask(task.id);
+}
+
+// ============================================================
+// PRODUÇÃO: depois do diagnóstico, a equipe produz as soluções prontas para instalar no cliente.
+// ============================================================
+
+const PRODUCTION_RULES = [
+  "REGRAS DA PRODUÇÃO:",
+  "- Isto é PRODUÇÃO, não análise: entregue o material final, pronto para copiar e usar. Nada de \"recomenda-se\"; escreva a peça.",
+  "- Parta do Diagnóstico 360 (entregável anterior) e dos dados do contexto. Siga o guia de publicidade em saúde produzido nesta missão.",
+  "- Nunca invente depoimentos, números, preços, nomes de profissionais, registros (CRO/CRM) ou resultados. O que só o cliente sabe vira [PREENCHER COM O CLIENTE: o que falta].",
+  "- Nada é publicado nem enviado agora. Não use request_approval, exec_local nem run_browser: quem instala na operação do cliente é o Ícaro.",
+  "- Termine com a seção \"Como instalar\": passo a passo simples (o Ícaro é iniciante), o que pedir ao cliente (acessos, informações) e como saber se funcionou.",
+  "- Salve com save_document.",
+].join("\n");
+
+interface ProductionContext {
+  missionId: string;
+  businessName: string;
+  handle: string;
+  synthesisId: string;
+  brief: Json;
+}
+
+async function createProductionTasks(p: ProductionContext): Promise<string[]> {
+  const base = { fase: "producao", negocio: p.businessName, instagram: `@${p.handle}`, ...p.brief };
+  const create = async (def: { agentId: string; department: string; title: string; description: string; instructions: string; dependsOn: string[] }): Promise<string | null> => {
+    const agentId = await resolveAgent(def.agentId, def.department);
+    if (!agentId) return null;
+    const task = await prisma.task.create({
+      data: {
+        missionId: p.missionId,
+        agentId,
+        title: def.title,
+        description: def.description,
+        instructions: [def.instructions, PRODUCTION_RULES].join("\n"),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        input: base as any,
+        dependsOn: def.dependsOn,
+        status: "QUEUED",
+      },
+    });
+    return task.id;
+  };
+  const ids: string[] = [];
+  const add = (id: string | null) => {
+    if (id) ids.push(id);
+    return id;
+  };
+
+  add(
+    await create({
+      agentId: "agent-bto-arch",
+      department: "bto",
+      title: "Produção: IA de atendimento no WhatsApp (pronta para instalar)",
+      description: "Criar o atendente virtual da clínica: instruções completas, fluxo de conversa, base de respostas e mensagens de acompanhamento.",
+      instructions: [
+        "Monte a IA de atendimento deste negócio, pronta para ser colada em uma plataforma de atendimento com IA no WhatsApp:",
+        "1. PROMPT DO ATENDENTE (em um bloco de código): quem ele é, tom de voz da marca, objetivo (levar ao agendamento), o que pode e o que não pode dizer (não dá diagnóstico, não promete resultado, não informa preço que o cliente não confirmou), como lidar com urgência e quando passar para um humano.",
+        "2. FLUXO DA CONVERSA: saudação → entender o que a pessoa procura → qualificar (procedimento, urgência, já é paciente?) → oferecer horário → confirmar → lembrete → faltou → remarcar.",
+        "3. BASE DE RESPOSTAS: perguntas frequentes já respondidas com o que é público (endereço, serviços vistos no perfil e no site, formas de contato). O resto fica como [PREENCHER COM O CLIENTE].",
+        "4. MENSAGENS PRONTAS: retorno para quem parou de responder (1 hora, 24 horas, 3 dias, 7 dias), confirmação e lembrete de consulta, pós-consulta com pedido de avaliação no Google, reativação de quem sumiu há 6 meses.",
+        "5. OBJEÇÕES: \"está caro\", \"vou pensar\", \"é longe\", \"tenho medo\" — resposta pronta para cada uma, sem pressionar.",
+        "6. 3 conversas de exemplo completas (paciente novo, paciente com urgência, paciente que some).",
+      ].join("\n"),
+      dependsOn: [p.synthesisId],
+    })
+  );
+
+  const campaign = add(
+    await create({
+      agentId: "agent-perf",
+      department: "performance",
+      title: "Produção: campanhas de tráfego pago (estrutura pronta para subir)",
+      description: "Montar as campanhas da Meta do cliente: objetivo, públicos, verba, posicionamentos e medição.",
+      instructions: [
+        "Monte a estrutura completa das campanhas da Meta (Instagram e Facebook) para este negócio, no nível de detalhe de quem vai clicar no Gerenciador de Anúncios:",
+        "1. Tabela de campanhas: nome (com padrão de nomenclatura), objetivo, destino (WhatsApp, página, formulário) e por que essa escolha.",
+        "2. Conjuntos de anúncios: localização (cidade e raio em km), idade, interesses ou público aberto, públicos de remarketing (quem engajou com o perfil, quem visitou o site), posicionamentos.",
+        "3. Verba: faixa diária sugerida por campanha, com as premissas declaradas. Não prometa custo por lead nem retorno.",
+        "4. Lista de anúncios por conjunto: ângulo de cada um (dor, prova, oferta de entrada, autoridade). As copies e os criativos são produzidos nas próximas etapas a partir desta lista — numere os anúncios (A1, A2...).",
+        "5. Medição: o que instalar (Pixel, eventos, link rastreado do WhatsApp) e os números para olhar toda semana, com o que fazer se estiverem ruins.",
+        "6. Rotina de otimização das 4 primeiras semanas.",
+        "Publicar depende do acesso à conta de anúncios do cliente e de verba aprovada: deixe pronto para subir, não suba.",
+      ].join("\n"),
+      dependsOn: [p.synthesisId],
+    })
+  );
+
+  const adCopy = add(
+    await create({
+      agentId: "agent-copy1",
+      department: "copywriting",
+      title: "Produção: copies dos anúncios",
+      description: "Escrever os textos finais de cada anúncio da estrutura de campanhas.",
+      instructions: [
+        "Para CADA anúncio numerado na estrutura de campanhas (entregável anterior), escreva a copy final:",
+        "texto principal em 2 versões (curta, até 125 caracteres, e longa), título (até 40 caracteres), descrição (até 30), botão e a primeira mensagem que o paciente envia ao clicar para o WhatsApp.",
+        "Use a linguagem que o próprio negócio usa no perfil. Varie os ângulos: dor, benefício, prova, oferta de entrada.",
+        "Marque em cada copy o que precisa de confirmação do cliente antes de rodar.",
+      ].join("\n"),
+      dependsOn: [p.synthesisId, ...(campaign ? [campaign] : [])],
+    })
+  );
+
+  add(
+    await create({
+      agentId: "agent-creative",
+      department: "creative",
+      title: "Produção: criativos e roteiros de vídeo dos anúncios",
+      description: "Criar o briefing de cada imagem e o roteiro de cada vídeo dos anúncios.",
+      instructions: [
+        "Para cada anúncio (use a numeração das copies, entregável anterior), entregue o criativo:",
+        "1. IMAGENS: para cada uma, o que aparece, o texto escrito na arte (curto), formato (1:1 e 9:16), cores e estilo coerentes com a identidade do perfil, e o que evitar.",
+        "2. VÍDEOS: no mínimo 5 roteiros de 20 a 40 segundos — gancho dos 3 primeiros segundos, cena a cena, fala exata, texto na tela, chamada final.",
+        "3. ROTEIRO DE GRAVAÇÃO: lista do que a clínica precisa gravar em uma única visita (quem aparece, onde, quais tomadas), em ordem, para render todos os vídeos.",
+        "4. Qual criativo testar primeiro e por quê.",
+        "Nada de antes e depois ou promessa de resultado fora das regras do conselho da categoria.",
+      ].join("\n"),
+      dependsOn: [p.synthesisId, ...(adCopy ? [adCopy] : [])],
+    })
+  );
+
+  add(
+    await create({
+      agentId: "agent-social",
+      department: "creative",
+      title: "Produção: perfil novo e calendário de 30 dias",
+      description: "Entregar a bio, os destaques e os posts do mês prontos para publicar.",
+      instructions: [
+        "Entregue pronto para publicar:",
+        "1. PERFIL: nome de exibição, bio final (até 150 caracteres), texto do link e a ordem dos destaques com o que colocar em cada um.",
+        "2. CALENDÁRIO DE 30 DIAS: 12 publicações (3 por semana). Para cada uma: semana e dia, formato (Reel, carrossel, foto), objetivo (atrair, gerar confiança, converter), gancho, roteiro ou textos dos slides, e a LEGENDA COMPLETA com chamada para ação.",
+        "3. 10 ideias de stories de rotina que a recepção consegue fazer em 1 minuto.",
+        "Use os temas que já deram mais resultado no perfil (veja o diagnóstico) e corrija o que ele apontou.",
+      ].join("\n"),
+      dependsOn: [p.synthesisId],
+    })
+  );
+
+  add(
+    await create({
+      agentId: "agent-web",
+      department: "web-dev",
+      title: "Produção: página de agendamento (código pronto)",
+      description: "Entregar a página de captação do cliente em HTML completo, pronta para publicar.",
+      instructions: [
+        "Escreva a página de agendamento deste negócio em UM arquivo HTML completo (CSS embutido, sem dependências externas, responsiva, rápida), dentro de um único bloco de código ```html.",
+        "Seções: topo com promessa clara e botão de WhatsApp, para quem é, serviços, como funciona a primeira consulta, prova (onde entram depoimentos reais: deixe o espaço marcado, não invente), equipe, localização e horário, perguntas frequentes, chamada final.",
+        "O botão de WhatsApp usa o número encontrado no contexto (formato https://wa.me/NUMERO?text=...). Se não houver número, deixe [PREENCHER COM O CLIENTE].",
+        "Inclua no código, como comentário, onde colar o Pixel da Meta e o Google Analytics.",
+        "Antes do bloco de código, explique em 5 linhas a lógica da página. Depois do bloco, o \"Como instalar\" (onde hospedar, como apontar o link da bio).",
+      ].join("\n"),
+      dependsOn: [p.synthesisId],
+    })
+  );
+
+  add(
+    await create({
+      agentId: "agent-crm",
+      department: "sales",
+      title: "Produção: funil no CRM e rotina de acompanhamento",
+      description: "Definir as etapas do funil, as etiquetas e a rotina para nenhum paciente ficar sem resposta.",
+      instructions: [
+        "Entregue a operação comercial pronta para configurar em um CRM simples ou no WhatsApp Business:",
+        "1. Etapas do funil (do primeiro contato ao retorno) com a regra de quando o paciente muda de etapa.",
+        "2. Etiquetas e campos a registrar de cada contato.",
+        "3. Rotina diária da recepção em lista de tarefas (manhã, tarde, fim do dia) e a rotina semanal do dono.",
+        "4. Planilha de controle: colunas e as 6 contas que importam (contatos, agendamentos, comparecimento, fechamento, valor médio, de onde veio) — explique cada uma em uma linha.",
+        "5. O que a IA de atendimento faz sozinha e onde a pessoa da recepção entra.",
+      ].join("\n"),
+      dependsOn: [p.synthesisId],
+    })
+  );
+
+  const productionIds = [...ids];
+  add(
+    await create({
+      agentId: "agent-mc",
+      department: "strategy",
+      title: "Pacote de entrega e plano de implementação",
+      description: "Organizar tudo que foi produzido em um pacote que o Ícaro instala na operação do cliente.",
+      instructions: [
+        "Você recebeu todas as peças produzidas (entregáveis anteriores). Monte o PACOTE DE ENTREGA:",
+        "1. Índice: cada peça, para que serve e o problema do diagnóstico que ela resolve.",
+        "2. Ordem de instalação, semana a semana, com o tempo estimado de cada passo.",
+        "3. Lista única do que pedir ao cliente (acessos, informações e materiais) — junte todos os [PREENCHER COM O CLIENTE] das peças.",
+        "4. O que já está 100% pronto e o que depende do cliente.",
+        "5. Como apresentar a entrega ao cliente (roteiro de 10 minutos).",
+        "6. Para o Ícaro aprender: o que cada peça faz pelo faturamento da clínica, em linguagem simples.",
+        "Confira se as peças são coerentes entre si (mesma oferta, mesmo tom, mesmo número de WhatsApp) e aponte qualquer contradição.",
+      ].join("\n"),
+      dependsOn: productionIds.length > 0 ? productionIds : [p.synthesisId],
+    })
+  );
+  return ids;
+}
+
+// Inicia a produção de um diagnóstico já existente (quando ela não foi pedida no início).
+export async function startProduction(missionId: string): Promise<{ created: number }> {
+  const mission = await prisma.mission.findUnique({
+    where: { id: missionId },
+    select: { id: true, status: true, context: true, client: { select: { name: true, instagram: true } } },
+  });
+  const context = (mission?.context ?? {}) as Json;
+  if (!mission || !context.diagnosis360) throw new Error("Diagnóstico não encontrado.");
+  const tasks = await prisma.task.findMany({ where: { missionId }, select: { id: true, title: true, input: true } });
+  if (tasks.some((t) => (t.input as Json | null)?.fase === "producao")) throw new Error("A produção deste diagnóstico já foi criada.");
+  const synthesis = tasks.find((t) => t.title.startsWith("Diagnóstico consolidado"));
+  if (!synthesis) throw new Error("Este diagnóstico ainda não chegou na etapa de análise. Espere a coleta terminar.");
+
+  let brief = context.brief as Json | undefined;
+  if (!brief) {
+    // Diagnósticos antigos não guardaram o resumo: usa o documento de dados coletados
+    const collected = await prisma.document.findFirst({ where: { missionId, type: "RESEARCH_REPORT" }, orderBy: { createdAt: "asc" }, select: { content: true } });
+    brief = { dadosColetados: collected?.content.slice(0, 9000) ?? "" };
+  }
+  const handle = String(context.handle ?? mission.client?.instagram ?? "");
+  const ids = await createProductionTasks({ missionId, businessName: mission.client?.name ?? `@${handle}`, handle, synthesisId: synthesis.id, brief });
+  if (["COMPLETED", "IN_REVIEW"].includes(mission.status)) {
+    await prisma.mission.update({ where: { id: missionId }, data: { status: "IN_PROGRESS", completedAt: null } });
+  }
+  for (const id of ids) runTask(id);
+  return { created: ids.length };
+}
+
+// Grava todos os entregáveis em uma pasta do computador, para o dono entregar ao cliente.
+export async function exportDeliverables(missionId: string): Promise<{ dir: string; files: number } | null> {
+  const mission = await prisma.mission.findUnique({ where: { id: missionId }, select: { context: true, title: true } });
+  const context = (mission?.context ?? {}) as Json;
+  if (!mission || !context.diagnosis360) return null;
+  const documents = await prisma.document.findMany({ where: { missionId }, orderBy: { createdAt: "asc" }, select: { title: true, type: true, content: true } });
+  if (documents.length === 0) return null;
+
+  const safe = (value: string) => value.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-zA-Z0-9 ._-]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+  const dir = path.join(os.homedir(), "LOTUS_Workspace", "entregas", safe(String(context.handle ?? missionId)) || missionId);
+  fs.mkdirSync(dir, { recursive: true });
+  let files = 0;
+  documents.forEach((doc, index) => {
+    const name = `${String(index + 1).padStart(2, "0")} - ${safe(doc.title) || "documento"}`;
+    fs.writeFileSync(path.join(dir, `${name}.md`), `# ${doc.title}\n\n${doc.content}\n`, "utf-8");
+    files++;
+    // A página de agendamento também sai como arquivo .html, pronto para abrir no navegador
+    const html = doc.content.match(/```html\s*\n([\s\S]*?)```/i)?.[1];
+    if (html && /<html[\s>]/i.test(html)) {
+      fs.writeFileSync(path.join(dir, `${name}.html`), html, "utf-8");
+      files++;
+    }
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await prisma.mission.update({ where: { id: missionId }, data: { context: { ...context, exportDir: dir, exportedAt: new Date().toISOString() } as any } });
+  return { dir, files };
+}
+
+// Retoma uma coleta que foi interrompida (aplicativo fechado ou computador travado no meio).
+export async function resumeCollection(taskId: string): Promise<"resumed" | "failed" | "skipped"> {
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: { id: true, status: true, retryCount: true, missionId: true, mission: { select: { context: true, clientId: true } } },
+  });
+  if (!task || task.status !== "IN_PROGRESS") return "skipped";
+  const context = (task.mission.context ?? {}) as Json;
+  const handle = String(context.handle ?? "");
+  if (!context.diagnosis360 || !handle || !task.mission.clientId) return "skipped";
+
+  if (task.retryCount >= 2) {
+    const message = "A coleta foi interrompida três vezes seguidas (o computador provavelmente ficou sem memória). Feche outros programas pesados e inicie o diagnóstico de novo.";
+    await prisma.task.update({ where: { id: taskId }, data: { status: "FAILED", output: { error: message } } });
+    await prisma.mission.update({ where: { id: task.missionId }, data: { status: "FAILED" } });
+    return "failed";
+  }
+  const runtime = createRuntimeClient();
+  if (!(await runtime.available())) return "skipped";
+
+  await prisma.task.update({ where: { id: taskId }, data: { retryCount: { increment: 1 }, startedAt: new Date(), output: { host: os.hostname() } } });
+  await prisma.activityLog.create({ data: { missionId: task.missionId, taskId, action: "DIAGNOSIS_RESUMED", details: { handle, attempt: task.retryCount + 2 }, level: "WARN" } });
+  const input: DiagnosisInput = {
+    instagram: handle,
+    website: context.website ? String(context.website) : undefined,
+    city: context.city ? String(context.city) : undefined,
+    testWhatsApp: !!context.testWhatsApp,
+    produce: context.produce !== false,
+  };
+  launchCollection({ input, handle, clientId: task.mission.clientId, missionId: task.missionId, collectTaskId: taskId, runtime });
+  return "resumed";
 }
 
 async function catalog() {
@@ -626,30 +960,36 @@ async function catalog() {
 export async function diagnosisProgress(missionId: string) {
   const mission = await prisma.mission.findUnique({
     where: { id: missionId },
-    select: { id: true, title: true, status: true, createdAt: true, completedAt: true, client: { select: { id: true, name: true, instagram: true } } },
+    select: { id: true, title: true, status: true, createdAt: true, completedAt: true, context: true, client: { select: { id: true, name: true, instagram: true } } },
   });
   if (!mission) return null;
   const [tasks, documents, approvals] = await Promise.all([
     prisma.task.findMany({
       where: { missionId },
       orderBy: { createdAt: "asc" },
-      select: { id: true, title: true, status: true, startedAt: true, completedAt: true, output: true, agent: { select: { name: true, title: true } } },
+      select: { id: true, title: true, status: true, startedAt: true, completedAt: true, output: true, input: true, agent: { select: { name: true, title: true } } },
     }),
     prisma.document.findMany({ where: { missionId }, orderBy: { createdAt: "asc" }, select: { id: true, title: true, type: true, content: true, taskId: true } }),
     prisma.approval.findMany({ where: { missionId }, orderBy: { createdAt: "desc" }, select: { id: true, title: true, status: true, description: true } }),
   ]);
   const report = documents.find((d) => d.type === "STRATEGY" && /Diagnóstico 360/i.test(d.title)) ?? null;
+  const { context, ...missionInfo } = mission;
+  const phaseOf = (input: unknown) => ((input as Json | null)?.fase === "producao" ? "producao" : "diagnostico");
+  const taskPhase = new Map(tasks.map((t) => [t.id, phaseOf(t.input)]));
   return {
-    mission,
+    mission: missionInfo,
+    hasProduction: tasks.some((t) => phaseOf(t.input) === "producao"),
+    exportDir: ((context ?? {}) as Json).exportDir ? String(((context ?? {}) as Json).exportDir) : null,
     tasks: tasks.map((t) => ({
       id: t.id,
       title: t.title,
+      phase: phaseOf(t.input),
       status: t.status,
       agent: t.agent?.name ?? "Sistema",
       role: t.agent?.title ?? "",
       error: t.status === "FAILED" ? String((t.output as { error?: string } | null)?.error ?? "") : null,
     })),
-    documents: documents.map((d) => ({ id: d.id, title: d.title, type: d.type, content: d.type === "RESEARCH_REPORT" ? d.content.slice(0, 1500) : d.content })),
+    documents: documents.map((d) => ({ id: d.id, title: d.title, type: d.type, phase: (d.taskId && taskPhase.get(d.taskId)) || "diagnostico", content: d.type === "RESEARCH_REPORT" ? d.content.slice(0, 1500) : d.content })),
     approvals,
     report: report ? { title: report.title, content: report.content } : null,
     done: tasks.length > 1 && tasks.every((t) => ["COMPLETED", "FAILED", "CANCELLED", "SKIPPED"].includes(t.status)),

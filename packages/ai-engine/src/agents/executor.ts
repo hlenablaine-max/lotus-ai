@@ -44,10 +44,10 @@ export interface ExecutorDB {
     create(args: { data: Record<string, unknown> }): Promise<{ id: string }>;
     findMany?(args: {
       where: { missionId: string; NOT?: { taskId: string } };
-      select: { title: boolean; content: boolean; type: boolean };
+      select: { title: boolean; content: boolean; type: boolean; taskId?: boolean };
       orderBy?: { createdAt: "asc" | "desc" };
       take?: number;
-    }): Promise<Array<{ title: string; content: string; type: string }>>;
+    }): Promise<Array<{ title: string; content: string; type: string; taskId?: string | null }>>;
   };
   approval?: {
     create(args: { data: Record<string, unknown> }): Promise<{ id: string }>;
@@ -315,15 +315,20 @@ export async function executeTask(taskId: string, db: ExecutorDB, opts: ExecuteT
     emitAgentEvent(task.agentId!, "working", taskId, task.mission.title);
 
     // Fetch documents from already-completed sibling tasks (feedback loop)
-    let prevDocs: Array<{ title: string; content: string; type: string }> = [];
+    let prevDocs: PrevDoc[] = [];
     if (db.document?.findMany) {
       try {
-        prevDocs = await db.document.findMany({
+        const all = await db.document.findMany({
           where: { missionId: task.missionId, NOT: { taskId: task.id } },
-          select: { title: true, content: true, type: true },
+          select: { title: true, content: true, type: true, taskId: true },
           orderBy: { createdAt: "asc" },
-          take: 14,
+          take: 40,
         });
+        // Os entregáveis de que esta tarefa depende entram primeiro e com mais espaço;
+        // o restante da missão entra como contexto resumido.
+        const direct = all.filter((d) => d.taskId && dependsOnIds.includes(d.taskId)).map((d) => ({ ...d, direct: true }));
+        const others = all.filter((d) => !d.taskId || !dependsOnIds.includes(d.taskId));
+        prevDocs = [...direct, ...others.slice(0, Math.max(0, 14 - direct.length))];
       } catch {
         // non-critical — proceed without context
       }
@@ -792,9 +797,11 @@ export async function executeTask(taskId: string, db: ExecutorDB, opts: ExecuteT
   }
 }
 
+type PrevDoc = { title: string; content: string; type: string; taskId?: string | null; direct?: boolean };
+
 function buildUserPrompt(
   task: TaskWithRelations,
-  prevDocs: Array<{ title: string; content: string; type: string }> = [],
+  prevDocs: PrevDoc[] = [],
   clientMemories: Array<{ key: string; content: string }> = []
 ): string {
   const client = task.mission.client;
@@ -842,9 +849,12 @@ function buildUserPrompt(
     parts.push(
       `Os seguintes documentos já foram produzidos por outros agentes nesta missão. Use-os como contexto para o seu trabalho:`
     );
+    // Orçamento de ~42 mil caracteres dividido entre os entregáveis dos quais a tarefa depende
+    const directCount = prevDocs.filter((d) => d.direct).length;
+    const directLimit = directCount > 0 ? Math.min(14_000, Math.max(3_500, Math.floor(42_000 / directCount))) : 3_500;
     for (const doc of prevDocs) {
       // Dados brutos de coleta já chegam no contexto de cada tarefa; aqui entra só um trecho
-      const limit = doc.type === "RESEARCH_REPORT" ? 1200 : 3500;
+      const limit = doc.direct ? directLimit : doc.type === "RESEARCH_REPORT" ? 1200 : 3500;
       parts.push(``, `### ${doc.title} (${doc.type})`, doc.content.slice(0, limit));
     }
   }

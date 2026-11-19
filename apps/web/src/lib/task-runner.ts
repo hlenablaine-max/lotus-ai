@@ -16,8 +16,19 @@ const IMAGE_ROOT = path.join(os.homedir(), "LOTUS_Workspace");
 const AGENT_WEB_TOOLS = new Set(["search_web", "fetch_url"]);
 
 // Fila simples: no máximo N agentes chamando a IA ao mesmo tempo (evita estourar o limite do provedor)
-const globalRef = globalThis as unknown as { __lotusTaskSlots?: { active: number; waiting: Array<() => void> } };
+const globalRef = globalThis as unknown as {
+  __lotusTaskSlots?: { active: number; waiting: Array<() => void> };
+  __lotusRunningTasks?: Set<string>;
+  __lotusResumeTimer?: ReturnType<typeof setInterval>;
+};
 const slots = (globalRef.__lotusTaskSlots ??= { active: 0, waiting: [] });
+
+// Tarefas que ESTE processo está executando agora. Tudo que estiver "em execução" no banco,
+// for deste computador e não estiver aqui ficou órfão (app fechado ou PC travado) e pode ser retomado.
+const HOST = os.hostname();
+const running = (globalRef.__lotusRunningTasks ??= new Set<string>());
+export const markRunning = (taskId: string): void => void running.add(taskId);
+export const unmarkRunning = (taskId: string): void => void running.delete(taskId);
 
 async function acquireSlot(): Promise<void> {
   if (slots.active < MAX_CONCURRENT_TASKS) {
@@ -108,12 +119,13 @@ async function executeAndAdvance(taskId: string, opts: { permissionMode?: Permis
   // Trava contra execução duplicada da mesma tarefa
   const claimed = await prisma.task.updateMany({
     where: { id: taskId, status: task.status },
-    data: { status: "IN_PROGRESS", startedAt: new Date() },
+    data: { status: "IN_PROGRESS", startedAt: new Date(), output: { host: HOST } },
   });
   if (claimed.count === 0) {
     releaseSlot();
     return;
   }
+  running.add(taskId);
 
   await prisma.agent.update({ where: { id: task.agentId }, data: { status: "EXECUTING" } }).catch(() => {});
 
@@ -130,6 +142,7 @@ async function executeAndAdvance(taskId: string, opts: { permissionMode?: Permis
   } catch {
     failed = true;
   } finally {
+    running.delete(taskId);
     releaseSlot();
     const stillBusy = await prisma.task.count({ where: { agentId: task.agentId, status: "IN_PROGRESS" } });
     if (stillBusy === 0) {
@@ -167,6 +180,10 @@ export async function advanceMission(missionId: string): Promise<void> {
   }
 
   const allTerminal = tasks.length > 0 && tasks.every((t) => TERMINAL.has(t.status));
+  if (allTerminal) {
+    // Diagnóstico terminado: grava o pacote de entrega na pasta do computador (não faz nada em outras missões)
+    import("@/lib/diagnosis-360").then((m) => m.exportDeliverables(missionId)).catch((err) => console.error("[task-runner] export:", err));
+  }
   let next = mission.status;
   if (pendingApprovals > 0) next = "WAITING_APPROVAL";
   else if (allTerminal) next = "COMPLETED";
@@ -201,4 +218,72 @@ export async function recoverStaleTasks(): Promise<number> {
     data: { status: "IDLE" },
   });
   return stale.length;
+}
+
+// Retoma sozinho o trabalho que ficou pela metade quando o aplicativo foi fechado ou o computador travou:
+// tarefas órfãs voltam para a fila, tarefas na fila são executadas e coletas interrompidas recomeçam.
+export async function resumePendingWork(): Promise<{ requeued: number; started: number; collections: number }> {
+  const result = { requeued: 0, started: 0, collections: 0 };
+  const missions = await prisma.mission.findMany({
+    where: { status: { in: ["PENDING", "PLANNING", "IN_PROGRESS", "WAITING_APPROVAL"] } },
+    orderBy: { updatedAt: "desc" },
+    take: 40,
+    select: {
+      id: true,
+      context: true,
+      tasks: { select: { id: true, status: true, agentId: true, input: true, output: true, updatedAt: true } },
+    },
+  });
+
+  for (const mission of missions) {
+    const hostOf = (value: unknown) => (value as { host?: string } | null)?.host;
+    const lastActivity = Math.max(0, ...mission.tasks.map((t) => t.updatedAt.getTime()));
+    // Só mexe em missões deste computador, ou paradas há mais de 20 minutos (o sócio pode estar rodando as dele)
+    const mine = hostOf(mission.context) === HOST || mission.tasks.some((t) => hostOf(t.output) === HOST);
+    const abandoned = Date.now() - lastActivity > STALE_MINUTES * 60_000;
+    if (!mine && !abandoned) continue;
+
+    let touched = false;
+    for (const task of mission.tasks) {
+      if (running.has(task.id)) continue;
+      const systemStep = (task.input as { systemStep?: string } | null)?.systemStep;
+
+      if (task.status === "IN_PROGRESS") {
+        const orphan = hostOf(task.output) === HOST || Date.now() - task.updatedAt.getTime() > STALE_MINUTES * 60_000;
+        if (!orphan) continue;
+        if (systemStep === "diagnosis_collect") {
+          const { resumeCollection } = await import("@/lib/diagnosis-360");
+          if ((await resumeCollection(task.id)) === "resumed") result.collections++;
+          continue;
+        }
+        if (!task.agentId) continue;
+        const back = await prisma.task.updateMany({ where: { id: task.id, status: "IN_PROGRESS" }, data: { status: "QUEUED" } });
+        if (back.count === 0) continue;
+        await prisma.activityLog.create({ data: { taskId: task.id, missionId: mission.id, agentId: task.agentId, action: "TASK_RESUMED", details: { reason: "interrompida" }, level: "WARN" } }).catch(() => {});
+        runTask(task.id);
+        result.requeued++;
+        touched = true;
+      } else if (task.status === "QUEUED" && task.agentId && !systemStep) {
+        // "PENDING" fica de fora: é tarefa criada sem execução automática, esperando o dono mandar rodar
+        runTask(task.id);
+        result.started++;
+        touched = true;
+      }
+    }
+    if (touched || mission.tasks.some((t) => t.status === "WAITING_DEPENDENCY")) await advanceMission(mission.id);
+  }
+
+  await prisma.agent.updateMany({ where: { status: { not: "IDLE" }, tasks: { none: { status: "IN_PROGRESS" } } }, data: { status: "IDLE" } }).catch(() => {});
+  if (result.requeued + result.started + result.collections > 0) console.log("[task-runner] trabalho retomado:", result);
+  return result;
+}
+
+// Chamado quando o servidor sobe: confere logo após abrir e depois de tempos em tempos.
+export function scheduleResume(): void {
+  if (globalRef.__lotusResumeTimer) return;
+  const tick = () => void resumePendingWork().catch((err) => console.error("[task-runner] resume:", err));
+  setTimeout(tick, 20_000);
+  setTimeout(tick, 10 * 60_000);
+  globalRef.__lotusResumeTimer = setInterval(tick, 30 * 60_000);
+  console.log(`[task-runner] retomada automática ativa neste computador (${HOST})`);
 }

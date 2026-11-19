@@ -129,8 +129,14 @@ export class RuntimeHttpServer {
         return { ok: true }
       case '/runtime/research/instagram':
         return rt.research.instagramProfile(String(data.handle ?? ''), data.maxPosts)
+      case '/runtime/research/release':
+        return rt.research.release()
       case '/runtime/research/reel':
         return rt.research.reelMedia(String(data.url ?? ''), String(data.name ?? 'negocio'))
+      case '/runtime/research/reel-download':
+        return rt.research.reelDownload(String(data.url ?? ''), String(data.name ?? 'negocio'))
+      case '/runtime/research/reel-analyze':
+        return rt.research.reelAnalyze(String(data.url ?? ''), String(data.name ?? 'negocio'), Array.isArray(data.files) ? data.files.map(String) : [])
       case '/runtime/research/ads':
         return rt.research.metaAds(String(data.query ?? ''))
       case '/runtime/research/site':

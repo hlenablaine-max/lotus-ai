@@ -163,12 +163,13 @@ export const DB_TOOL_DEFS: AITool[] = [
   {
     name: "start_diagnosis",
     description:
-      "Inicia o DIAGNÓSTICO 360 de um lead a partir do Instagram: o app coleta perfil, posts, vídeos (com transcrição), link da bio/site, anúncios na Meta e Google Maps, e a equipe inteira analisa (conteúdo, copy, vídeos, tráfego, site, reputação, funil, operação, conformidade), fecha o diagnóstico consolidado e o roteiro da reunião. Use SEMPRE que o dono enviar o Instagram de um lead/prospect para diagnosticar. Cria o cliente e a missão sozinho — não use create_client/create_mission antes.",
+      "Inicia o DIAGNÓSTICO 360 de um lead a partir do Instagram: o app coleta perfil, posts, vídeos (com transcrição), link da bio/site, anúncios na Meta e Google Maps, e a equipe inteira analisa (conteúdo, copy, vídeos, tráfego, site, reputação, funil, operação, conformidade), fecha o diagnóstico consolidado e o roteiro da reunião, e em seguida PRODUZ as soluções prontas para instalar no cliente (IA de atendimento no WhatsApp, campanhas de tráfego, copies dos anúncios, criativos e roteiros de vídeo, calendário de conteúdo, página de agendamento, funil no CRM e pacote de entrega). Use SEMPRE que o dono enviar o Instagram de um lead/prospect para diagnosticar. Cria o cliente e a missão sozinho — não use create_client/create_mission antes.",
     parameters: {
       properties: {
         instagram: { type: "string", description: "Link ou @ do Instagram do lead" },
         website: { type: "string", description: "Site do lead, se o dono informou (opcional)" },
         city: { type: "string", description: "Cidade do negócio, se conhecida (melhora a busca no Google Maps)" },
+        produce: { type: "boolean", description: "Produzir as soluções depois do diagnóstico (padrão: true). Use false só se o dono pedir apenas o diagnóstico." },
       },
       required: ["instagram"],
     },
@@ -805,8 +806,8 @@ export function createDbToolExecutor(): ToolExecutor {
 
         case "start_diagnosis": {
           const { startDiagnosis } = await import("@/lib/diagnosis-360");
-          const { instagram, website, city } = args as { instagram: string; website?: string; city?: string };
-          const started = await startDiagnosis({ instagram, website, city });
+          const { instagram, website, city, produce } = args as { instagram: string; website?: string; city?: string; produce?: boolean };
+          const started = await startDiagnosis({ instagram, website, city, produce: produce !== false });
           return JSON.stringify({
             success: true,
             ...started,

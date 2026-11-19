@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, Menu, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, Menu, dialog, Tray, nativeImage } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as http from 'http'
@@ -22,6 +22,39 @@ let runtime: LocalRuntime | null = null
 let httpServer: RuntimeHttpServer | null = null
 let serverProcess: ChildProcess | null = null
 let serverLog: string[] = []
+let tray: Tray | null = null
+// Fechar a janela NÃO encerra o LOTUS: os agentes continuam trabalhando em segundo plano.
+// Só "Sair" (menu ou ícone perto do relógio) encerra de verdade.
+let quitting = false
+let trayHintShown = false
+
+function showWindow(): void {
+  if (!mainWindow) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+function createTray(): void {
+  if (tray) return
+  const icon = nativeImage.createFromPath(path.join(__dirname, '../../assets/icon.png'))
+  tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon.resize({ width: 16, height: 16 }))
+  tray.setToolTip('LOTUS AI — agentes ativos')
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'Abrir LOTUS', click: showWindow },
+      { type: 'separator' },
+      {
+        label: 'Sair e encerrar os agentes',
+        click: () => {
+          quitting = true
+          app.quit()
+        },
+      },
+    ])
+  )
+  tray.on('click', showWindow)
+}
 
 function isRepoDir(dir: string | undefined | null): dir is string {
   return !!dir && fs.existsSync(path.join(dir, 'apps', 'web', 'package.json'))
@@ -229,6 +262,19 @@ async function createWindow() {
 
   mainWindow.once('ready-to-show', () => mainWindow?.show())
 
+  mainWindow.on('close', (event) => {
+    if (quitting) return
+    event.preventDefault()
+    mainWindow?.hide()
+    if (!trayHintShown && tray) {
+      trayHintShown = true
+      tray.displayBalloon({
+        title: 'O LOTUS continua trabalhando',
+        content: 'Os agentes seguem ativos em segundo plano. Para encerrar de vez, use o ícone do LOTUS perto do relógio > Sair.',
+      })
+    }
+  })
+
   mainWindow.on('closed', () => {
     mainWindow = null
     httpServer?.stop()
@@ -283,14 +329,10 @@ ipcMain.handle('runtime:terminal-open', (_event, cmd: string, cwd?: string) => {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
-    }
-  })
+  app.on('second-instance', showWindow)
 
   app.whenReady().then(() => {
+    createTray()
     createWindow()
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -303,6 +345,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  quitting = true
   stopServer()
   httpServer?.stop()
   runtime?.destroy()

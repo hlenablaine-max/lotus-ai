@@ -3,6 +3,7 @@
 // Usa um perfil persistente: o dono entra uma vez no Instagram/WhatsApp e a sessão fica salva.
 
 import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -18,11 +19,13 @@ const TOOLS_DIR = path.join(WORKSPACE_DIR, '.tools')
 const TRANSCRIBE_SCRIPT = `import sys, json
 from faster_whisper import WhisperModel
 sys.stdout.reconfigure(encoding="utf-8")
-# Tenta o modelo melhor primeiro e cai para os menores se faltar memória
+# A ordem dos modelos vem do LOTUS conforme a memória livre; cai para os menores se faltar memória
+names = sys.argv[2].split(",") if len(sys.argv) > 2 else ["small", "base", "tiny"]
+threads = int(sys.argv[3]) if len(sys.argv) > 3 else 2
 last_error = None
-for name in ["small", "base", "tiny"]:
+for name in names:
     try:
-        model = WhisperModel(name, device="cpu", compute_type="int8")
+        model = WhisperModel(name, device="cpu", compute_type="int8", cpu_threads=threads)
         segments, info = model.transcribe(sys.argv[1], language="pt", vad_filter=True)
         text = " ".join(s.text.strip() for s in segments)
         print(json.dumps({"duration": info.duration, "text": text, "model": name}, ensure_ascii=False))
@@ -82,6 +85,14 @@ function slug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'negocio'
 }
 
+export interface ReelAnalysis {
+  url: string
+  durationSec: number | null
+  transcript: string
+  frames: string[]
+  note: string
+}
+
 export class ResearchBrowser {
   private context: BrowserContext | null = null
   private headless = true
@@ -104,7 +115,8 @@ export class ResearchBrowser {
           ...(channel ? { channel } : {}),
           locale: 'pt-BR',
           viewport: { width: 1280, height: 900 },
-          args: ['--disable-blink-features=AutomationControlled'],
+          // Poucos processos de página: o PC do dono tem pouca memória
+          args: ['--disable-blink-features=AutomationControlled', '--renderer-process-limit=2', '--disable-extensions', '--disable-background-networking'],
         })
         break
       } catch (err) {
@@ -123,6 +135,13 @@ export class ResearchBrowser {
     const ctx = this.context
     this.context = null
     await ctx?.close().catch(() => {})
+  }
+
+  // Libera a memória do navegador invisível entre etapas. A janela visível (login do dono) nunca é fechada aqui.
+  async release(): Promise<{ closed: boolean }> {
+    if (!this.context || !this.headless) return { closed: false }
+    await this.close()
+    return { closed: true }
   }
 
   private outDir(name: string): string {
@@ -304,7 +323,14 @@ export class ResearchBrowser {
   }
 
   // Baixa o vídeo de um reel, transcreve a fala (faster-whisper local) e extrai quadros para análise visual.
-  async reelMedia(postUrl: string, businessName: string): Promise<{ url: string; durationSec: number | null; transcript: string; frames: string[]; note: string }> {
+  // São duas fases separadas (baixar com o navegador, analisar sem ele) para o pico de memória não somar.
+  async reelMedia(postUrl: string, businessName: string): Promise<ReelAnalysis> {
+    const { files } = await this.reelDownload(postUrl, businessName)
+    return this.reelAnalyze(postUrl, businessName, files)
+  }
+
+  // Fase 1 (usa o navegador): baixa as faixas de vídeo/áudio do reel para o disco.
+  async reelDownload(postUrl: string, businessName: string): Promise<{ url: string; files: string[] }> {
     const dir = path.join(this.outDir(businessName), 'videos')
     fs.mkdirSync(dir, { recursive: true })
     const id = slug(postUrl.split('/').filter(Boolean).pop() ?? `${Date.now()}`)
@@ -342,6 +368,16 @@ export class ResearchBrowser {
       }
       return saved
     })
+    this.log('info', `Vídeo baixado: ${postUrl} (${files.length} faixa(s))`)
+    return { url: postUrl, files }
+  }
+
+  // Fase 2 (sem navegador): mede a duração, extrai quadros e transcreve a fala.
+  async reelAnalyze(postUrl: string, businessName: string, filesInput: string[]): Promise<ReelAnalysis> {
+    const dir = path.join(this.outDir(businessName), 'videos')
+    const id = slug(postUrl.split('/').filter(Boolean).pop() ?? `${Date.now()}`)
+    // Só aceita arquivos que o próprio LOTUS baixou para a pasta de vídeos deste negócio
+    const files = filesInput.filter((file) => path.resolve(file).startsWith(path.resolve(dir) + path.sep) && fs.existsSync(file))
 
     if (files.length === 0) {
       return { url: postUrl, durationSec: null, transcript: '', frames: [], note: 'Não foi possível baixar o vídeo (o Instagram pode exigir login para este conteúdo).' }
@@ -388,14 +424,20 @@ export class ResearchBrowser {
         fs.mkdirSync(TOOLS_DIR, { recursive: true })
         const script = path.join(TOOLS_DIR, 'transcribe.py')
         fs.writeFileSync(script, TRANSCRIBE_SCRIPT, 'utf-8')
-        const { stdout } = await execFileAsync('python', [script, audioFile], {
+        // Modelo de transcrição conforme a memória livre agora (o maior precisa de ~2 GB)
+        const freeGb = os.freemem() / 1024 ** 3
+        const models = freeGb >= 3 ? 'small,base,tiny' : freeGb >= 1.6 ? 'base,tiny' : 'tiny'
+        const threads = Math.max(1, Math.min(4, Math.floor(os.cpus().length / 2)))
+        const { stdout } = await execFileAsync('python', [script, audioFile, models, String(threads)], {
           timeout: 600_000,
           maxBuffer: 10 * 1024 * 1024,
           env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
         })
         const lastLine = stdout.trim().split('\n').pop() ?? '{}'
-        transcript = (JSON.parse(lastLine) as { text?: string }).text?.trim() ?? ''
+        const parsed = JSON.parse(lastLine) as { text?: string; model?: string }
+        transcript = parsed.text?.trim() ?? ''
         if (!transcript) note = 'Vídeo sem fala detectável (provavelmente só música ou texto na tela).'
+        else if (parsed.model && parsed.model !== 'small') note = `Transcrição feita com o modelo "${parsed.model}" (memória livre baixa): pode ter erros de palavra.`
       } catch (err) {
         note = `Transcrição indisponível: ${String(err).slice(0, 200)}`
       }

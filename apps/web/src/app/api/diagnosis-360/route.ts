@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireOwner } from "@/lib/require-owner";
-import { diagnosisProgress, startDiagnosis } from "@/lib/diagnosis-360";
+import { diagnosisProgress, exportDeliverables, startDiagnosis, startProduction } from "@/lib/diagnosis-360";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +12,29 @@ export async function POST(request: NextRequest) {
   const owner = await requireOwner();
   if (owner instanceof Response) return owner;
 
-  const body = (await request.json().catch(() => ({}))) as { instagram?: string; website?: string; city?: string; testWhatsApp?: boolean };
+  const body = (await request.json().catch(() => ({}))) as {
+    instagram?: string;
+    website?: string;
+    city?: string;
+    testWhatsApp?: boolean;
+    produce?: boolean;
+    action?: "produce" | "export";
+    missionId?: string;
+  };
+
+  // Ações sobre um diagnóstico que já existe: produzir as soluções ou gravar o pacote em pasta
+  if (body.action) {
+    if (!body.missionId) return Response.json({ error: "Informe o diagnóstico." }, { status: 400 });
+    try {
+      if (body.action === "produce") return Response.json(await startProduction(body.missionId), { status: 202 });
+      const exported = await exportDeliverables(body.missionId);
+      if (!exported) return Response.json({ error: "Ainda não há entregáveis para gravar." }, { status: 400 });
+      return Response.json(exported);
+    } catch (err) {
+      return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 });
+    }
+  }
+
   if (!body.instagram?.trim()) {
     return Response.json({ error: "Informe o link ou @ do Instagram." }, { status: 400 });
   }
@@ -22,6 +44,7 @@ export async function POST(request: NextRequest) {
       website: body.website?.trim() || undefined,
       city: body.city?.trim() || undefined,
       testWhatsApp: !!body.testWhatsApp,
+      produce: body.produce !== false,
     });
     return Response.json(result, { status: 202 });
   } catch (err) {
