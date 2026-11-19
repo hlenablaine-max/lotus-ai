@@ -823,8 +823,13 @@ export function createDbToolExecutor(): ToolExecutor {
             mission: progress.mission.title,
             status: progress.mission.status,
             done: progress.done,
-            tasks: progress.tasks.map((t) => `${t.status} — ${t.title} (${t.agent})${t.error ? ` — erro: ${t.error}` : ""}`),
-            pendingApprovals: progress.approvals.filter((a) => a.status === "PENDING").map((a) => a.title),
+            tasks: progress.tasks.map((t) => `${t.status} — [${t.phase === "producao" ? "produção" : "diagnóstico"}] ${t.title} (${t.agent})${t.error ? ` — erro: ${t.error}` : ""}`),
+            // Descrição completa: sem ela o modelo adivinha o que cada aprovação faz (e já adivinhou errado)
+            pendingApprovals: progress.approvals
+              .filter((a) => a.status === "PENDING")
+              .map((a) => ({ title: a.title, whatHappensIfApproved: a.description.slice(0, 600) })),
+            deliveryFolder: progress.exportDir,
+            note: "Aprovações só fazem o que a descrição diz. Nada foi instalado no cliente: as soluções produzidas são material pronto que o Ícaro instala manualmente.",
             report: progress.report?.content.slice(0, 9000) ?? null,
           });
         }
@@ -873,8 +878,12 @@ export function createDbToolExecutor(): ToolExecutor {
             orderBy: { createdAt: "asc" },
             select: { id: true, title: true, type: true, content: true, createdAt: true, task: { select: { title: true, agent: { select: { name: true } } } } },
           });
+          const mission = await prisma.mission.findUnique({ where: { id: missionId }, select: { context: true } });
+          const exportDir = ((mission?.context ?? {}) as { exportDir?: string }).exportDir ?? null;
           return JSON.stringify({
             total: documents.length,
+            // Cópia em arquivos no computador (um .md por entrega e a página em .html), se a missão já foi exportada
+            deliveryFolderOnThisComputer: exportDir,
             documents: documents.map((d) => ({
               id: d.id,
               title: d.title,
