@@ -3,7 +3,8 @@ import { getToken } from 'next-auth/jwt'
 import { isValidPortalToken } from '@/lib/portal-token'
 
 // /api/internal/busy só diz se há agente trabalhando (sim/não): o app desktop usa para saber quando pode reiniciar o servidor
-const PUBLIC_ROUTES = ['/login', '/api/auth', '/api/internal/busy']
+// /api/internal/whatsapp/events recebe as mensagens do app desktop e confere o token secreto do runtime na própria rota
+const PUBLIC_ROUTES = ['/login', '/api/auth', '/api/internal/busy', '/api/internal/whatsapp/events']
 
 async function hasValidSession(req: NextRequest): Promise<boolean> {
   const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET

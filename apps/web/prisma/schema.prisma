@@ -107,6 +107,9 @@ model Client {
   salesCalls       SalesCall[]
   leads            Lead[]
   monthlyNumbers   ClientMonthlyNumbers[]
+  whatsapp         WhatsappChannel?
+  conversations    Conversation[]
+  patients         Patient[]
 
   @@map("clients")
 }
@@ -128,6 +131,10 @@ model Lead {
   lostReason     String?
   notes          String?
   viaLotus       Boolean    @default(true) // veio por ação da LOTUS (anúncio, site, campanha)?
+  conversationId String?    // conversa de WhatsApp que gerou o lead
+  patientId      String?
+  appointmentAt  DateTime?  // data e hora da consulta marcada
+  quotedValue    Float?     // valor do orçamento passado
   firstContactAt DateTime?
   stageChangedAt DateTime   @default(now())
   closedAt       DateTime?
@@ -138,6 +145,8 @@ model Lead {
 
   @@index([clientId, createdAt])
   @@index([clientId, stage])
+  @@index([clientId, phone])
+  @@index([appointmentAt])
   @@map("leads")
 }
 
@@ -150,7 +159,152 @@ enum LeadSource {
   INDICACAO
   REATIVACAO
   GOOGLE_MAPS
+  PACIENTE_BASE // paciente antigo da clínica que voltou a falar sozinho
   OUTRO
+}
+
+// WhatsApp da clínica ligado à LOTUS (aparelho conectado pelo QR code no app de PC)
+model WhatsappChannel {
+  id          String    @id @default(cuid())
+  clientId    String    @unique
+  phone       String?   // número conectado (só dígitos)
+  displayName String?
+  status      String    @default("desconectado") // desconectado | conectado
+  connectedAt DateTime?
+  lastEventAt DateTime?
+  links       Json?     // links rastreados: [{ id, label, source, campaign, text }]
+  settings    Json?     // automações (lembrete, avaliação, retorno, orçamento, aniversário) e horário de envio
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("whatsapp_channels")
+}
+
+model Conversation {
+  id              String     @id @default(cuid())
+  clientId        String
+  jid             String     // endereço do contato no WhatsApp
+  phone           String?    // só dígitos, quando conhecido
+  name            String?
+  source          LeadSource @default(OUTRO)
+  sourceBy        String?    // como a origem foi descoberta: saudacao | base | campanha | manual
+  linkId          String?    // link rastreado que trouxe o contato
+  campaign        String?
+  leadId          String?    // lead aberto desta conversa
+  patientId       String?
+  fromHistory     Boolean    @default(false) // veio do histórico do celular ao conectar (não é lead novo)
+  firstMessageAt  DateTime
+  lastMessageAt   DateTime
+  lastInboundAt   DateTime?
+  lastOutboundAt  DateTime?
+  firstResponseAt DateTime?  // primeira resposta da clínica depois do primeiro contato
+  firstResponseMin Float?    // minutos até a primeira resposta
+  unread          Int        @default(0)
+  lastPreview     String?
+  aiHint          String?    // leitura da IA: quente/morno/frio e próximo passo
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  client   Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  messages WhatsappMessage[]
+
+  @@unique([clientId, jid])
+  @@index([clientId, lastMessageAt])
+  @@index([clientId, phone])
+  @@map("conversations")
+}
+
+model WhatsappMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  clientId       String
+  waId           String
+  direction      String   // IN (paciente) | OUT (clínica)
+  body           String
+  kind           String   @default("texto")
+  sentBy         String?  // paciente | clinica (pelo celular) | lotus (pelo app) | automacao
+  sentAt         DateTime
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, waId])
+  @@index([conversationId, sentAt])
+  @@index([clientId, sentAt])
+  @@map("whatsapp_messages")
+}
+
+// Base de pacientes da clínica (importada ou criada pelos fechamentos) com o histórico de compras (LTV)
+model Patient {
+  id           String     @id @default(cuid())
+  clientId     String
+  name         String
+  phone        String?    // só dígitos com DDD
+  email        String?
+  birthDate    DateTime?
+  firstVisitAt DateTime?
+  lastVisitAt  DateTime?
+  totalSpent   Float      @default(0)
+  visits       Int        @default(0)
+  lastProcedure String?
+  source       LeadSource?
+  origin       String     @default("base") // base (já era da clínica) | lotus (chegou pela LOTUS)
+  referredById String?    // paciente que indicou
+  referralCode String?    // código pessoal de indicação
+  tags         String?
+  notes        String?
+  optOut       Boolean    @default(false) // pediu para não receber mensagens
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  client    Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  purchases Purchase[]
+
+  @@index([clientId, phone])
+  @@index([clientId, lastVisitAt])
+  @@unique([clientId, referralCode])
+  @@map("patients")
+}
+
+model Purchase {
+  id        String   @id @default(cuid())
+  clientId  String
+  patientId String
+  date      DateTime
+  value     Float
+  procedure String?
+  leadId    String?
+  createdAt DateTime @default(now())
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, date])
+  @@index([patientId])
+  @@map("purchases")
+}
+
+// Fila de mensagens que a LOTUS vai mandar pelo WhatsApp da clínica (lembretes, campanhas, respostas)
+model OutboundMessage {
+  id             String    @id @default(cuid())
+  clientId       String
+  phone          String?
+  jid            String?
+  body           String
+  kind           String    // manual | lembrete_1d | lembrete_2h | avaliacao | orcamento | retorno | reativacao | aniversario | indicacao
+  refId          String?   // lead ou paciente de origem (evita mandar duas vezes)
+  campaignId     String?
+  status         String    @default("PENDENTE") // PENDENTE | ENVIADO | FALHOU | CANCELADO
+  scheduledFor   DateTime  @default(now())
+  sentAt         DateTime?
+  error          String?
+  createdAt      DateTime  @default(now())
+
+  @@unique([kind, refId])
+  @@index([status, scheduledFor])
+  @@index([clientId, createdAt])
+  @@map("whatsapp_outbox")
 }
 
 enum LeadStage {

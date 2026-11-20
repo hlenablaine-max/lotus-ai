@@ -6,6 +6,7 @@ import { promisify } from 'util'
 import { BrowserWindow } from 'electron'
 import type { Browser, Page } from 'playwright'
 import { ResearchBrowser } from './research'
+import { WhatsAppHub } from './whatsapp'
 import { WORKSPACE_DIR } from './paths'
 
 export { WORKSPACE_DIR }
@@ -68,12 +69,17 @@ export class LocalRuntime {
   private repoDir: string
   // Navegador de pesquisa (perfil persistente) usado nos diagnósticos
   readonly research: ResearchBrowser
+  // WhatsApp de cada clínica (aparelho conectado por QR code)
+  readonly whatsapp: WhatsAppHub
 
   constructor(mainWindow: BrowserWindow, repoDir: string) {
     this.mainWindow = mainWindow
     this.repoDir = repoDir
     this.research = new ResearchBrowser((level, message) => this.log(level, message, 'pesquisa'))
     if (!fs.existsSync(WORKSPACE_DIR)) fs.mkdirSync(WORKSPACE_DIR, { recursive: true })
+    this.whatsapp = new WhatsAppHub((level, message) => this.log(level, message, 'whatsapp'))
+    // Religa os WhatsApps já conectados assim que o app abre
+    setTimeout(() => void this.whatsapp.resumeAll().catch(() => undefined), 8000)
   }
 
   getRepoDir(): string {
@@ -493,5 +499,6 @@ export class LocalRuntime {
   async destroy() {
     await this.browserClose()
     await this.research.close()
+    await this.whatsapp.close()
   }
 }

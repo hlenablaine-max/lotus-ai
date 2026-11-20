@@ -22,6 +22,7 @@ const SOURCES: Array<[string, string]> = [
   ["INDICACAO", "Indicação"],
   ["REATIVACAO", "Reativação da base"],
   ["GOOGLE_MAPS", "Google Maps"],
+  ["PACIENTE_BASE", "Paciente antigo que voltou"],
   ["OUTRO", "Outro"],
 ];
 const SOURCE_LABEL = Object.fromEntries(SOURCES);

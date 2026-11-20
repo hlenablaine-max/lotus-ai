@@ -8,6 +8,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { LocalRuntime } from './local-runtime'
 import { htmlFileToPdf } from './pdf'
 import { toJpeg } from './image'
+import { qrDataUrl } from './whatsapp'
 
 const PORT_START = 3777
 const PORT_FILE = path.join(os.homedir(), 'LOTUS_Workspace', '.runtime-port')
@@ -151,6 +152,22 @@ export class RuntimeHttpServer {
         return rt.research.googlePlace(String(data.query ?? ''), String(data.name ?? ''))
       case '/runtime/research/maps':
         return rt.research.googleMaps(String(data.query ?? ''))
+      // WhatsApp das clínicas (atendimento)
+      case '/runtime/wa/connect':
+        return rt.whatsapp.connect(String(data.clientId ?? ''))
+      case '/runtime/wa/status':
+        return rt.whatsapp.status(String(data.clientId ?? ''))
+      case '/runtime/wa/list':
+        return { sessions: rt.whatsapp.list() }
+      case '/runtime/wa/disconnect':
+        return rt.whatsapp.disconnect(String(data.clientId ?? ''), !!data.logout)
+      case '/runtime/wa/send':
+        return rt.whatsapp.send(String(data.clientId ?? ''), String(data.to ?? ''), String(data.text ?? ''))
+      case '/runtime/wa/check':
+        return rt.whatsapp.checkNumber(String(data.clientId ?? ''), String(data.phone ?? ''))
+      case '/runtime/qr':
+        return { image: await qrDataUrl(String(data.text ?? '')) }
+
       case '/runtime/research/whatsapp-qr':
         return rt.research.whatsappQr()
       case '/runtime/research/whatsapp-qr-stop':

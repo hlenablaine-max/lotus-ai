@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 
 export const STAGES = ["NOVO", "EM_CONTATO", "AGENDADO", "COMPARECEU", "FECHADO", "PERDIDO"] as const;
 export type Stage = (typeof STAGES)[number];
-export const SOURCES = ["META_ADS", "GOOGLE_ADS", "SITE", "INSTAGRAM", "WHATSAPP", "INDICACAO", "REATIVACAO", "GOOGLE_MAPS", "OUTRO"] as const;
+export const SOURCES = ["META_ADS", "GOOGLE_ADS", "SITE", "INSTAGRAM", "WHATSAPP", "INDICACAO", "REATIVACAO", "GOOGLE_MAPS", "PACIENTE_BASE", "OUTRO"] as const;
 export type Source = (typeof SOURCES)[number];
 
 export const STAGE_LABEL: Record<Stage, string> = {
@@ -23,6 +23,7 @@ export const SOURCE_LABEL: Record<Source, string> = {
   INDICACAO: "Indicação",
   REATIVACAO: "Reativação da base",
   GOOGLE_MAPS: "Google Maps",
+  PACIENTE_BASE: "Paciente antigo que voltou",
   OUTRO: "Outro",
 };
 

@@ -10,6 +10,12 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { ClientAvatar } from "@/components/ui/client-avatar";
 import { ClientCrm } from "@/components/crm/client-crm";
+import { Attendance } from "@/components/whatsapp/attendance";
+import { Patients } from "@/components/patients/patients";
+
+type Tab = "overview" | "attendance" | "crm" | "patients" | "missions" | "chat";
+const TABS: Tab[] = ["overview", "attendance", "crm", "patients", "missions", "chat"];
+const TAB_LABEL: Record<Tab, string> = { overview: "Visão geral", attendance: "Atendimento (WhatsApp)", crm: "CRM e resultados", patients: "Pacientes e LTV", missions: "Missões", chat: "Chat com CEO" };
 
 interface Client {
   id: string;
@@ -77,10 +83,12 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
   const [client, setClient] = useState<Client | null>(null);
   const [missions, setMissions] = useState<Mission[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"overview" | "crm" | "missions" | "chat">("overview");
-  // Link direto para a aba do CRM (ex.: /clients/ID?aba=crm)
+  const [tab, setTab] = useState<Tab>("overview");
+  // Link direto para uma aba (ex.: /clients/ID?aba=crm, ?aba=atendimento, ?aba=pacientes)
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("aba") === "crm") setTab("crm");
+    const aba = new URLSearchParams(window.location.search).get("aba");
+    const map: Record<string, Tab> = { crm: "crm", atendimento: "attendance", pacientes: "patients", missoes: "missions" };
+    if (aba && map[aba]) setTab(map[aba]);
   }, []);
   const [portalPath, setPortalPath] = useState<string | null>(null);
   const [portalCopied, setPortalCopied] = useState(false);
@@ -236,17 +244,19 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
       {/* Tabs */}
       <div className="flex items-center gap-1 p-1 rounded-lg bg-muted/50 border border-border w-fit">
-        {(["overview", "crm", "missions", "chat"] as const).map((t) => (
+        {TABS.map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={cn("px-4 py-1.5 rounded-md text-sm font-medium transition-all",
               tab === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
             )}>
-            {t === "overview" ? "Visão Geral" : t === "crm" ? "CRM e resultados" : t === "missions" ? "Missões" : "Chat com CEO"}
+            {TAB_LABEL[t]}
           </button>
         ))}
       </div>
 
       {tab === "crm" && <ClientCrm clientId={client.id} clientName={client.name} />}
+      {tab === "attendance" && <Attendance clientId={client.id} clientName={client.name} />}
+      {tab === "patients" && <Patients clientId={client.id} clientName={client.name} />}
 
       {/* Tab content */}
       {tab === "overview" && (
