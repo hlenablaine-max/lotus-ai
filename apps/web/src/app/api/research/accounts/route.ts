@@ -1,40 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireOwner } from "@/lib/require-owner";
 import { createRuntimeClient } from "@/lib/runtime-client";
-import * as fs from "fs";
-import * as os from "os";
-import * as path from "path";
-import { exec } from "child_process";
-import { promisify } from "util";
-
-const execAsync = promisify(exec);
-const PROFILE_DIR = path.join(os.homedir(), "LOTUS_Workspace", "browser-profile");
-
-// O WhatsApp Web guarda a sessão no armazenamento do próprio site dentro do perfil do navegador de pesquisa
-function whatsappSessionSaved(): boolean {
-  try {
-    const idb = path.join(PROFILE_DIR, "Default", "IndexedDB");
-    return fs.existsSync(idb) && fs.readdirSync(idb).some((d) => d.startsWith("https_web.whatsapp.com"));
-  } catch {
-    return false;
-  }
-}
-
-// Conta da Vercel onde os sites das clínicas são publicados (consultada uma vez a cada 10 minutos)
-const vercelCache = globalThis as unknown as { __lotusVercel?: { at: number; user: string | null } };
-async function vercelUser(): Promise<string | null> {
-  const cached = vercelCache.__lotusVercel;
-  if (cached && Date.now() - cached.at < 10 * 60_000) return cached.user;
-  let user: string | null = null;
-  try {
-    const { stdout } = await execAsync("vercel whoami", { timeout: 30_000, windowsHide: true });
-    user = stdout.trim().split(/\r?\n/).pop()?.trim() || null;
-  } catch {
-    user = null;
-  }
-  vercelCache.__lotusVercel = { at: Date.now(), user };
-  return user;
-}
+import { vercelUser, whatsappSessionSaved } from "@/lib/local-accounts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

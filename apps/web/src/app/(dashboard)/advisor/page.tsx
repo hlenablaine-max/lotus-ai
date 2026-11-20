@@ -166,7 +166,7 @@ export default function AdvisorPage() {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1.5 text-[10px] text-white/25">
+          <div className="flex items-center gap-1.5 text-[10px] text-white/45">
             <div className={cn("w-1.5 h-1.5 rounded-full", polling ? "bg-green-400 animate-pulse" : "bg-white/20")} />
             {polling ? "Monitorando" : "Pausado"}
           </div>
@@ -177,7 +177,7 @@ export default function AdvisorPage() {
           {notifications.length === 0 && (
             <div className="text-center py-12">
               <Bell className="w-8 h-8 text-white/10 mx-auto mb-3" />
-              <p className="text-xs text-white/25">Nenhum alerta no momento</p>
+              <p className="text-xs text-white/45">Nenhum alerta no momento</p>
             </div>
           )}
           {notifications.map((n) => {
@@ -201,7 +201,7 @@ export default function AdvisorPage() {
                       <span className={cn("text-xs font-semibold", n.read ? "text-white/50" : "text-white/85")}>
                         {n.title}
                       </span>
-                      <span className="text-[9px] text-white/20 flex-shrink-0 mt-0.5">{timeAgo(n.ts)}</span>
+                      <span className="text-[9px] text-white/45 flex-shrink-0 mt-0.5">{timeAgo(n.ts)}</span>
                     </div>
                     <p className="text-[11px] text-white/35 leading-snug line-clamp-2">{n.body}</p>
                     <div className="flex items-center gap-1 mt-2 text-[10px] text-pink-400">
@@ -216,7 +216,7 @@ export default function AdvisorPage() {
 
         {/* Footer */}
         <div className="p-3 border-t border-white/8">
-          <p className="text-[10px] text-white/20 text-center">
+          <p className="text-[10px] text-white/45 text-center">
             Aurora monitora continuamente todos os clientes e métricas
           </p>
         </div>
@@ -255,7 +255,7 @@ export default function AdvisorPage() {
                 <Brain className="w-6 h-6 text-purple-400/50" />
               </div>
               <p className="text-white/30 text-sm">Clique em um alerta para abrir o contexto</p>
-              <p className="text-white/15 text-xs">ou pergunte: &quot;qual cliente tem mais risco de churn?&quot;, &quot;faça o assessment de preço do cliente X&quot;</p>
+              <p className="text-white/45 text-xs">ou pergunte: &quot;qual cliente tem mais risco de churn?&quot;, &quot;faça o assessment de preço do cliente X&quot;</p>
             </div>
           )}
           {messages.map((m) => (

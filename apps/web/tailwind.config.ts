@@ -10,6 +10,18 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      // O Tailwind 3 só tem 0, 5, 10, 15…; sem isto, classes como bg-white/3 e border-white/8 não geram nada
+      // e os cartões ficam sem fundo nem borda.
+      opacity: {
+        "1": "0.01",
+        "2": "0.02",
+        "3": "0.03",
+        "4": "0.04",
+        "6": "0.06",
+        "8": "0.08",
+        "12": "0.12",
+        "22": "0.22",
+      },
       colors: {
         // LOTUS brand colors
         lotus: {

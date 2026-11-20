@@ -209,7 +209,7 @@ export default function CopilotPage() {
             <div className="text-center py-12">
               <Mic className="w-8 h-8 text-white/15 mx-auto mb-3" />
               <p className="text-xs text-white/30">Clique no microfone para começar</p>
-              <p className="text-xs text-white/20 mt-1">ou entre numa reunião com o cliente</p>
+              <p className="text-xs text-white/45 mt-1">ou entre numa reunião com o cliente</p>
             </div>
           )}
           {transcript.map((line) => (
@@ -228,7 +228,7 @@ export default function CopilotPage() {
                 )}>
                   {line.speaker === "client" ? "Cliente" : "Você"}
                 </span>
-                <span className="text-[9px] text-white/20">{line.ts}</span>
+                <span className="text-[9px] text-white/45">{line.ts}</span>
               </div>
               {line.text}
             </div>
@@ -336,7 +336,7 @@ export default function CopilotPage() {
                 <span className={cn("px-3 py-1 rounded-full text-xs font-semibold border", tacticStyle)}>
                   {copilotResp.tactic}
                 </span>
-                <span className="text-xs text-white/25">
+                <span className="text-xs text-white/45">
                   {Math.round(copilotResp.confidence * 100)}% confiança
                 </span>
               </div>
@@ -350,7 +350,7 @@ export default function CopilotPage() {
                 <ChevronRight className="absolute bottom-4 right-4 w-4 h-4 text-pink-400/40" />
               </div>
 
-              <p className="text-center text-xs text-white/25">
+              <p className="text-center text-xs text-white/45">
                 Leia isso em voz alta para o cliente
               </p>
             </div>
@@ -360,7 +360,7 @@ export default function CopilotPage() {
                 <Zap className="w-7 h-7 text-pink-400/50" />
               </div>
               <p className="text-white/30 text-sm">Aguardando o cliente falar...</p>
-              <p className="text-white/15 text-xs">A sugestão aparece automaticamente aqui</p>
+              <p className="text-white/45 text-xs">A sugestão aparece automaticamente aqui</p>
             </div>
           ) : null}
         </div>
@@ -368,7 +368,7 @@ export default function CopilotPage() {
         {/* Recent suggestions history */}
         {transcript.length > 0 && (
           <div className="p-4 border-t border-white/8">
-            <p className="text-xs text-white/25 mb-2 uppercase tracking-wider">Últimas frases capturadas</p>
+            <p className="text-xs text-white/45 mb-2 uppercase tracking-wider">Últimas frases capturadas</p>
             <div className="flex flex-wrap gap-2">
               {transcript
                 .filter((l) => l.speaker === "client")

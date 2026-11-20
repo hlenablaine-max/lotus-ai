@@ -47,6 +47,15 @@
 
   html {
     height: 100%;
+    /* Tema escuro também nos controles nativos (listas de seleção, calendário, barras) */
+    color-scheme: dark;
+  }
+
+  /* Opções de <select> nativo: sem isso o Windows desenha fundo branco com texto branco */
+  select option,
+  select optgroup {
+    background-color: hsl(240 10% 8%);
+    color: hsl(0 0% 98%);
   }
 
   body {

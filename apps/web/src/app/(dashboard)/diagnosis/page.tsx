@@ -411,7 +411,7 @@ export default function DiagnosisPage() {
                 </div>
                 <div className="p-3 space-y-2 max-h-64 overflow-y-auto">
                   {state.findings.length === 0 && (
-                    <p className="text-xs text-white/25 text-center py-4">Coletando dados...</p>
+                    <p className="text-xs text-white/45 text-center py-4">Coletando dados...</p>
                   )}
                   {state.findings.map((f, i) => (
                     <div key={i} className="flex items-start gap-2 p-2 rounded-lg bg-white/3 border border-white/6">
@@ -530,7 +530,7 @@ export default function DiagnosisPage() {
                       <h4 className="font-semibold text-white text-sm">{op.title}</h4>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <ImpactBadge impact={op.impact} />
-                        <span className="text-[10px] text-white/25">Esforço {op.effort}</span>
+                        <span className="text-[10px] text-white/45">Esforço {op.effort}</span>
                       </div>
                     </div>
                     <p className="text-xs text-white/45 leading-relaxed">{op.description}</p>

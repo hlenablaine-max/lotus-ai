@@ -88,7 +88,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="text-center text-white/20 text-xs mt-8">
+        <p className="text-center text-white/45 text-xs mt-8">
           LOTUS AI Enterprise · Acesso restrito
         </p>
       </div>

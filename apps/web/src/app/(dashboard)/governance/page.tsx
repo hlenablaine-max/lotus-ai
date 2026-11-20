@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { LiveChecks } from "@/components/governance/live-checks";
 import {
   CheckCircle2, AlertTriangle, Clock, XCircle, Minus, Shield,
   ChevronDown, ChevronRight, Info,
@@ -34,6 +35,21 @@ interface AuditDomain {
 // DADOS DE AUDITORIA
 // ============================================================
 const AUDIT_DOMAINS: AuditDomain[] = [
+  {
+    id: "d360",
+    name: "Diagnóstico 360 e entregas",
+    description: "Do @ do Instagram ao Playbook, site publicado e pacote pronto",
+    items: [
+      { id: "d360-1", name: "Coleta real do negócio", description: "Instagram (posts fixados e antigos separados), site, anúncios, ficha do Google, CNPJ, pessoas ligadas", tag: "VERIFIED", level: "A", evidence: "Rodado de ponta a ponta em 19 e 20/11/2026 com Central do Sorriso, Odonto Marco e @marciolucas10. Ficha do Google, WhatsApp e CNPJ só contam quando são do próprio negócio", impact: "critical" },
+      { id: "d360-2", name: "Análise de vídeos (Reels)", description: "Baixa, transcreve e avalia ganchos com o motivo", tag: "VERIFIED", level: "A", evidence: "Transcrição local (faster-whisper) com modelo escolhido pela memória livre; testado nos 3 perfis", impact: "high" },
+      { id: "d360-3", name: "Teste de atendimento no WhatsApp", description: "Agente manda mensagem de paciente e mede a resposta", tag: "VERIFIED", level: "A", evidence: "Enviado pelo WhatsApp conectado no app. Só roda em negócio de saúde e com número do próprio negócio (regra criada após o caso OULAB em 20/11/2026)", impact: "high" },
+      { id: "d360-4", name: "Playbook de Faturamento", description: "Gargalos com problema, prova, custo, ação e estimativa de ganho", tag: "VERIFIED", level: "A", evidence: "Cartões legíveis em Diagnóstico; estimativas marcadas como estimativa. Adapta-se quando o perfil não é clínica", impact: "critical" },
+      { id: "d360-5", name: "Site da proposta publicado na Vercel", description: "Logo, fotos e cores reais; revisão automática (nota mínima 8, até 3 tentativas)", tag: "VERIFIED", level: "A", evidence: "lotus-clinica-odontomarco.vercel.app e lotus-marciolucas10.vercel.app aprovados com 8,5. Nunca inventa telefone: sem WhatsApp próprio usa o direct do Instagram", impact: "critical" },
+      { id: "d360-6", name: "Produção (copies, campanhas, criativos, calendário, CRM)", description: "Materiais prontos para usar, revisados antes de chegar ao dono", tag: "IMPLEMENTED", level: "B", evidence: "Gerados e exportados no pacote; ainda não sobem sozinhos para Meta Ads / Google Ads (falta conectar as contas de anúncio)", impact: "high" },
+      { id: "d360-7", name: "Pacote de entrega", description: "Pasta com todos os documentos e o link do site", tag: "VERIFIED", level: "A", evidence: "Exportado em ~/LOTUS_Workspace/entregas/<perfil> ao fim da missão (23 arquivos no caso Odonto Marco)", impact: "medium" },
+      { id: "d360-8", name: "Subir campanhas e medir resultado real", description: "Publicar anúncios e trazer CPL, leads e vendas de volta", tag: "MISSING", level: "D", evidence: "Depende de conectar Meta Ads, Google Ads e GA4 em Integrações; hoje as campanhas saem como plano", impact: "critical" },
+    ],
+  },
   {
     id: "hq",
     name: "HQ 3D Office",
@@ -72,7 +88,7 @@ const AUDIT_DOMAINS: AuditDomain[] = [
       { id: "ai-2", name: "Sales Copilot", description: "Sugestões em tempo real para vendas", tag: "PARTIAL", level: "C", evidence: "/api/copilot usa o provedor de IA configurado (Drael por padrão). Calls e sugestões ainda não são persistidas (sales_calls / call_suggestions vazias)", impact: "high" },
       { id: "ai-3", name: "Luna — Root Master operacional", description: "CEO de operações com ferramentas reais do banco", tag: "VERIFIED", level: "A", evidence: "Testado em 19/11/2026: chat com streaming e ferramentas visíveis; criou cliente, missão e tarefas encadeadas (dependsOn) que rodaram sozinhas; tela /root-master corrigida", impact: "critical" },
       { id: "ai-4", name: "Página /motors — execução real", description: "8 engines executando IA real via UI", tag: "IMPLEMENTED", level: "B", evidence: "Client selector (Prisma), formulários por engine, fetch real para /api/engines/*", impact: "critical" },
-      { id: "ai-5", name: "Local Runtime (desktop app)", description: "Acesso a filesystem, terminal, browser", tag: "VERIFIED", level: "A", evidence: "O app desktop sobe o servidor local e dá ao chat acesso ao PC. Testado em 19/11/2026: comando no terminal com confirmação, leitura e escrita de arquivos, automodificação do tema e desfazer. Controle do navegador (Playwright) não foi testado", impact: "critical" },
+      { id: "ai-5", name: "Local Runtime (desktop app)", description: "Acesso a filesystem, terminal, browser", tag: "VERIFIED", level: "A", evidence: "O app desktop sobe o servidor local e dá ao chat acesso ao PC. Terminal, arquivos e automodificação testados em 19/11/2026; o navegador de pesquisa (Playwright) roda todos os diagnósticos desde 20/11/2026", impact: "critical" },
       { id: "ai-6", name: "Troca de provedor de IA", description: "Drael, ChatGPT (OpenAI) e Claude (Anthropic) no mesmo chat", tag: "PARTIAL", level: "C", evidence: "Troca pelo chat (/provider) ou em Configurações, com chaves salvas só neste computador. Drael testado; OpenAI e Claude implementados mas não testados por falta de chave válida", impact: "high" },
     ],
   },
@@ -85,7 +101,7 @@ const AUDIT_DOMAINS: AuditDomain[] = [
       { id: "data-2", name: "Autenticação de usuários", description: "Login e sessão da equipe LOTUS", tag: "PARTIAL", level: "C", evidence: "Login único do proprietário (variáveis de ambiente), agora com sessão validada por assinatura em todas as rotas. Sem multiusuário nem RBAC (ADMIN/VIEWER)", impact: "high" },
       { id: "data-3", name: "CRM de clientes", description: "CRUD completo de empresas atendidas", tag: "IMPLEMENTED", level: "B", evidence: "/api/clients (Prisma) — /clients page com fetch real", impact: "high" },
       { id: "data-4", name: "Pipeline de missões", description: "Tracking de tarefas por cliente e agente", tag: "IMPLEMENTED", level: "B", evidence: "/api/missions (Prisma) com CRUD, status transitions, Root Master cria missões reais", impact: "medium" },
-      { id: "data-5", name: "Histórico de diagnósticos", description: "Resultado de cada diagnóstico salvo por cliente", tag: "MISSING", level: "D", evidence: "Engines geram outputs e registram a execução no ActivityLog, mas não persistem o resultado por cliente", impact: "high" },
+      { id: "data-5", name: "Histórico de diagnósticos", description: "Resultado de cada diagnóstico salvo por cliente", tag: "PARTIAL", level: "C", evidence: "O Diagnóstico 360 fica salvo como missão + documentos do cliente e pode ser reaberto. Os 8 motores avulsos (/motors) ainda não guardam o resultado por cliente", impact: "high" },
       { id: "data-6", name: "Memória empresarial", description: "Contexto persistente por cliente, missão e agente", tag: "PARTIAL", level: "C", evidence: "Cada tarefa concluída grava um resumo na memória do cliente e as próximas tarefas do mesmo cliente recebem isso no prompt (testado). Escopos GLOBAL, AGENT e DEPARTMENT ainda não são usados", impact: "critical" },
       { id: "data-7", name: "Fluxo de aprovações", description: "Ações críticas param e aguardam decisão do proprietário", tag: "VERIFIED", level: "A", evidence: "Aprovação durável testada em 19/11/2026: o agente pede, a missão fica aguardando, o dono decide em /approvals ou no chat e o sistema executa o que foi aprovado (decisão dupla é bloqueada)", impact: "critical" },
     ],
@@ -96,11 +112,12 @@ const AUDIT_DOMAINS: AuditDomain[] = [
     description: "UX da plataforma operacional",
     items: [
       { id: "ui-1", name: "Dashboard principal", description: "Overview de operações, métricas, agentes", tag: "IMPLEMENTED", level: "B", evidence: "/ redireciona para /ceo; indicadores reais do banco em /metrics", impact: "medium" },
-      { id: "ui-2", name: "Sidebar de navegação", description: "Links para todos os módulos", tag: "VERIFIED", level: "A", evidence: "16 itens + Configurações, todos os módulos incluídos", impact: "medium" },
+      { id: "ui-2", name: "Sidebar de navegação", description: "Links para todos os módulos", tag: "VERIFIED", level: "A", evidence: "Todos os módulos incluídos, com Integrações (chaves, WhatsApp por QR Code, Vercel)", impact: "medium" },
       { id: "ui-3", name: "Página /motors", description: "8 Engines com execução real de IA", tag: "IMPLEMENTED", level: "B", evidence: "Reconstruída com client selector (Prisma), formulários, fetch real, output viewer, Run All", impact: "high" },
       { id: "ui-4", name: "Advisor estratégico", description: "Chat com IA focado em estratégia LOTUS", tag: "IMPLEMENTED", level: "B", evidence: "/advisor com identidade própria (LOTUS AI CEO), ferramentas de leitura do banco, catálogo de soluções e registro de assessment de preço", impact: "medium" },
       { id: "ui-5", name: "Workforce — agentes/departamentos", description: "Visualização da força de trabalho IA", tag: "IMPLEMENTED", level: "B", evidence: "/workforce lista os agentes cadastrados no banco, incluindo o BTO (9º departamento)", impact: "medium" },
-      { id: "ui-6", name: "Design system dark mode", description: "Tema escuro consistente em toda a plataforma", tag: "VERIFIED", level: "A", evidence: "CSS variables + dark mode padrão", impact: "low" },
+      { id: "ui-6", name: "Design system dark mode", description: "Tema escuro consistente em toda a plataforma", tag: "VERIFIED", level: "A", evidence: "Variáveis CSS + tema escuro também nos controles nativos (listas de seleção não aparecem mais em branco, corrigido em 20/11/2026)", impact: "low" },
+      { id: "ui-7", name: "Textos legíveis (sem markdown cru)", description: "Relatórios e respostas sem asteriscos e # soltos", tag: "VERIFIED", level: "A", evidence: "Relatórios renderizados como texto formatado em Missões, Diagnóstico e chat", impact: "medium" },
     ],
   },
 ];
@@ -142,7 +159,7 @@ function overallScore(domains: AuditDomain[]): number {
 }
 
 export default function GovernancePage() {
-  const [expandedDomain, setExpandedDomain] = useState<string | null>("engines");
+  const [expandedDomain, setExpandedDomain] = useState<string | null>("d360");
   const [selectedTag, setSelectedTag] = useState<AuditTag | null>(null);
 
   const overall = overallScore(AUDIT_DOMAINS);
@@ -168,7 +185,7 @@ export default function GovernancePage() {
               Transparência total sobre o que é real, implementado, parcial ou simulado no sistema LOTUS.
             </p>
             <p className="text-muted-foreground/60 mt-1 text-[11px]">
-              Lista mantida manualmente — última revisão: auditoria de 19/11/2026. Atualize os itens ao concluir cada correção.
+              A verificação ao vivo é feita agora; a lista de funcionalidades abaixo foi revisada em 20/11/2026.
             </p>
           </div>
           <div className="text-right">
@@ -178,6 +195,10 @@ export default function GovernancePage() {
           </div>
         </div>
       </div>
+
+      <LiveChecks />
+
+      <h2 className="text-sm font-semibold text-foreground mb-3">Funcionalidades do sistema</h2>
 
       {/* Tag summary */}
       <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-6">

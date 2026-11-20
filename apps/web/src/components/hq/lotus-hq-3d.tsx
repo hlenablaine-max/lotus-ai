@@ -983,7 +983,7 @@ function Character3D({ agent, targetPos, seated, onSelect, selected }: CharProps
       </mesh>
 
       {/* Tooltip flutuante — nome, cargo, status e missão atual */}
-      <Html position={[0, 2.65, 0]} center distanceFactor={14} zIndexRange={[100, 0]} prepend>
+      <Html position={[0, 2.65, 0]} center distanceFactor={14} zIndexRange={[15, 2]} prepend>
         <div style={{
           background: 'rgba(6,6,20,0.92)', color: '#fff',
           fontSize: '11px', fontWeight: 700, lineHeight: 1.4,
@@ -1422,9 +1422,9 @@ function TopBar({ agents, connection }: { agents: Agent[]; connection: Connectio
 function ControlsHint() {
   return (
     <div className="absolute bottom-16 right-4 z-10 text-right space-y-0.5 pointer-events-none">
-      <p className="text-xs text-white/22">🖱 Arraste → girar câmera</p>
-      <p className="text-xs text-white/22">⚙ Scroll → zoom</p>
-      <p className="text-xs text-white/22">👆 Clique → selecionar agente</p>
+      <p className="text-xs text-white/45">🖱 Arraste → girar câmera</p>
+      <p className="text-xs text-white/45">⚙ Scroll → zoom</p>
+      <p className="text-xs text-white/45">👆 Clique → selecionar agente</p>
     </div>
   )
 }
@@ -1499,7 +1499,7 @@ function ActivityFeed({ events, onClose }: { events: FeedItem[]; onClose: () => 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-1">
                       <span className="text-[11px] font-semibold text-white/75 truncate">{ev.agentName.split(' ')[0]}</span>
-                      <span className="text-[9px] text-white/22 flex-shrink-0">{formatFeedTime(ev.time)}</span>
+                      <span className="text-[9px] text-white/45 flex-shrink-0">{formatFeedTime(ev.time)}</span>
                     </div>
                     <p className="text-[10px] text-white/40 mt-0.5 leading-snug line-clamp-2">{ev.action}</p>
                   </div>
