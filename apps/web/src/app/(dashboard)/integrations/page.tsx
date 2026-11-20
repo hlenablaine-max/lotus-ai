@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Plug, CheckCircle2, XCircle, AlertCircle, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ConnectedAccounts } from "@/components/settings/connected-accounts";
 
 interface Integration {
   id: string;
@@ -79,6 +80,10 @@ export default function IntegrationsPage() {
           <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
           Verificar
         </button>
+      </div>
+
+      <div className="max-w-3xl">
+        <ConnectedAccounts />
       </div>
 
       {/* Stats */}

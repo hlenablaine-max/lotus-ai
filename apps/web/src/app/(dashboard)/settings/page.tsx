@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { User, Shield, Key, Database, Info } from "lucide-react";
 import { AISettings } from "@/components/settings/ai-settings";
+import { ConnectedAccounts } from "@/components/settings/connected-accounts";
 import { SignOutButton } from "@/components/settings/sign-out-button";
 
 export const metadata = {
@@ -24,6 +25,8 @@ export default async function SettingsPage() {
         <h1 className="text-3xl font-bold text-foreground">Configurações</h1>
         <p className="text-muted-foreground mt-1">Configurações da conta e do sistema</p>
       </div>
+
+      <ConnectedAccounts />
 
       {/* Profile */}
       <section className="rounded-xl border border-border bg-card overflow-hidden">
