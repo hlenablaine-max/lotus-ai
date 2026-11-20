@@ -96,6 +96,8 @@ export interface ReelAnalysis {
 export class ResearchBrowser {
   private context: BrowserContext | null = null
   private headless = true
+  // Página do WhatsApp Web aberta enquanto o dono lê o QR code na tela do app
+  private waPage: Page | null = null
 
   constructor(private log: (level: 'info' | 'warn' | 'error' | 'success', message: string) => void) {}
 
@@ -972,6 +974,50 @@ export class ResearchBrowser {
   }
 
   // === WhatsApp (teste de atendimento) ===
+
+  // QR code do WhatsApp Web mostrado dentro do app (sem abrir janela): o dono lê com o celular.
+  async whatsappQr(): Promise<{ state: 'connected' | 'qr' | 'loading'; image?: string }> {
+    const ctx = await this.getContext()
+    if (!this.waPage || this.waPage.isClosed()) {
+      const page = await ctx.newPage()
+      // No modo invisível o navegador se identifica como "HeadlessChrome" e o WhatsApp Web recusa
+      const ua = await page.evaluate(() => navigator.userAgent)
+      if (ua.includes('HeadlessChrome')) {
+        const cdp = await ctx.newCDPSession(page)
+        await cdp.send('Network.setUserAgentOverride', { userAgent: ua.replace('HeadlessChrome', 'Chrome') })
+      }
+      await page.goto('https://web.whatsapp.com/', { waitUntil: 'domcontentloaded', timeout: 60_000 })
+      this.waPage = page
+      this.log('info', 'WhatsApp: gerando QR code para conectar')
+    }
+    const page = this.waPage
+    await page.waitForTimeout(1200)
+    const state = await page.evaluate(() => {
+      if (document.querySelector('#pane-side, [aria-label="Lista de conversas"], [aria-label="Chat list"], [data-testid="chat-list"]')) return 'connected'
+      if (document.querySelector('canvas')) return 'qr'
+      return 'loading'
+    })
+    if (state === 'connected') {
+      // Espera a sessão gravar no perfil antes de fechar
+      await page.waitForTimeout(4000)
+      await page.close().catch(() => {})
+      this.waPage = null
+      this.log('success', 'WhatsApp conectado neste computador')
+      return { state }
+    }
+    if (state === 'qr') {
+      const buffer = await page.locator('canvas').first().screenshot({ timeout: 10_000 }).catch(() => null)
+      if (buffer) return { state, image: `data:image/png;base64,${buffer.toString('base64')}` }
+    }
+    return { state: 'loading' }
+  }
+
+  async whatsappQrStop(): Promise<{ closed: boolean }> {
+    const page = this.waPage
+    this.waPage = null
+    await page?.close().catch(() => {})
+    return { closed: !!page }
+  }
 
   private async openWhatsAppChat(page: Page, phone: string, text?: string): Promise<'ready' | 'not_connected' | 'invalid_number'> {
     const target = `https://web.whatsapp.com/send?phone=${phone.replace(/\D/g, '')}${text ? `&text=${encodeURIComponent(text)}` : ''}`

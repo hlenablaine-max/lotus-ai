@@ -149,6 +149,10 @@ export class RuntimeHttpServer {
         return rt.research.googlePlace(String(data.query ?? ''), String(data.name ?? ''))
       case '/runtime/research/maps':
         return rt.research.googleMaps(String(data.query ?? ''))
+      case '/runtime/research/whatsapp-qr':
+        return rt.research.whatsappQr()
+      case '/runtime/research/whatsapp-qr-stop':
+        return rt.research.whatsappQrStop()
       case '/runtime/research/whatsapp-send':
         return rt.research.whatsappSend(String(data.phone ?? ''), String(data.message ?? ''))
       case '/runtime/research/whatsapp-read':

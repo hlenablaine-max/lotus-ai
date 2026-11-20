@@ -18,6 +18,8 @@ export interface LotusSettings {
   agent: {
     permissionMode: PermissionMode;
   };
+  // Chaves e IDs das integrações coladas na tela Integrações: { "meta-ads": { accessToken: "...", adAccountId: "..." } }
+  integrations: Record<string, Record<string, string>>;
 }
 
 export const PROVIDER_DEFAULTS: Record<AIProviderName, { label: string; model: string; baseUrl: string; envKey: string }> = {
@@ -31,7 +33,7 @@ export function settingsFilePath(): string {
 }
 
 function emptySettings(): LotusSettings {
-  return { ai: { models: {}, keys: {}, baseUrls: {} }, agent: { permissionMode: "ask" } };
+  return { ai: { models: {}, keys: {}, baseUrls: {} }, agent: { permissionMode: "ask" }, integrations: {} };
 }
 
 let cache: { mtimeMs: number; settings: LotusSettings } | null = null;
@@ -54,6 +56,9 @@ export function loadSettings(): LotusSettings {
     Object.assign(settings.ai.keys, raw.ai?.keys);
     Object.assign(settings.ai.baseUrls, raw.ai?.baseUrls);
     if (raw.agent?.permissionMode === "auto") settings.agent.permissionMode = "auto";
+    for (const [id, values] of Object.entries(raw.integrations ?? {})) {
+      if (values && typeof values === "object") settings.integrations[id] = { ...(values as Record<string, string>) };
+    }
   } catch {
     // arquivo corrompido: segue com env
   }
@@ -88,4 +93,11 @@ export function resolveProviderConfig(name: AIProviderName): { apiKey: string; b
     baseUrl: settings.ai.baseUrls[name] || envBase || defaults.baseUrl,
     model: settings.ai.models[name] || defaults.model,
   };
+}
+
+// Valor de uma integração: o que foi colado na tela Integrações vale mais que a variável de ambiente.
+export function integrationValue(id: string, field: string, envKey?: string): string {
+  const fromSettings = loadSettings().integrations[id]?.[field];
+  if (fromSettings) return fromSettings;
+  return envKey ? process.env[envKey] ?? "" : "";
 }

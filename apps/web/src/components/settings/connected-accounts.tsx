@@ -4,7 +4,7 @@
 // (avaliações), Instagram (leitura completa dos perfis) e Vercel (publicação dos sites).
 // O login é feito numa janela do navegador de pesquisa do app e fica salvo neste computador.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Globe, Instagram, Loader2, MessageCircle, MonitorOff, Search, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -26,7 +26,7 @@ const CARDS: Array<{ service: Service; title: string; icon: React.ReactNode; why
     title: "WhatsApp",
     icon: <MessageCircle className="w-5 h-5 text-emerald-400" />,
     why: "Os agentes mandam uma mensagem de paciente interessado para a clínica e medem se e quando ela responde.",
-    how: "Abre o WhatsApp Web: no celular, vá em Aparelhos conectados > Conectar aparelho e leia o QR code.",
+    how: "Clique em Gerar QR code e, no celular: WhatsApp > Configurações > Aparelhos conectados > Conectar aparelho.",
   },
   {
     service: "google",
@@ -48,6 +48,8 @@ export function ConnectedAccounts() {
   const [accounts, setAccounts] = useState<Accounts | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [qr, setQr] = useState<{ open: boolean; image: string | null; state: string; error: string }>({ open: false, image: null, state: "", error: "" });
+  const qrTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -85,6 +87,42 @@ export function ConnectedAccounts() {
       load();
     }
   };
+
+  // QR code do WhatsApp dentro da própria tela: pergunta a cada 3 s até o celular ler
+  const pollQr = useCallback(async () => {
+    try {
+      const res = await fetch("/api/research/whatsapp-qr");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Não foi possível gerar o QR code.");
+      if (data.state === "connected") {
+        setQr({ open: false, image: null, state: "connected", error: "" });
+        setMessage("WhatsApp conectado neste computador.");
+        load();
+        return;
+      }
+      setQr((q) => (q.open ? { ...q, image: data.image ?? q.image, state: data.state, error: "" } : q));
+    } catch (err) {
+      setQr((q) => ({ ...q, error: err instanceof Error ? err.message : String(err) }));
+    }
+    qrTimer.current = setTimeout(pollQr, 3000);
+  }, [load]);
+
+  const openQr = () => {
+    setMessage("");
+    setQr({ open: true, image: null, state: "loading", error: "" });
+    if (qrTimer.current) clearTimeout(qrTimer.current);
+    pollQr();
+  };
+
+  const closeQr = () => {
+    if (qrTimer.current) clearTimeout(qrTimer.current);
+    setQr({ open: false, image: null, state: "", error: "" });
+    fetch("/api/research/whatsapp-qr", { method: "DELETE" }).catch(() => {});
+  };
+
+  useEffect(() => () => {
+    if (qrTimer.current) clearTimeout(qrTimer.current);
+  }, []);
 
   const connected = (service: Service) => !!accounts?.[service];
 
@@ -131,17 +169,49 @@ export function ConnectedAccounts() {
               <p className="text-xs text-muted-foreground/70 mt-1">{card.how}</p>
             </div>
             <button
-              onClick={() => act("connect", card.service)}
+              onClick={() => (card.service === "whatsapp" ? openQr() : act("connect", card.service))}
               disabled={busy !== null || accounts?.desktop === false}
               className={cn(
                 "px-3 py-2 rounded-lg border text-xs font-medium whitespace-nowrap disabled:opacity-40",
                 connected(card.service) ? "border-border text-muted-foreground hover:text-foreground" : "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20"
               )}
             >
-              {busy === card.service ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : connected(card.service) ? "Reconectar" : "Conectar"}
+              {busy === card.service ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : card.service === "whatsapp" ? (
+                connected(card.service) ? "Gerar novo QR code" : "Gerar QR code"
+              ) : connected(card.service) ? (
+                "Reconectar"
+              ) : (
+                "Conectar"
+              )}
             </button>
           </div>
         ))}
+
+        {qr.open && (
+          <div className="rounded-lg border border-emerald-400/30 bg-emerald-400/5 p-5 flex flex-col sm:flex-row gap-5 items-center">
+            <div className="w-[220px] h-[220px] rounded-xl bg-white p-3 flex items-center justify-center flex-shrink-0">
+              {qr.image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={qr.image} alt="QR code do WhatsApp" className="w-full h-full object-contain" />
+              ) : (
+                <Loader2 className="w-6 h-6 animate-spin text-neutral-400" />
+              )}
+            </div>
+            <div className="space-y-2 text-sm">
+              <div className="font-medium text-foreground">Conecte o WhatsApp da agência</div>
+              <ol className="list-decimal pl-5 text-muted-foreground space-y-1">
+                <li>Abra o WhatsApp no celular.</li>
+                <li>Toque em Configurações (ou nos três pontinhos) e depois em Aparelhos conectados.</li>
+                <li>Toque em Conectar aparelho e aponte a câmera para este QR code.</li>
+              </ol>
+              <p className="text-xs text-muted-foreground/70">O código muda sozinho a cada poucos segundos. Quando o celular ler, esta área fecha e o WhatsApp aparece como conectado.</p>
+              {qr.error && <p className="text-xs text-red-400">{qr.error}</p>}
+              <button onClick={closeQr} className="text-xs text-muted-foreground underline hover:text-foreground">Cancelar</button>
+            </div>
+          </div>
+        )}
 
         <div className="rounded-lg border border-border bg-muted/20 p-4 flex gap-4 items-start">
           <Globe className="w-5 h-5 text-violet-400 mt-0.5" />
