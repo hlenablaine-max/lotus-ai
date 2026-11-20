@@ -766,26 +766,8 @@ export async function executeTask(taskId: string, db: ExecutorDB, opts: ExecuteT
       },
     });
 
-    // Auto-complete mission when all sibling tasks are done
-    if (db.mission) {
-      try {
-        const siblings = await db.task.findMany({
-          where: { missionId: task.missionId, NOT: { id: task.id } },
-          select: { id: true, status: true },
-        });
-        const allDone = siblings.every(
-          (t) => t.status === "COMPLETED" || t.status === "CANCELLED" || t.status === "SKIPPED"
-        );
-        if (allDone && pendingApprovals.length === 0) {
-          await db.mission.update({
-            where: { id: task.missionId },
-            data: { status: "COMPLETED", completedAt: new Date() },
-          });
-        }
-      } catch {
-        // non-critical
-      }
-    }
+    // O estado da missão (concluída, aguardando aprovação, cancelada) é decidido pelo orquestrador
+    // (advanceMission), que respeita cancelamentos e aprovações pendentes.
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
