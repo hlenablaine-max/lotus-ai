@@ -507,7 +507,26 @@ body{font-size:16.5px}
 .svc-photos{grid-template-columns:1fr}.svc-photo.lead-card{grid-column:auto}
 .facts{gap:18px 32px}
 }
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.in{opacity:1;transform:none}}
+.progress{position:fixed;left:0;top:0;height:3px;width:100%;z-index:70;background:var(--btn);transform:scaleX(0);transform-origin:0 50%;pointer-events:none}
+.btn{position:relative;overflow:hidden;transition:translate .35s cubic-bezier(.2,.7,.2,1),background .2s,color .2s,box-shadow .3s}
+.btn::after{content:"";position:absolute;top:0;bottom:0;left:-60%;width:40%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.35),transparent);transform:skewX(-20deg);pointer-events:none;opacity:0}
+.btn:hover::after{animation:shine .9s ease}
+.motion .hero .btn-main::after{animation:shine 1.1s ease 1.6s,shine 1.1s ease 6s}
+@keyframes shine{0%{left:-60%;opacity:1}100%{left:130%;opacity:1}}
+.btn-main:hover{box-shadow:0 14px 34px -14px var(--btn)}
+.motion h1.split{display:block}
+.motion h1.split .w{display:inline-block;overflow:hidden;vertical-align:top;padding-bottom:.08em;margin-bottom:-.08em}
+.motion h1.split .w>span{display:inline-block;transform:translateY(105%);transition:transform 1s cubic-bezier(.16,1,.3,1)}
+.motion h1.split.on .w>span{transform:none}
+.motion .rv{opacity:0;transform:translateY(28px);transition:opacity .9s cubic-bezier(.2,.7,.2,1),transform .9s cubic-bezier(.2,.7,.2,1)}
+.motion .rv.on{opacity:1;transform:none}
+.motion .wipe{clip-path:inset(18% 0 18% 0 round 18px);transition:clip-path 1.3s cubic-bezier(.16,1,.3,1)}
+.motion .wipe img{scale:1.18;transition:scale 1.6s cubic-bezier(.16,1,.3,1)}
+.motion .wipe.on{clip-path:inset(0 0 0 0 round 0)}
+.motion .wipe.on img{scale:1}
+.motion .hero-photo img,.motion .hero-side img,.motion .cut img{scale:1.08}
+.svc-photo:hover img{transform:scale(1.05)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.in{opacity:1;transform:none}.progress{display:none}}
 `;
 
 const STYLE_CSS: Record<SiteStyle, string> = {
@@ -574,10 +593,107 @@ const STYLE_CSS: Record<SiteStyle, string> = {
 `,
 };
 
+// Motion do site (sem biblioteca, leve): título entra palavra por palavra, seções aparecem em cascata ao rolar,
+// fotos se revelam como cortina e ganham profundidade, números contam, botões magnéticos com brilho e barra de leitura.
+// Quem pediu menos movimento no aparelho (e robôs/prints) vê tudo parado e visível.
 const SCRIPT = `
 (function(){
-  var nav=document.getElementById('nav');
-  function onScroll(){ if(nav){ nav.classList.toggle('scrolled', window.scrollY>24); } }
-  window.addEventListener('scroll',onScroll,{passive:true}); onScroll();
+  var d=document, w=window, root=d.documentElement;
+  var nav=d.getElementById('nav');
+  var reduce=w.matchMedia && w.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var still=reduce || navigator.webdriver;
+  var fine=w.matchMedia && w.matchMedia('(pointer: fine)').matches && w.innerWidth>960;
+  var bar=d.createElement('div'); bar.className='progress'; d.body.appendChild(bar);
+  function onScroll(){
+    var y=w.scrollY||0;
+    if(nav){ nav.classList.toggle('scrolled', y>24); }
+    var max=root.scrollHeight-w.innerHeight; bar.style.transform='scaleX('+(max>0?Math.min(1,y/max):0)+')';
+  }
+  w.addEventListener('scroll',onScroll,{passive:true}); onScroll();
+  if(still){ root.classList.add('still'); return; }
+  // Chegou no fim da página: mostra o que ainda faltava (itens que nunca entram inteiros na tela)
+  w.addEventListener('scroll',function(){
+    if(w.innerHeight+(w.scrollY||0)>=root.scrollHeight-8){ Array.prototype.forEach.call(d.querySelectorAll('.rv:not(.on),.wipe:not(.on)'),function(el){ el.classList.add('on'); }); }
+  },{passive:true});
+  root.classList.add('motion');
+
+  // Título do topo: cada palavra sobe de trás de uma máscara
+  var h1=d.querySelector('.hero h1');
+  if(h1){
+    var n=0;
+    (function split(el){
+      Array.prototype.slice.call(el.childNodes).forEach(function(node){
+        if(node.nodeType===3){
+          var frag=d.createDocumentFragment();
+          node.textContent.split(/(\\s+)/).forEach(function(part){
+            if(!part) return;
+            if(/^\\s+$/.test(part)){ frag.appendChild(d.createTextNode(part)); return; }
+            var o=d.createElement('span'); o.className='w';
+            var i=d.createElement('span'); i.textContent=part; i.style.transitionDelay=(0.12+n*0.07)+'s'; n++;
+            o.appendChild(i); frag.appendChild(o);
+          });
+          node.parentNode.replaceChild(frag,node);
+        } else if(node.nodeType===1 && node.tagName!=='BR'){ split(node); }
+      });
+    })(h1);
+    h1.classList.remove('in'); h1.classList.add('split');
+    requestAnimationFrame(function(){ requestAnimationFrame(function(){ h1.classList.add('on'); }); });
+  }
+
+  // Seções: aparecem em cascata quando entram na tela
+  var sel='.sec-head,.svc-photo,.svc-list>*,.steps>li,.points>*,.about-text,.quote-main,.quotes>*,.faq>*,.local-info,.map,.final h2,.final p,.final .btn,.facts>div';
+  var items=Array.prototype.slice.call(d.querySelectorAll(sel)).filter(function(el){ return !el.closest('.hero'); });
+  items.forEach(function(el){
+    var sibs=el.parentNode?Array.prototype.indexOf.call(el.parentNode.children,el):0;
+    el.classList.add('rv'); el.style.transitionDelay=Math.min(sibs*0.08,0.4)+'s';
+  });
+  // Fotos: cortina que abre + leve zoom saindo
+  var wipes=Array.prototype.slice.call(d.querySelectorAll('.about-photo,.gallery>*,.wide-photo,.svc-photo figure'));
+  wipes.forEach(function(el,i){ el.classList.add('wipe'); });
+  // Números: contam do zero até o valor
+  var counters=Array.prototype.slice.call(d.querySelectorAll('.facts dt'));
+  function count(el){
+    var raw=el.textContent.trim(), m=raw.match(/^([^0-9]*)([0-9][0-9.,]*)(.*)$/);
+    if(!m) return;
+    var num=m[2], dec=0, val;
+    if(num.indexOf(',')>=0){ dec=num.split(',')[1].length; val=parseFloat(num.replace(/\\./g,'').replace(',','.')); }
+    else if(/\\.\\d{3}(\\D|$)/.test(num)){ val=parseFloat(num.replace(/\\./g,'')); }
+    else { val=parseFloat(num); dec=(num.split('.')[1]||'').length; }
+    if(!isFinite(val)) return;
+    var t0=null, dur=1400;
+    function fmt(v){ return m[1]+v.toLocaleString('pt-BR',{minimumFractionDigits:dec,maximumFractionDigits:dec})+m[3]; }
+    function step(t){ if(!t0) t0=t; var p=Math.min(1,(t-t0)/dur), e=1-Math.pow(1-p,3); el.textContent=fmt(val*e); if(p<1) requestAnimationFrame(step); else el.textContent=raw; }
+    el.textContent=fmt(0); requestAnimationFrame(step);
+  }
+  var io=new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      if(!en.isIntersecting) return;
+      var el=en.target; el.classList.add('on'); io.unobserve(el);
+      if(el.tagName==='DT') count(el);
+    });
+  },{threshold:0.12, rootMargin:'0px 0px -6% 0px'});
+  items.concat(wipes).concat(counters).forEach(function(el){ io.observe(el); });
+
+  // Profundidade: fotos grandes andam mais devagar que a página (só no computador)
+  var par=fine?Array.prototype.slice.call(d.querySelectorAll('.hero-photo img,.hero-side img,.wide-photo img,.about-photo img,.cut img')):[];
+  if(par.length){
+    var ticking=false;
+    function update(){
+      ticking=false; var vh=w.innerHeight;
+      par.forEach(function(img){
+        var r=img.parentNode.getBoundingClientRect(); if(r.bottom<0||r.top>vh) return;
+        var c=(r.top+r.height/2-vh/2)/vh; img.style.translate='0 '+(c*-38).toFixed(1)+'px';
+      });
+    }
+    w.addEventListener('scroll',function(){ if(!ticking){ ticking=true; requestAnimationFrame(update); } },{passive:true}); update();
+  }
+
+  // Botões magnéticos: puxam levemente para o mouse
+  if(fine){
+    Array.prototype.slice.call(d.querySelectorAll('.btn')).forEach(function(b){
+      b.addEventListener('pointermove',function(e){ var r=b.getBoundingClientRect(); b.style.translate=((e.clientX-r.left-r.width/2)*0.18).toFixed(1)+'px '+((e.clientY-r.top-r.height/2)*0.3).toFixed(1)+'px'; });
+      b.addEventListener('pointerleave',function(){ b.style.translate='0 0'; });
+    });
+  }
 })();
 `;

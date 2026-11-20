@@ -13,6 +13,8 @@ export interface LinkItem {
   source: string;
   campaign?: string | null;
   text: string;
+  code?: string | null;
+  keyword?: string | null;
   url?: string | null;
 }
 
@@ -38,15 +40,42 @@ export function TrackedLinks({ clientId, links, phone, onSaved }: { clientId: st
   const urlFor = (l: LinkItem) => (phone ? `https://wa.me/${phone.replace(/\D/g, "")}?text=${encodeURIComponent(l.text)}` : null);
   const update = (id: string, patch: Partial<LinkItem>) => setItems((all) => all.map((l) => (l.id === id ? { ...l, ...patch } : l)));
 
-  const save = async () => {
+  const save = async (list: LinkItem[] = items, okText = "Links salvos. A partir de agora, quem chegar por eles é identificado sozinho.") => {
     setSaving(true);
     setMsg(null);
-    const res = await fetch(`/api/clients/${clientId}/whatsapp`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ links: items }) });
+    const res = await fetch(`/api/clients/${clientId}/whatsapp`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ links: list }) });
     const data = (await res.json().catch(() => ({}))) as { error?: string };
     setSaving(false);
-    if (!res.ok) return setMsg({ kind: "error", text: data.error ?? "Não foi possível salvar." });
-    setMsg({ kind: "ok", text: "Links salvos. A partir de agora, quem chegar por eles é identificado sozinho." });
+    if (!res.ok) {
+      setMsg({ kind: "error", text: data.error ?? "Não foi possível salvar." });
+      return false;
+    }
+    setMsg({ kind: "ok", text: okText });
     onSaved();
+    return true;
+  };
+
+  // Conteúdo orgânico: cada vídeo/post ganha um link com código próprio (V1, V2...) e, se quiser, uma palavra-chave
+  const [content, setContent] = useState({ name: "", keyword: "" });
+  const createContentLink = async () => {
+    const name = content.name.trim();
+    if (!name) return;
+    const used = items.map((l) => Number(/^V(\d+)$/.exec(l.code ?? "")?.[1] ?? 0));
+    const code = `V${Math.max(0, ...used) + 1}`;
+    const item: LinkItem = {
+      id: `conteudo${Date.now().toString(36)}`,
+      label: `Conteúdo: ${name}`,
+      source: "INSTAGRAM",
+      campaign: `Conteúdo: ${name}`,
+      text: `Oi! Vi o vídeo "${name}" e quero saber mais (cód. ${code})`,
+      code,
+      keyword: content.keyword.trim() || null,
+    };
+    const next = [item, ...items];
+    if (await save(next, `Link do conteúdo "${name}" criado (código ${code}). Copie e coloque na legenda, no story ou na bio enquanto o vídeo estiver rodando.`)) {
+      setItems(next);
+      setContent({ name: "", keyword: "" });
+    }
   };
 
   const copy = async (l: LinkItem) => {
@@ -76,6 +105,19 @@ export function TrackedLinks({ clientId, links, phone, onSaved }: { clientId: st
       {!phone && <Notice kind="warn">Conecte o WhatsApp da clínica para os links ficarem prontos (eles usam o número conectado).</Notice>}
       {msg && <Notice kind={msg.kind}>{msg.text}</Notice>}
 
+      <Card title="Conteúdo orgânico: saber qual vídeo vende" subtitle="Cada vídeo ou post que a LOTUS criar ganha um link próprio. No Painel aparece quantos leads e quanto faturou cada conteúdo.">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_220px_auto] gap-2">
+          <input className={field} placeholder='Nome do vídeo ou post (ex.: "Lente em 1 dia")' value={content.name} onChange={(e) => setContent({ ...content, name: e.target.value })} onKeyDown={(e) => e.key === "Enter" && void createContentLink()} />
+          <input className={field} placeholder="Palavra-chave falada (opcional)" value={content.keyword} onChange={(e) => setContent({ ...content, keyword: e.target.value })} />
+          <button onClick={() => void createContentLink()} disabled={saving || !content.name.trim()} className={btnPrimary}>
+            <Plus className="w-4 h-4" /> Criar link do conteúdo
+          </button>
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-2">
+          Coloque o link na legenda, no story (figurinha de link) ou na bio enquanto o vídeo roda. A mensagem já vai com um código (ex.: cód. V3), então mesmo se a pessoa mexer no texto, a LOTUS sabe de qual vídeo veio. Se o vídeo disser &quot;manda SORRISO no WhatsApp&quot;, ponha SORRISO como palavra-chave: quem digitar também é contado.
+        </p>
+      </Card>
+
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
         {items.map((l) => {
           const meta = SOURCE_META[l.source] ?? SOURCE_META.OUTRO;
@@ -100,6 +142,13 @@ export function TrackedLinks({ clientId, links, phone, onSaved }: { clientId: st
                 <input className={cn(field, "text-xs")} placeholder="Campanha ou criativo (opcional)" value={l.campaign ?? ""} onChange={(e) => update(l.id, { campaign: e.target.value })} />
               </div>
               <textarea className={cn(field, "text-xs resize-none")} rows={2} value={l.text} onChange={(e) => update(l.id, { text: e.target.value })} />
+              {(l.code || l.keyword) && (
+                <p className="text-[11px] text-primary mt-1">
+                  {l.code && <>Código {l.code}</>}
+                  {l.code && l.keyword && " · "}
+                  {l.keyword && <>Palavra-chave &quot;{l.keyword}&quot;</>}
+                </p>
+              )}
               <p className="text-[11px] text-muted-foreground mt-2">{WHERE[l.source] ?? ""}</p>
               <div className="flex items-center gap-2 mt-3">
                 <code className="flex-1 truncate text-[11px] text-muted-foreground bg-muted/30 border border-border rounded-md px-2 py-1.5">{url ?? "conecte o WhatsApp"}</code>

@@ -11,6 +11,8 @@ export interface TrackedLink {
   source: LeadSource;
   campaign?: string | null;
   text: string;
+  code?: string | null; // código curto no fim da mensagem (ex.: V3) — identifica o conteúdo mesmo se a pessoa mexer no texto
+  keyword?: string | null; // palavra falada no vídeo ("manda SORRISO no WhatsApp") para quem digita sem clicar no link
 }
 
 export interface MessageEvent {
@@ -97,6 +99,15 @@ export function detectSource(text: string, links: TrackedLink[]): { link: Tracke
   if (!msg) return null;
   const msgWords = new Set(msg.split(" "));
   let best: { link: TrackedLink; score: number } | null = null;
+  // Código do link (cód. V3) ou palavra-chave do vídeo: vale mais que a parecença do texto
+  for (const link of links) {
+    const code = normalizeText(link.code ?? "");
+    if (code && new RegExp(`(^| )cod ${code}( |$)`).test(msg)) return { link, score: 1 };
+  }
+  for (const link of links) {
+    const kw = normalizeText(link.keyword ?? "");
+    if (kw && new RegExp(`(^| )${kw}( |$)`).test(msg)) return { link, score: 0.95 };
+  }
   for (const link of links) {
     const words = normalizeText(link.text).split(" ").filter((w) => w.length > 2);
     if (words.length === 0) continue;

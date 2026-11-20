@@ -12,6 +12,7 @@ import { createRuntimeClient } from "@/lib/runtime-client";
 import { imageSize } from "@/lib/image-size";
 import { SITE_STYLES, STYLE_GUIDE, renderSite, type SiteContent } from "@/lib/site-render";
 import { AI_TELLS, DESIGN_PRINCIPLES, FONT_PAIRS, segmentFor, type SegmentPlaybook } from "@/lib/design-knowledge";
+import { awwwardsCategoryLabel, awwwardsReferences, type AwwwardsRef } from "@/lib/awwwards";
 import { stockPhotosFor } from "@/lib/stock-photos";
 import { aiPhotosFor } from "@/lib/ai-photos";
 
@@ -137,7 +138,7 @@ async function recentStyles(): Promise<string[]> {
   return missions.map((m) => String(((m.context ?? {}) as Json).siteStyle ?? "")).filter(Boolean);
 }
 
-function buildInstructions(ctx: { businessName: string; handle: string; assets: PreparedAsset[]; attempt: number; feedback?: string; recent: string[]; hasWhatsapp: boolean; isHealth: boolean; segment: SegmentPlaybook; hasStock: boolean }): string {
+function buildInstructions(ctx: { businessName: string; handle: string; assets: PreparedAsset[]; attempt: number; feedback?: string; recent: string[]; hasWhatsapp: boolean; isHealth: boolean; segment: SegmentPlaybook; hasStock: boolean; refs: AwwwardsRef[] }): string {
   const exemplo: SiteContent = {
     estilo: "aurora | clinico | editorial | impacto",
     fontes: "um dos pares de fontes da lista",
@@ -174,6 +175,14 @@ function buildInstructions(ctx: { businessName: string; handle: string; assets: 
     `- Foco de conversão: ${seg.conversao}.`,
     `- Direções que costumam servir: ${seg.estilos}. Fontes que costumam servir: ${seg.fontes.join(", ")}.`,
     "",
+    ...(ctx.refs.length
+      ? [
+          `REFERÊNCIAS DE NÍVEL (AWWWARDS): as ÚLTIMAS ${ctx.refs.length} imagens anexadas são sites premiados no Awwwards, a premiação dos melhores sites do mundo, na categoria deste nicho (${awwwardsCategoryLabel(seg.id)}):`,
+          ...ctx.refs.map((r) => `- ${r.title}${r.award ? ` (${r.award})` : ""}: ${r.tags.slice(0, 5).join(", ")}`),
+          "Use como régua de acabamento, não como molde: repare na escala da tipografia, no respiro, em como a foto principal domina o topo, em poucas cores bem usadas e numa ideia visual forte por página. NÃO copie layout, textos, marca nem fotos deles (são sites reais de outras empresas). No plano de design, diga em 1 linha o que você tirou dessas referências para ESTE negócio.",
+          "",
+        ]
+      : []),
     "1) DIREÇÃO DE ARTE (campo estilo):",
     ...SITE_STYLES.map((s) => `- ${STYLE_GUIDE[s]}`),
     ctx.recent.length ? `Os últimos sites da LOTUS usaram: ${ctx.recent.join(", ")}. Se mais de uma direção servir, escolha uma diferente, para cada cliente ter cara própria.` : "",
@@ -232,6 +241,7 @@ const REVIEW_INSTRUCTIONS = (businessName: string, url: string) =>
     `Revise o site novo da ${businessName}, publicado em ${url}. As imagens anexadas são prints do site no ar (3 partes no computador e o topo no celular).`,
     "Você é exigente como um diretor de arte de agência: este site vai ser mostrado ao dono do negócio para vender um projeto de site de uns R$ 10 mil. O dono tem que olhar e achar o site incrível. Avalie de 0 a 10:",
     "O acabamento (grid, espaçamento, contraste) vem do sistema; o agente escolhe direção de arte, par de fontes, cores, fotos e escreve o texto (`conteudoDoSite`). Suas correções dizem o que mudar NESSAS escolhas: trocar direção, fontes, foto (diga qual arquivo), cor ou texto. `avisosDoSistema` lista fotos que o sistema recusou.",
+    "Régua: os sites premiados do Awwwards (awwwards.com) na categoria deste nicho. O diretor de arte recebeu exemplos deles. Se este site ficar visivelmente abaixo desse nível em tipografia, respiro, força da foto principal ou ideia visual, diga exatamente o que falta.",
     "0. Impressiona? Tem cara própria deste negócio ou parece modelo pronto / feito por IA? Procure estes sinais de site gerado por IA (cada um é correção obrigatória):",
     ...AI_TELLS.map((t) => `   - ${t}`),
     "0b. As fotos são profissionais e fortes? Foto fraca ou arte de post num lugar de destaque derruba a nota. Fotos profissionais (criadas por IA ou de banco) são bem-vindas no topo e nos serviços. No 'Sobre', foto REAL do dono, da equipe ou da clínica é um ponto forte, mesmo que seja de evento ou com outra pessoa ao lado, desde que esteja nítida e o profissional apareça bem: não peça para trocar só por isso.",
@@ -279,6 +289,8 @@ export async function createSiteChain(opts: {
   const hasWhatsapp = Array.isArray(opts.brief.whatsappEncontrado) && (opts.brief.whatsappEncontrado as unknown[]).length > 0;
   const isHealth = typeof opts.brief.negocioDeSaude === "boolean" ? (opts.brief.negocioDeSaude as boolean) : HEALTH_HINT.test(JSON.stringify(opts.brief.perfil ?? opts.brief).slice(0, 4000));
   const hasStock = assets.some((a) => /^assets\/banco-/.test(a.file));
+  // Premiados do Awwwards no nicho: o diretor de arte vê como referência de nível (nunca trava o site se falhar)
+  const refs = await awwwardsReferences(segment.id, 3).catch(() => [] as AwwwardsRef[]);
 
   const build = await prisma.task.create({
     data: {
@@ -286,7 +298,7 @@ export async function createSiteChain(opts: {
       agentId: webId,
       title: `Produção: site novo${isHealth ? " da clínica" : ""}${suffix}`,
       description: "Conteúdo, fotos, cores e direção de arte do site; o sistema monta o site premium e publica.",
-      instructions: buildInstructions({ businessName: opts.businessName, handle: opts.handle, assets, attempt, feedback: opts.feedback, recent: await recentStyles(), hasWhatsapp, isHealth, segment, hasStock }),
+      instructions: buildInstructions({ businessName: opts.businessName, handle: opts.handle, assets, attempt, feedback: opts.feedback, recent: await recentStyles(), hasWhatsapp, isHealth, segment, hasStock, refs }),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       input: {
         fase: "producao",
@@ -298,6 +310,8 @@ export async function createSiteChain(opts: {
         arquivosDisponiveis: assets.filter((a) => !/logo/.test(a.file)).map(({ file, descricao }) => ({ file, descricao })),
         logoDisponivel: logo ? logo.descricao : "sem logo em arquivo: o sistema usa a inicial do nome",
         imagePaths,
+        referenciasAwwwards: refs.map((r) => ({ site: r.title, premio: r.award, etiquetas: r.tags, pagina: r.page })),
+        referenceImagePaths: refs.map((r) => r.image).filter(Boolean),
       } as any,
       dependsOn: opts.dependsOn,
       status: "QUEUED",

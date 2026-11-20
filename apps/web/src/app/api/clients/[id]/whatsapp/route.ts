@@ -91,7 +91,19 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         source: l.source,
         campaign: l.campaign ? String(l.campaign).slice(0, 80) : null,
         text: l.text.trim().slice(0, 300),
+        code: l.code ? String(l.code).replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 8) || null : null,
+        keyword: l.keyword ? String(l.keyword).trim().slice(0, 30) || null : null,
       }));
+    // Código ou palavra-chave repetidos deixariam a origem ambígua
+    for (const key of ["code", "keyword"] as const) {
+      const seen = new Set<string>();
+      for (const l of clean) {
+        const v = l[key]?.toLowerCase();
+        if (!v) continue;
+        if (seen.has(v)) return Response.json({ error: `${key === "code" ? "Código" : "Palavra-chave"} "${l[key]}" repetido em dois links.` }, { status: 400 });
+        seen.add(v);
+      }
+    }
     // Duas saudações iguais deixariam a origem ambígua
     const texts = new Set<string>();
     for (const l of clean) {

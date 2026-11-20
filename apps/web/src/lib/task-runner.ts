@@ -63,11 +63,14 @@ function releaseSlot(): void {
 }
 
 // Imagens anexadas à tarefa (prints e quadros de vídeo gerados pelo app na pasta de trabalho)
+// imagePaths: até 10 (fotos do cliente, prints); referenceImagePaths: até 3 referências de design (ex.: premiados do Awwwards)
 function loadTaskImages(input: unknown): AIImage[] {
-  const paths = (input as { imagePaths?: unknown } | null)?.imagePaths;
-  if (!Array.isArray(paths)) return [];
+  const own = (input as { imagePaths?: unknown } | null)?.imagePaths;
+  const refs = (input as { referenceImagePaths?: unknown } | null)?.referenceImagePaths;
+  const paths = [...(Array.isArray(own) ? own.slice(0, 10) : []), ...(Array.isArray(refs) ? refs.slice(0, 3) : [])];
+  if (paths.length === 0) return [];
   const images: AIImage[] = [];
-  for (const raw of paths.slice(0, 4)) {
+  for (const raw of paths) {
     try {
       const file = path.resolve(String(raw));
       if (!file.startsWith(IMAGE_ROOT) || !fs.existsSync(file)) continue;

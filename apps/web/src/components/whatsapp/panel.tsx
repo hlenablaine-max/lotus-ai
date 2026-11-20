@@ -193,7 +193,7 @@ export function AttendancePanel({ clientId, onOpenWaiting }: { clientId: string;
           </Card>
 
           {m.byCampaign.length > 0 && (
-            <Card title="Resultado por campanha ou criativo" subtitle="Links com campanha própria mostram qual anúncio realmente vende">
+            <Card title="Resultado por campanha, criativo ou conteúdo" subtitle="Cada anúncio, vídeo ou post com link próprio mostra quanto realmente vendeu">
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-muted-foreground text-left">
