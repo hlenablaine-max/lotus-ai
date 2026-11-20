@@ -50,9 +50,34 @@ const CHAPTERS: Array<{ id: Chapter; title: string; intro: string }> = [
   { id: "interno", title: "Uso interno da LOTUS", intro: "Roteiro comercial, auditorias e dados brutos. Não enviar ao cliente." },
 ];
 
+// Trechos que os agentes escrevem para o time (Ícaro, reunião, próximos passos internos) não vão para o cliente
+const INTERNAL_HEADING = /(para o [íi]caro|para a reuni[aã]o|na reuni[aã]o|perguntas? (para|a fazer)|uso interno|nota interna|bastidores|pr[oó]ximos passos internos|como apresentar|roteiro de venda|obje[cç][oõ]es)/i;
+
+function stripInternalSections(md: string): string {
+  const lines = md.split("\n");
+  const out: string[] = [];
+  let skipLevel = 0; // nível do título que abriu o trecho interno (0 = não está pulando)
+  for (const line of lines) {
+    const heading = line.match(/^(#{1,6})\s+(.*)$/) ?? line.match(/^()\*\*(.+?)\*\*:?\s*$/);
+    if (heading) {
+      const level = heading[1] ? heading[1].length : 7; // "**Título**" sozinho na linha conta como subtítulo
+      if (skipLevel && level <= skipLevel) skipLevel = 0;
+      if (!skipLevel && INTERNAL_HEADING.test(heading[2])) {
+        skipLevel = level;
+        continue;
+      }
+    }
+    if (!skipLevel) out.push(line);
+  }
+  // Frases soltas dirigidas ao Ícaro ou que citam o roteiro de venda também saem
+  // (sem \b: o "Í" com acento não conta como letra para \b e a regra não pegava nada)
+  return out.filter((l) => !/(^|[^a-zà-ú])[íi]caro(?![a-zà-ú])|roteiro da reuni|script da reuni|closer/i.test(l)).join("\n");
+}
+
 // Markdown do agente → HTML limpo para impressão
-function renderMarkdown(content: string): string {
+function renderMarkdown(content: string, internal = false): string {
   let md = parseReport(content).text;
+  if (!internal) md = stripInternalSections(md);
   // Blocos de código enormes (HTML do site, JSON de dados) não cabem no PDF
   md = md.replace(/```(\w*)\s*\n([\s\S]*?)```/g, (block, lang: string, body: string) => {
     if (body.length > 2500 || /^(html|json)$/i.test(lang)) {
@@ -61,7 +86,9 @@ function renderMarkdown(content: string): string {
     }
     return block;
   });
-  return marked.parse(md, { gfm: true, breaks: false, async: false }) as string;
+  const html = marked.parse(md, { gfm: true, breaks: false, async: false }) as string;
+  // Campos que o dono do negócio precisa informar ficam destacados
+  return html.replace(/\[(PREENCHER[^\]]*)\]/gi, (_m, inner: string) => `<mark class="fill">${inner}</mark>`);
 }
 
 const scoreColor = (n: number) => (n >= 7 ? "#10b981" : n >= 5 ? "#f59e0b" : "#ef4444");
@@ -74,14 +101,14 @@ function summaryHtml(placar: Placar | null, siteUrl: string | null, siteScore: n
     const nota = placar?.notaGeral;
     parts.push(`
       <div class="scoreboard">
-        ${nota != null ? `<div class="big-score" style="--c:${scoreColor(nota)}"><span>${esc(nota.toFixed(1))}</span><small>nota geral<br/>de 0 a 10</small></div>` : ""}
+        ${nota != null ? `<div class="big-score" style="--c:${scoreColor(nota)}"><span>${esc(nota1(nota))}</span><small>nota geral<br/>de 0 a 10</small></div>` : ""}
         <div class="bars">
           ${(placar?.notas ?? [])
             .map(
               (n) => `<div class="bar-row">
                 <div class="bar-label">${esc(n.area)}</div>
                 <div class="bar"><i style="width:${Math.max(4, Math.min(100, n.nota * 10))}%;background:${scoreColor(n.nota)}"></i></div>
-                <div class="bar-val" style="color:${scoreColor(n.nota)}">${esc(n.nota)}</div>
+                <div class="bar-val" style="color:${scoreColor(n.nota)}">${esc(n.nota.toLocaleString("pt-BR"))}</div>
                 ${n.motivo ? `<div class="bar-why">${esc(n.motivo)}</div>` : ""}
               </div>`
             )
@@ -93,12 +120,12 @@ function summaryHtml(placar: Placar | null, siteUrl: string | null, siteScore: n
     parts.push(`<div class="gain"><div class="gain-k">Ganho potencial estimado</div><div class="gain-v">${esc(placar.ganhoPotencial)}</div><div class="note">Estimativa com base nos dados coletados e em médias de mercado, não é garantia.</div></div>`);
   }
   if (placar?.gargalos?.length) {
-    parts.push(`<h2 class="sec">Os gargalos que mais custam dinheiro</h2>`);
     parts.push(
       placar.gargalos
         .map((g, i) => {
           const sev = (g.gravidade ?? "media").toLowerCase();
-          return `<div class="gargalo" style="--s:${sevColor[sev] ?? sevColor.media}">
+          // O título da seção vai junto com o primeiro gargalo (não fica sozinho no pé da página)
+          return `${i === 0 ? `<h2 class="sec keep-next">Os gargalos que mais custam dinheiro</h2>` : ""}<div class="gargalo" style="--s:${sevColor[sev] ?? sevColor.media}">
             <div class="g-head"><span class="g-n">${i + 1}</span><span class="g-t">${esc(g.titulo)}</span><span class="g-s">${esc(sev)}</span></div>
             <div class="g-grid">
               ${[
@@ -126,7 +153,13 @@ function summaryHtml(placar: Placar | null, siteUrl: string | null, siteScore: n
       <p>Criado com a logo, as fotos e as cores do próprio negócio${siteScore != null ? ` e aprovado na revisão de qualidade com nota ${esc(siteScore)}` : ""}. Abra o link para ver no celular ou no computador.</p></div>
     </div>`);
   }
-  return `<section class="page summary"><div class="eyebrow">Resumo executivo</div><h1 class="h1">Playbook de Faturamento</h1>${parts.join("")}</section>`;
+  return `<section class="page summary">${paged(`<div class="eyebrow">Resumo executivo</div><h1 class="h1">Playbook de Faturamento</h1>${parts.join("")}`)}</section>`;
+}
+
+// Tabela com cabeçalho e rodapé vazios: o Chromium repete os dois em cada folha impressa,
+// o que dá margem em cima e embaixo nas páginas de texto sem encolher a capa (que ocupa a folha inteira).
+function paged(inner: string): string {
+  return `<table class="pg"><thead><tr><td><div class="pg-sp"></div></td></tr></thead><tfoot><tr><td><div class="pg-sp"></div></td></tr></tfoot><tbody><tr><td>${inner}</td></tr></tbody></table>`;
 }
 
 export async function buildMissionReportHtml(missionId: string, opts: ReportOptions = {}): Promise<{ html: string; fileBase: string } | null> {
@@ -174,11 +207,11 @@ export async function buildMissionReportHtml(missionId: string, opts: ReportOpti
             const isSite = !!extractHtml(d.content) && /site/i.test(d.title);
             const content = isSite
               ? `<div class="site-card"><div><div class="g-k">Página entregue</div><div class="site-url">${esc((siteUrl ?? "").replace(/^https?:\/\//, "") || "no pacote de entrega")}</div><p>O código completo da página está no pacote de entrega e publicado no link acima.</p></div></div>`
-              : renderMarkdown(d.content);
-            return `<article class="doc" id="d${id}">
+              : renderMarkdown(d.content, !!opts.internal);
+            return `<article class="doc" id="d${id}">${paged(`
               <header class="doc-head"><div class="eyebrow">${esc(c.title)}</div><h2>${esc(cleanTitle(d.title, mission.client.name))}</h2>
               ${d.task?.agent ? `<div class="by">Preparado por ${esc(d.task.agent.name)} · ${esc(d.task.agent.title)}</div>` : ""}</header>
-              <div class="md">${content}</div></article>`;
+              <div class="md">${content}</div>`)}</article>`;
           })
           .join("")}`
     )
@@ -195,13 +228,13 @@ export async function buildMissionReportHtml(missionId: string, opts: ReportOpti
     <div class="eyebrow light">${opts.internal ? "Versão interna completa" : "Diagnóstico 360 e plano de ação"}</div>
     <h1 class="cover-title">${esc(mission.client.name)}</h1>
     <div class="cover-sub">${[handle ? "@" + handle : "", city, mission.client.segment ?? ""].filter(Boolean).map(esc).join(" · ")}</div>
-    ${placar?.notaGeral != null ? `<div class="cover-score"><b style="color:${scoreColor(placar.notaGeral)}">${esc(placar.notaGeral.toFixed(1))}</b><span>nota geral da presença digital</span></div>` : ""}
+    ${placar?.notaGeral != null ? `<div class="cover-score"><b style="color:${scoreColor(placar.notaGeral)}">${esc(nota1(placar.notaGeral))}</b><span>nota geral da presença digital</span></div>` : ""}
   </div>
   <div class="cover-foot">Playbook de Faturamento preparado pela LOTUS · ${docs.length} documentos${siteUrl ? " · site novo publicado" : ""}</div>
 </section>
 ${summaryHtml(placar, siteUrl, siteScore)}
-<section class="page toc"><div class="eyebrow">Conteúdo</div><h1 class="h1">O que tem neste relatório</h1><ol class="toc-list">${toc}</ol>
-<p class="note">Números de mercado e projeções de ganho são estimativas e aparecem marcados como tal. Os dados do negócio foram coletados de fontes públicas em ${esc(new Date(mission.createdAt).toLocaleDateString("pt-BR"))}.</p></section>
+<section class="page toc">${paged(`<div class="eyebrow">Conteúdo</div><h1 class="h1">O que tem neste relatório</h1><ol class="toc-list">${toc}</ol>
+<p class="note">Números de mercado e projeções de ganho são estimativas e aparecem marcados como tal. Os dados do negócio foram coletados de fontes públicas em ${esc(new Date(mission.createdAt).toLocaleDateString("pt-BR"))}.</p>`)}</section>
 ${body}
 <section class="page end"><div class="brand big"><span class="lotus-mark">✿</span> LOTUS</div><p>Agência autônoma de crescimento para clínicas.</p></section>
 </body></html>`;
@@ -211,10 +244,22 @@ ${body}
 }
 
 function cleanTitle(title: string, clientName: string): string {
-  // "Diagnóstico Instagram — Odonto Marco (@x)" → "Diagnóstico Instagram"
-  const t = title.split(/\s+[—|–-]\s+/)[0].trim();
-  return t.length >= 6 ? t : title.replace(clientName, "").trim() || title;
+  // "Diagnóstico — Reputação, Presença Local | Odonto Marco (@x)" → "Diagnóstico — Reputação, Presença Local"
+  const norm = (v: string) => v.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const tokens = norm(clientName).split(/[^a-z0-9]+/).filter((t) => t.length >= 4 && !["clinica", "consultorio", "odontologia"].includes(t));
+  const parts = title
+    .replace(/\s*\(@[^)]*\)/g, "")
+    .split(/\s+[—|–-]\s+|\s*\|\s*/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const kept = parts.filter((p) => !tokens.some((t) => norm(p).includes(t)));
+  let t = (kept.length ? kept : parts).join(" — ");
+  // Título todo em maiúsculas vira normal
+  if (t === t.toUpperCase() && /[A-Z]/.test(t)) t = t.charAt(0) + t.slice(1).toLowerCase();
+  return t || title;
 }
+
+const nota1 = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
 // Gera o PDF (precisa do app desktop aberto). Devolve o caminho do arquivo.
 export async function renderMissionReportPdf(missionId: string, opts: ReportOptions = {}): Promise<{ pdfPath: string; fileBase: string } | { error: string; html?: string }> {
@@ -233,18 +278,28 @@ export async function renderMissionReportPdf(missionId: string, opts: ReportOpti
 
 const CSS = `
 @page { size: A4; margin: 0; }
+/* Folha sem margem (a capa ocupa tudo); nas páginas de texto a margem vem da tabela .pg */
+@page { size: A4; margin: 0; }
 * { box-sizing: border-box; }
 html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+html, body { width: 210mm; }
 body { margin: 0; font-family: Inter, system-ui, sans-serif; color: #1e1b2e; font-size: 10.5pt; line-height: 1.6; background: #fff; }
-.page, .doc { padding: 22mm 20mm 20mm; }
+.page, .doc { padding: 0 20mm; }
 .page { page-break-after: always; }
+table.pg { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.md, .page, .doc { overflow-wrap: anywhere; word-break: break-word; }
+.md img { max-width: 100%; height: auto; }
+.md code { white-space: pre-wrap; word-break: break-all; }
+.keep-next { break-after: avoid; page-break-after: avoid; }
+table.pg td { padding: 0; vertical-align: top; }
+.pg-sp { height: 15mm; }
 .eyebrow { font-size: 8pt; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: #e5007e; }
 .eyebrow.light { color: #ff7ac8; }
 .h1 { font-family: Fraunces, Georgia, serif; font-size: 28pt; line-height: 1.15; margin: 6px 0 18px; color: #14101f; }
 .lead { font-size: 13pt; color: #4b4560; max-width: 140mm; }
 .note { font-size: 8.5pt; color: #7a7490; margin-top: 10px; }
 
-.cover { height: 297mm; padding: 20mm; color: #fff; display: flex; flex-direction: column; justify-content: space-between; page-break-after: always;
+.cover { height: 297mm; overflow: hidden; padding: 20mm; color: #fff; display: flex; flex-direction: column; justify-content: space-between; page-break-after: always;
   background: radial-gradient(120% 80% at 85% 10%, rgba(255,51,187,.55), transparent 60%), radial-gradient(90% 70% at 0% 100%, rgba(124,58,237,.55), transparent 60%), #0b0716; }
 .cover-top { display: flex; justify-content: space-between; align-items: center; font-size: 9pt; color: rgba(255,255,255,.7); }
 .brand { font-weight: 800; letter-spacing: .3em; font-size: 11pt; color: #fff; }
@@ -290,7 +345,7 @@ h2.sec { font-family: Fraunces, Georgia, serif; font-size: 16pt; margin: 22px 0 
 .toc-ch { font-weight: 700; font-size: 12pt; margin: 14px 0 4px; }
 .toc-ch ol { font-weight: 400; font-size: 10pt; color: #4b4560; margin: 4px 0 0; }
 .toc a { color: inherit; text-decoration: none; }
-.chapter-cover { min-height: 297mm; display: flex; flex-direction: column; justify-content: center; background: linear-gradient(160deg, #fdf2fa 0%, #f5f3ff 100%); }
+.chapter-cover { height: 297mm; overflow: hidden; padding: 20mm !important; page-break-before: always; display: flex; flex-direction: column; justify-content: center; background: linear-gradient(160deg, #fdf2fa 0%, #f5f3ff 100%); }
 .ch-list { margin-top: 16px; color: #4b4560; }
 
 .doc { page-break-before: always; }
@@ -316,5 +371,6 @@ h2.sec { font-family: Fraunces, Georgia, serif; font-size: 16pt; margin: 22px 0 
 .md pre { background: #f7f5fb; border: 1px solid #ebe6f3; border-radius: 8px; padding: 10px; white-space: pre-wrap; font-size: 8.5pt; page-break-inside: avoid; }
 .md pre code { background: none; padding: 0; }
 .md hr { border: 0; border-top: 1px solid #ebe6f3; margin: 14px 0; }
+.md mark.fill { background: #fff4c2; color: #7a4b00; padding: 0 4px; border-radius: 4px; font-size: .92em; font-weight: 600; }
 .end { min-height: 120mm; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #6b6580; page-break-after: auto; }
 `;

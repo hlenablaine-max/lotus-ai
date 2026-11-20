@@ -18,8 +18,9 @@ async function render(htmlPath: string, outPath: string): Promise<{ path: string
   const { BrowserWindow } = require('electron') as typeof import('electron')
   const win = new BrowserWindow({
     show: false,
-    width: 1240,
-    height: 1754,
+    // Largura de uma folha A4 a 96 dpi: o conteúdo não é encolhido na impressão
+    width: 794,
+    height: 1123,
     webPreferences: { javascript: false, offscreen: true, sandbox: true },
   })
   try {
