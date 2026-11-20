@@ -16,6 +16,12 @@ export async function GET(request: NextRequest) {
     return Response.json({ error: `status inválido: ${statusParam}` }, { status: 400 });
   }
 
+  // Só o número de pendentes (selo do menu): consulta leve, sem carregar os pedidos
+  if (searchParams.get("countOnly") === "1") {
+    const pendingCount = await prisma.approval.count({ where: { status: "PENDING" } });
+    return Response.json({ pendingCount });
+  }
+
   const approvals = await prisma.approval.findMany({
     where: {
       ...(statusParam !== "ALL" ? { status: statusParam as Status } : {}),

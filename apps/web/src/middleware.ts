@@ -54,6 +54,14 @@ export async function middleware(req: NextRequest) {
     return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
   }
 
+  // Cliente com link do portal inválido ou vencido: página explicando, em vez da tela de login do dono
+  if (nextUrl.pathname.startsWith('/portal/')) {
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Link inválido</title>
+<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#07070f;color:#e8e8f0;font-family:system-ui,sans-serif}.b{max-width:420px;padding:32px;text-align:center}h1{font-size:20px}p{color:#9a9ab0;line-height:1.6}</style></head>
+<body><div class="b"><h1>Este link não está mais válido</h1><p>O link do portal pode ter sido copiado pela metade ou ter vencido. Peça um link novo para a agência.</p></div></body></html>`
+    return new NextResponse(html, { status: 403, headers: { 'Content-Type': 'text/html; charset=utf-8' } })
+  }
+
   const loginUrl = new URL('/login', nextUrl.origin)
   loginUrl.searchParams.set('callbackUrl', nextUrl.pathname)
   return NextResponse.redirect(loginUrl)

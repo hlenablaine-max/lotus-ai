@@ -24,7 +24,7 @@ interface TranscriptLine {
 interface CopilotResponse {
   suggestion: string;
   tactic: string;
-  confidence: number;
+  confidence: number | null;
 }
 
 const TACTICS_COLORS: Record<string, string> = {
@@ -56,6 +56,7 @@ export default function CopilotPage() {
   const recognitionRef = useRef<any>(null);
   const lineCounterRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const askRef = useRef<(text: string) => void>(() => {});
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
   // Check browser support
@@ -70,7 +71,7 @@ export default function CopilotPage() {
   }, [transcript]);
 
   const askCopilot = useCallback(async (clientSaid: string) => {
-    if (!clientSaid.trim() || clientSaid.length < 10) return;
+    if (clientSaid.trim().length < 3) return;
     setLoading(true);
     try {
       const context = transcript
@@ -93,6 +94,7 @@ export default function CopilotPage() {
       setLoading(false);
     }
   }, [transcript]);
+  askRef.current = askCopilot;
 
   const startListening = useCallback(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -131,7 +133,7 @@ export default function CopilotPage() {
 
         // Debounce the AI call slightly to batch fast sentences
         if (debounceRef.current) clearTimeout(debounceRef.current);
-        debounceRef.current = setTimeout(() => askCopilot(final.trim()), 400);
+        debounceRef.current = setTimeout(() => askRef.current(final.trim()), 400);
       }
     };
 
@@ -336,9 +338,11 @@ export default function CopilotPage() {
                 <span className={cn("px-3 py-1 rounded-full text-xs font-semibold border", tacticStyle)}>
                   {copilotResp.tactic}
                 </span>
-                <span className="text-xs text-white/45">
-                  {Math.round(copilotResp.confidence * 100)}% confiança
-                </span>
+                {copilotResp.confidence !== null && (
+                  <span className="text-xs text-white/45">
+                    {Math.round(copilotResp.confidence * 100)}% confiança
+                  </span>
+                )}
               </div>
 
               {/* Main suggestion — teleprompter style */}

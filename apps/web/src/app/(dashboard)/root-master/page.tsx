@@ -187,17 +187,25 @@ export default function RootMasterPage() {
 
   useEffect(() => {
     fetchData();
-    const timer = setInterval(() => fetchData(true), 10_000);
+    // Atualiza a cada 10 s, só com a janela visível
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") fetchData(true);
+    }, 10_000);
     return () => clearInterval(timer);
   }, [fetchData]);
 
-  async function setMissionStatus(id: string, status: string) {
+  async function setMissionStatus(id: string, status: string, force = false) {
     const res = await fetch(`/api/missions/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, force }),
     });
-    if (!res.ok) setLoadError("Não foi possível atualizar a missão.");
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 409 && data.needsConfirmation) {
+      if (window.confirm(data.error)) return setMissionStatus(id, status, true);
+      return;
+    }
+    if (!res.ok) setLoadError(`Não foi possível atualizar a missão${data.error ? ` (${data.error})` : ""}.`);
     fetchData(true);
   }
 

@@ -1218,6 +1218,17 @@ export async function exportDeliverables(missionId: string): Promise<{ dir: stri
       files++;
     }
   });
+  // O relatório bonito em PDF vai junto (é o arquivo para mandar ao dono do negócio)
+  try {
+    const { renderMissionReportPdf } = await import("@/lib/report-pdf");
+    const pdf = await renderMissionReportPdf(missionId);
+    if ("pdfPath" in pdf) {
+      fs.copyFileSync(pdf.pdfPath, path.join(dir, `00 - ${safe(pdf.fileBase)}.pdf`));
+      files++;
+    }
+  } catch (err) {
+    console.error("[export] PDF do relatório:", err);
+  }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await prisma.mission.update({ where: { id: missionId }, data: { context: { ...context, exportDir: dir, exportedAt: new Date().toISOString() } as any } });
   return { dir, files };

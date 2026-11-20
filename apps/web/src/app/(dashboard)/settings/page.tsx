@@ -49,14 +49,14 @@ export default async function SettingsPage() {
               <div className="text-xs text-muted-foreground mb-1">Função</div>
               <div className="flex items-center gap-2">
                 <Shield className="w-4 h-4 text-primary" />
-                <span className="text-sm font-medium text-foreground">{role}</span>
+                <span className="text-sm font-medium text-foreground">{({ OWNER: "Dono", ADMIN: "Administrador", VIEWER: "Visualização" } as Record<string, string>)[String(role)] ?? String(role)}</span>
               </div>
             </div>
             <div className="rounded-lg bg-muted/30 border border-border p-4">
-              <div className="text-xs text-muted-foreground mb-1">Status</div>
+              <div className="text-xs text-muted-foreground mb-1">Sessão</div>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-emerald-400" />
-                <span className="text-sm font-medium text-foreground">Ativo</span>
+                <span className="text-sm font-medium text-foreground">Conectado</span>
               </div>
             </div>
           </div>
@@ -77,7 +77,7 @@ export default async function SettingsPage() {
               label: "PostgreSQL",
               description: "Banco de dados principal",
               ok: dbConfigured,
-              okText: "Configurado",
+              okText: "Endereço configurado (o teste de conexão fica em Governança)",
               failText: "DATABASE_URL não definido",
             },
           ].map((item) => (

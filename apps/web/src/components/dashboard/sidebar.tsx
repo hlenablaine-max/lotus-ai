@@ -159,7 +159,7 @@ export function Sidebar() {
   useEffect(() => {
     const fetchBadge = async () => {
       try {
-        const res = await fetch("/api/approvals?status=PENDING");
+        const res = await fetch("/api/approvals?countOnly=1");
         const data = await res.json();
         setPendingApprovals(data.pendingCount ?? 0);
       } catch {
@@ -167,7 +167,9 @@ export function Sidebar() {
       }
     };
     fetchBadge();
-    const interval = setInterval(fetchBadge, 15_000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") fetchBadge();
+    }, 15_000);
     return () => clearInterval(interval);
   }, []);
 

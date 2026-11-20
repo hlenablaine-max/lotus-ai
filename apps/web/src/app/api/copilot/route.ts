@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       suggestion: parsed.suggestion,
       tactic: parsed.tactic ?? 'Descoberta',
-      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.5,
+      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : null,
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

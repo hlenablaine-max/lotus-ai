@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initializeProviders, registry } from "@lotus/ai-engine";
 import { logEngineRun } from "@/lib/engine-log";
-import { demoDiagnosis } from "@/lib/engine-demos";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 90;
@@ -142,13 +141,12 @@ O diagnóstico deve ser orientado a venda da LOTUS como solução.
     const aiDown = errorMsg.includes('503') || errorMsg.includes('instabilidade') ||
                    errorMsg.includes('No AI provider') || errorMsg.includes('502') || errorMsg.includes('504');
     if (aiDown) {
-      const cn = body?.clientName || "";
-      await logEngineRun("diagnosis", cn, "demo");
-      return NextResponse.json({
-        success: true, engine: "diagnosis",
-        diagnosis: demoDiagnosis(cn, body?.niche || "", body?.city || ""),
-        clientName: cn, _demo: true,
-      });
+      // Sem dado inventado: se a IA está fora do ar, o motor diz isso (regra: nada simulado como real)
+      await logEngineRun("diagnosis", body?.clientName || "", "failed", { error: errorMsg, aiUnavailable: true });
+      return NextResponse.json(
+        { error: "A IA está fora do ar agora (o provedor não respondeu). Nada foi gerado. Tente de novo em alguns minutos ou troque o provedor em Configurações." },
+        { status: 503 }
+      );
     }
     await logEngineRun("diagnosis", body?.clientName || "", "failed", { error: errorMsg });
     console.error("Engine Diagnosis error:", error);

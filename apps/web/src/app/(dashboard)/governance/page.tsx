@@ -295,7 +295,7 @@ export default function GovernancePage() {
                               {cfg.label}
                             </span>
                             <span className={cn("text-[10px] font-medium", IMPACT_COLOR[item.impact])}>
-                              {item.impact.toUpperCase()}
+                              {({ critical: "IMPACTO CRÍTICO", high: "IMPACTO ALTO", medium: "IMPACTO MÉDIO", low: "IMPACTO BAIXO" } as const)[item.impact]}
                             </span>
                           </div>
                           <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>

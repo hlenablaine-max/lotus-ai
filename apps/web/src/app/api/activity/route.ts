@@ -10,11 +10,15 @@ export async function GET(request: NextRequest) {
   const agentId = searchParams.get("agentId");
   const clientId = searchParams.get("clientId");
   const missionId = searchParams.get("missionId");
+  // Paginação: "before" = data do último item já mostrado
+  const before = searchParams.get("before");
+  const beforeDate = before ? new Date(before) : null;
 
   try {
   const logs = await prisma.activityLog.findMany({
     where: {
       ...(level ? { level: level as "DEBUG" | "INFO" | "WARN" | "ERROR" | "CRITICAL" } : {}),
+      ...(beforeDate && !Number.isNaN(beforeDate.getTime()) ? { createdAt: { lt: beforeDate } } : {}),
       ...(agentId ? { agentId } : {}),
       ...(clientId ? { clientId } : {}),
       ...(missionId ? { missionId } : {}),

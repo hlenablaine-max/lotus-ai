@@ -6,6 +6,7 @@ import {
   RefreshCw, Activity, AlertTriangle, Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { describeAction } from "@/lib/activity-labels";
 
 interface Metrics {
   clients: number;
@@ -57,34 +58,6 @@ function StatCard({
       {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
     </div>
   );
-}
-
-const ACTION_LABELS: Record<string, string> = {
-  TASK_COMPLETED: "Task concluída",
-  TASK_FAILED: "Task falhou",
-  TASK_CREATED: "Task criada",
-  APPROVAL_APPROVED: "Aprovação concedida",
-  APPROVAL_REJECTED: "Aprovação rejeitada",
-  MISSION_CREATED: "Missão criada",
-  CLIENT_CREATED: "Cliente criado",
-};
-
-const ENGINE_OUTCOME: Record<string, string> = {
-  STARTED: "iniciado",
-  COMPLETED: "concluído",
-  DEMO: "respondeu com dados de demonstração",
-  FAILED: "falhou",
-};
-
-function describeAction(action: string, details: Record<string, unknown> | null): string {
-  if (ACTION_LABELS[action]) return ACTION_LABELS[action];
-  const m = action.match(/^ENGINE_(.+)_(STARTED|COMPLETED|DEMO|FAILED)$/);
-  if (m) {
-    const engine = m[1].toLowerCase().replace(/_/g, " ");
-    const client = typeof details?.clientName === "string" && details.clientName ? ` — ${details.clientName}` : "";
-    return `Motor ${engine} ${ENGINE_OUTCOME[m[2]]}${client}`;
-  }
-  return action;
 }
 
 export default function MetricsPage() {

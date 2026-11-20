@@ -23,18 +23,18 @@ interface Agent {
 }
 
 const DEPT_LABELS: Record<string, { label: string; color: string }> = {
-  'ceo':             { label: 'CEO Office',            color: 'text-purple-400 bg-purple-400/10 border-purple-400/20' },
+  'ceo':             { label: 'Diretoria',             color: 'text-purple-400 bg-purple-400/10 border-purple-400/20' },
   'root-master':     { label: 'Root Master',           color: 'text-purple-400 bg-purple-400/10 border-purple-400/20' },
-  'mission-control': { label: 'Mission Control',       color: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20' },
-  'bi':              { label: 'Business Intelligence', color: 'text-blue-400 bg-blue-400/10 border-blue-400/20' },
-  'bto':             { label: 'Business Transformation', color: 'text-sky-400 bg-sky-400/10 border-sky-400/20' },
-  'copywriting':     { label: 'Copywriting',           color: 'text-amber-400 bg-amber-400/10 border-amber-400/20' },
-  'creative':        { label: 'Creative Studio',       color: 'text-pink-400 bg-pink-400/10 border-pink-400/20' },
-  'performance':     { label: 'Performance Marketing', color: 'text-green-400 bg-green-400/10 border-green-400/20' },
-  'web-dev':         { label: 'Web Development',       color: 'text-cyan-400 bg-cyan-400/10 border-cyan-400/20' },
-  'data-analytics':  { label: 'Data & Analytics',      color: 'text-indigo-400 bg-indigo-400/10 border-indigo-400/20' },
-  'sales':           { label: 'Sales & CS',            color: 'text-orange-400 bg-orange-400/10 border-orange-400/20' },
-  'strategy':        { label: 'Strategy',              color: 'text-teal-400 bg-teal-400/10 border-teal-400/20' },
+  'mission-control': { label: 'Central de Missões',    color: 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20' },
+  'bi':              { label: 'Inteligência de Negócio', color: 'text-blue-400 bg-blue-400/10 border-blue-400/20' },
+  'bto':             { label: 'Transformação de Negócio', color: 'text-sky-400 bg-sky-400/10 border-sky-400/20' },
+  'copywriting':     { label: 'Textos e Copy',         color: 'text-amber-400 bg-amber-400/10 border-amber-400/20' },
+  'creative':        { label: 'Estúdio de Criação',    color: 'text-pink-400 bg-pink-400/10 border-pink-400/20' },
+  'performance':     { label: 'Tráfego e Performance', color: 'text-green-400 bg-green-400/10 border-green-400/20' },
+  'web-dev':         { label: 'Sites e Funis',         color: 'text-cyan-400 bg-cyan-400/10 border-cyan-400/20' },
+  'data-analytics':  { label: 'Dados e Métricas',      color: 'text-indigo-400 bg-indigo-400/10 border-indigo-400/20' },
+  'sales':           { label: 'Vendas e Sucesso do Cliente', color: 'text-orange-400 bg-orange-400/10 border-orange-400/20' },
+  'strategy':        { label: 'Estratégia',            color: 'text-teal-400 bg-teal-400/10 border-teal-400/20' },
 };
 
 // Status derivado do estado real no banco (tarefas e aprovações) — ver lib/agent-live.ts

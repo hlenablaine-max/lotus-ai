@@ -16,18 +16,32 @@ export default function LoginPage() {
     setLoading(true)
     setError('')
 
-    const result = await signIn('credentials', {
-      email,
-      password,
-      redirect: false,
-    })
+    try {
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      })
 
-    if (result?.error) {
-      setError('Email ou senha inválidos.')
-      setLoading(false)
-    } else {
-      router.push('/ceo')
+      if (result?.error) {
+        setError('Email ou senha inválidos.')
+        setLoading(false)
+        return
+      }
+      // Volta para a página que a pessoa tentou abrir (só caminhos internos do próprio app)
+      const target = new URLSearchParams(window.location.search).get('callbackUrl') ?? ''
+      let next = '/ceo'
+      try {
+        const url = new URL(target, window.location.origin)
+        if (url.origin === window.location.origin && url.pathname !== '/login') next = url.pathname + url.search
+      } catch {
+        /* callbackUrl inválido: vai para o início */
+      }
+      router.push(next)
       router.refresh()
+    } catch {
+      setError('Não foi possível conectar. Verifique se o LOTUS está aberto e tente de novo.')
+      setLoading(false)
     }
   }
 

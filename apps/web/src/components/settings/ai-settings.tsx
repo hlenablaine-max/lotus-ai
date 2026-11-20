@@ -30,9 +30,10 @@ export function AISettings() {
   const [modelLists, setModelLists] = useState<Record<string, string[]>>({});
 
   const load = useCallback(async () => {
-    const res = await fetch("/api/settings");
-    if (!res.ok) {
-      setMessage({ kind: "error", text: "Não foi possível carregar as configurações." });
+    setMessage(null);
+    const res = await fetch("/api/settings").catch(() => null);
+    if (!res || !res.ok) {
+      setMessage({ kind: "error", text: `Não foi possível carregar as configurações${res ? ` (erro ${res.status})` : ""}.` });
       return;
     }
     const data = (await res.json()) as SettingsState;
@@ -81,6 +82,14 @@ export function AISettings() {
   };
 
   if (!settings) {
+    if (message?.kind === "error") {
+      return (
+        <section className="rounded-xl border border-red-500/30 bg-red-500/10 p-6 flex items-center justify-between gap-3 text-sm text-red-300">
+          <span>{message.text}</span>
+          <button onClick={() => load()} className="text-xs underline flex-shrink-0">Tentar de novo</button>
+        </section>
+      );
+    }
     return (
       <section className="rounded-xl border border-border bg-card p-6 flex items-center gap-3 text-sm text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin" /> Carregando configurações de IA…

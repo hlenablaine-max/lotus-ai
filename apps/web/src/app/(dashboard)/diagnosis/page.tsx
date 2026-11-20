@@ -8,6 +8,8 @@ import {
   Camera, Wand2, MessageSquare, Download, ExternalLink, Copy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DataView } from "@/components/ui/data-view";
+import { dataToMarkdown } from "@/lib/data-labels";
 import { Diagnosis360 } from "@/components/diagnosis/diagnosis-360";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -152,6 +154,7 @@ export default function DiagnosisPage() {
   });
   const [reportSent, setReportSent] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [waCopied, setWaCopied] = useState<"ok" | "erro" | null>(null);
   const [postActions, setPostActions] = useState<{
     photos: { status: "idle" | "loading" | "done" | "error"; images?: { url: string }[]; error?: string };
     site: { status: "idle" | "loading" | "done" | "error"; html?: string; companyName?: string; error?: string };
@@ -270,7 +273,7 @@ export default function DiagnosisPage() {
       if (data.error) throw new Error(data.error);
       setPostActions(p => ({ ...p, photos: { status: "done", images: data.images } }));
     } catch (err) {
-      setPostActions(p => ({ ...p, photos: { status: "error", error: String(err) } }));
+      setPostActions(p => ({ ...p, photos: { status: "error", error: err instanceof Error ? err.message : String(err) } }));
     }
   };
 
@@ -287,7 +290,7 @@ export default function DiagnosisPage() {
       if (data.error) throw new Error(data.error);
       setPostActions(p => ({ ...p, site: { status: "done", html: data.html, companyName: data.companyName } }));
     } catch (err) {
-      setPostActions(p => ({ ...p, site: { status: "error", error: String(err) } }));
+      setPostActions(p => ({ ...p, site: { status: "error", error: err instanceof Error ? err.message : String(err) } }));
     }
   };
 
@@ -305,7 +308,7 @@ export default function DiagnosisPage() {
       if (data.error) throw new Error(data.error);
       setPostActions(p => ({ ...p, whatsapp: { status: "done", setup: data.setup, waNumber: data.waNumber } }));
     } catch (err) {
-      setPostActions(p => ({ ...p, whatsapp: { status: "error", error: String(err) } }));
+      setPostActions(p => ({ ...p, whatsapp: { status: "error", error: err instanceof Error ? err.message : String(err) } }));
     }
   };
 
@@ -420,7 +423,7 @@ export default function DiagnosisPage() {
                         {AGENT_AVATAR[f.agentId] ?? "?"}
                       </div>
                       <div>
-                        <span className="text-[10px] font-semibold text-white/50 uppercase">{f.category}</span>
+                        <span className="text-[10px] font-semibold text-white/50 uppercase">{({ site: "Site", instagram: "Instagram", traffic: "Tráfego do site", ads: "Anúncios", maps: "Google Maps", whatsapp: "WhatsApp" } as Record<string, string>)[f.category] ?? f.category}</span>
                         <p className="text-[11px] text-white/65 mt-0.5">
                           {f.category === "site" && `Site: ${f.data.accessible ? "✓ acessível" : "✗ inacessível"} · WhatsApp: ${f.data.hasWhatsApp ? `✓ +${f.data.waNumber}` : "✗ ausente"} · Pixel: ${f.data.hasPixel ? "✓" : "✗"}`}
                           {f.category === "instagram" && (f.data.found ? `@${(f.data as { username?: string }).username} · ${((f.data as { followers?: number }).followers ?? 0).toLocaleString()} seguidores · ${(f.data as { posts?: number }).posts ?? 0} posts` : "Instagram não encontrado/acessível")}
@@ -542,34 +545,13 @@ export default function DiagnosisPage() {
             {/* Detail sections */}
             <div className="space-y-3">
               <ExpandableSection title="Análise do Instagram" icon={Instagram}>
-                <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-                  {Object.entries((r.instagramFindings as Record<string, string>) ?? {}).map(([k, v]) => (
-                    <div key={k} className="flex justify-between text-xs border-b border-white/4 py-1.5">
-                      <span className="text-white/35 capitalize">{k.replace(/([A-Z])/g, " $1")}</span>
-                      <span className="text-white/65 text-right max-w-[55%]">{v}</span>
-                    </div>
-                  ))}
-                </div>
+                <DataView data={r.instagramFindings ?? {}} />
               </ExpandableSection>
               <ExpandableSection title="Análise do Site" icon={Globe}>
-                <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-                  {Object.entries((r.websiteFindings as Record<string, string>) ?? {}).map(([k, v]) => (
-                    <div key={k} className="flex justify-between text-xs border-b border-white/4 py-1.5">
-                      <span className="text-white/35 capitalize">{k.replace(/([A-Z])/g, " $1")}</span>
-                      <span className="text-white/65 text-right max-w-[55%]">{v}</span>
-                    </div>
-                  ))}
-                </div>
+                <DataView data={r.websiteFindings ?? {}} />
               </ExpandableSection>
               <ExpandableSection title="Análise de Anúncios (Meta Ads)" icon={Megaphone}>
-                <div className="space-y-2">
-                  {Object.entries((r.adsFindings as Record<string, string | boolean>) ?? {}).map(([k, v]) => (
-                    <div key={k} className="flex justify-between text-xs border-b border-white/4 py-1.5">
-                      <span className="text-white/35 capitalize">{k.replace(/([A-Z])/g, " $1")}</span>
-                      <span className="text-white/65">{String(v)}</span>
-                    </div>
-                  ))}
-                </div>
+                <DataView data={r.adsFindings ?? {}} />
               </ExpandableSection>
             </div>
 
@@ -621,27 +603,27 @@ export default function DiagnosisPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
 
-                {/* Baixar Fotos */}
+                {/* Ver fotos do site */}
                 <div className="rounded-xl border border-white/8 bg-white/3 p-4 space-y-3">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 rounded-lg bg-blue-500/15 border border-blue-500/25 flex items-center justify-center">
                       <Camera size={14} className="text-blue-400" />
                     </div>
                     <div>
-                      <div className="text-sm font-semibold text-white">Baixar Fotos</div>
-                      <div className="text-[10px] text-white/35">Pedro Alves — agente-web</div>
+                      <div className="text-sm font-semibold text-white">Ver fotos do site</div>
+                      <div className="text-[10px] text-white/35">Pedro Alves</div>
                     </div>
                   </div>
                   <p className="text-[11px] text-white/40 leading-relaxed">Extrai todas as imagens do site para usar como referência no novo projeto.</p>
                   {postActions.photos.status === "idle" && (
                     <button onClick={handleDownloadPhotos}
                       className="w-full py-2 rounded-lg bg-blue-500/15 hover:bg-blue-500/25 border border-blue-500/20 text-blue-400 text-xs font-semibold transition-all flex items-center justify-center gap-1.5">
-                      <Download size={12} /> Executar
+                      <Camera size={12} /> Buscar fotos
                     </button>
                   )}
                   {postActions.photos.status === "loading" && (
                     <div className="w-full py-2 rounded-lg bg-blue-500/10 border border-blue-500/15 text-blue-400/70 text-xs font-semibold flex items-center justify-center gap-1.5">
-                      <Loader2 size={12} className="animate-spin" /> Baixando...
+                      <Loader2 size={12} className="animate-spin" /> Buscando...
                     </div>
                   )}
                   {postActions.photos.status === "done" && postActions.photos.images && (
@@ -675,7 +657,7 @@ export default function DiagnosisPage() {
                     </div>
                     <div>
                       <div className="text-sm font-semibold text-white">Gerar Novo Site</div>
-                      <div className="text-[10px] text-white/35">Felipe Costa — agente-strat</div>
+                      <div className="text-[10px] text-white/35">Felipe Costa</div>
                     </div>
                   </div>
                   <p className="text-[11px] text-white/40 leading-relaxed">Cria uma landing page de alta conversão personalizada para esta empresa.</p>
@@ -720,7 +702,7 @@ export default function DiagnosisPage() {
                     </div>
                     <div>
                       <div className="text-sm font-semibold text-white">Montar WhatsApp</div>
-                      <div className="text-[10px] text-white/35">Rodrigo Castro — agente-sales</div>
+                      <div className="text-[10px] text-white/35">Rodrigo Castro</div>
                     </div>
                   </div>
                   <p className="text-[11px] text-white/40 leading-relaxed">Gera scripts de atendimento, bot de qualificação e plano de automação completo.</p>
@@ -759,11 +741,13 @@ export default function DiagnosisPage() {
                         </div>
                       )}
                       <button onClick={() => {
-                        const text = JSON.stringify(postActions.whatsapp.setup, null, 2);
-                        navigator.clipboard.writeText(text).catch(() => {});
+                        const text = dataToMarkdown(postActions.whatsapp.setup);
+                        navigator.clipboard.writeText(text)
+                          .then(() => { setWaCopied("ok"); setTimeout(() => setWaCopied(null), 2500); })
+                          .catch(() => setWaCopied("erro"));
                       }}
                         className="w-full py-2 rounded-lg bg-green-500/15 hover:bg-green-500/25 border border-green-500/20 text-green-400 text-xs font-semibold transition-all flex items-center justify-center gap-1.5">
-                        <Copy size={12} /> Copiar JSON completo
+                        <Copy size={12} /> {waCopied === "ok" ? "Copiado!" : waCopied === "erro" ? "Não deu para copiar" : "Copiar roteiros e configuração"}
                       </button>
                     </div>
                   )}

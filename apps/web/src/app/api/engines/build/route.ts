@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initializeProviders, registry } from "@lotus/ai-engine";
 import { logEngineRun } from "@/lib/engine-log";
-import { demoBuild } from "@/lib/engine-demos";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -194,14 +193,12 @@ ${proof_social ? `PROVA SOCIAL: ${proof_social}` : ""}
     const aiDown = errorMsg.includes('503') || errorMsg.includes('instabilidade') ||
                    errorMsg.includes('No AI provider') || errorMsg.includes('502') || errorMsg.includes('504');
     if (aiDown) {
-      const cn = body?.clientName || "";
-      const t = body?.type || "copy";
-      await logEngineRun("build", cn, "demo");
-      return NextResponse.json({
-        success: true, engine: "build", type: t,
-        deliverable: demoBuild(cn, t, body?.niche || "", body?.whatsapp || ""),
-        clientName: cn, _demo: true,
-      });
+      // Sem dado inventado: se a IA está fora do ar, o motor diz isso (regra: nada simulado como real)
+      await logEngineRun("build", body?.clientName || "", "failed", { error: errorMsg, aiUnavailable: true });
+      return NextResponse.json(
+        { error: "A IA está fora do ar agora (o provedor não respondeu). Nada foi gerado. Tente de novo em alguns minutos ou troque o provedor em Configurações." },
+        { status: 503 }
+      );
     }
     await logEngineRun("build", body?.clientName || "", "failed", { error: errorMsg });
     console.error("Engine Build error:", error);

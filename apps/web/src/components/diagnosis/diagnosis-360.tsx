@@ -43,6 +43,20 @@ const TASK_ICON: Record<string, React.ReactNode> = {
   FAILED: <XCircle className="w-4 h-4 text-red-400" />,
 };
 
+const DOC_TYPE_LABEL: Record<string, string> = {
+  RESEARCH_REPORT: "Dados coletados",
+  ANALYSIS: "Análise",
+  STRATEGY: "Estratégia",
+  DELIVERABLE: "Entrega",
+  COPY: "Textos",
+  CREATIVE_BRIEF: "Criativos",
+  CAMPAIGN_STRUCTURE: "Campanha",
+  PROPOSAL: "Proposta",
+  AUDIT_REPORT: "Auditoria",
+  MEETING_NOTES: "Reunião",
+  OTHER: "Documento",
+};
+
 const TASK_LABEL: Record<string, string> = {
   COMPLETED: "concluído",
   IN_PROGRESS: "trabalhando",
@@ -156,13 +170,28 @@ export function Diagnosis360() {
     loadAccounts();
   };
 
+  const [deciding, setDeciding] = useState<string | null>(null);
+  const [decideError, setDecideError] = useState<string | null>(null);
   const decide = async (approvalId: string, action: "APPROVED" | "REJECTED") => {
-    await fetch(`/api/approvals/${approvalId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
-    });
-    if (missionId) refresh(missionId);
+    if (deciding) return;
+    setDeciding(approvalId);
+    setDecideError(null);
+    try {
+      const res = await fetch(`/api/approvals/${approvalId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? `erro ${res.status}`);
+      }
+    } catch (err) {
+      setDecideError(`A decisão não foi registrada: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setDeciding(null);
+      if (missionId) refresh(missionId);
+    }
   };
 
   // Produzir as soluções de um diagnóstico já feito, ou gravar o pacote de entrega em pasta
@@ -329,7 +358,7 @@ export function Diagnosis360() {
                       <div className="min-w-0">
                         <div className="text-sm text-white/90 leading-snug">{task.title.replace(/^Produção: /, "")}</div>
                         <div className="text-[11px] text-white/40">
-                          {task.agent} · {TASK_LABEL[task.status] ?? task.status.toLowerCase()}
+                          {task.agent} · {TASK_LABEL[task.status] ?? "aguardando"}
                         </div>
                         {task.error && <div className="text-[11px] text-red-300 mt-1">{task.error.slice(0, 220)}</div>}
                       </div>
@@ -368,15 +397,16 @@ export function Diagnosis360() {
               </div>
               <p className="text-xs text-white/60 whitespace-pre-wrap">{approval.description}</p>
               <div className="flex gap-2">
-                <button onClick={() => decide(approval.id, "APPROVED")} className="px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-medium flex items-center gap-1.5">
-                  <MessageCircle size={12} /> Aprovar e enviar
+                <button onClick={() => decide(approval.id, "APPROVED")} disabled={!!deciding} className="px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-medium flex items-center gap-1.5 disabled:opacity-50">
+                  {deciding === approval.id ? <Loader2 size={12} className="animate-spin" /> : <MessageCircle size={12} />} Aprovar e enviar
                 </button>
-                <button onClick={() => decide(approval.id, "REJECTED")} className="px-3 py-1.5 rounded-lg bg-red-500/15 border border-red-500/30 text-red-400 text-xs font-medium">
+                <button onClick={() => decide(approval.id, "REJECTED")} disabled={!!deciding} className="px-3 py-1.5 rounded-lg bg-red-500/15 border border-red-500/30 text-red-400 text-xs font-medium disabled:opacity-50">
                   Não testar
                 </button>
               </div>
             </div>
           ))}
+          {decideError && <p className="text-xs text-red-400">{decideError}</p>}
 
           {progress.report && (
             <div className="rounded-2xl border border-emerald-400/20 bg-black/20 p-5">
@@ -396,15 +426,11 @@ export function Diagnosis360() {
                   <button onClick={() => setOpenDoc(openDoc === doc.id ? null : doc.id)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-white/5">
                     <FileText className="w-4 h-4 text-pink-400 flex-shrink-0" />
                     <span className="text-sm text-white/85 flex-1 truncate">{doc.title}</span>
-                    <span className="text-[10px] text-white/30">{doc.type}</span>
+                    <span className="text-[10px] text-white/45">{DOC_TYPE_LABEL[doc.type] ?? "Documento"}</span>
                   </button>
                   {openDoc === doc.id && (
                     <div className="px-4 pb-4 text-white/80 border-t border-white/8 pt-3">
-                      {doc.type === "RESEARCH_REPORT" ? (
-                        <pre className="text-[11px] whitespace-pre-wrap break-words text-white/60">{doc.content}</pre>
-                      ) : (
-                        <RichText content={doc.content} />
-                      )}
+                      <RichText content={doc.content} />
                     </div>
                   )}
                 </div>

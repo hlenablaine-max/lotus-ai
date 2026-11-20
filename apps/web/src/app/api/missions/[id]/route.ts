@@ -58,12 +58,41 @@ async function update(req: NextRequest, { params }: Params) {
     }
     if (body.dueAt !== undefined) data.dueAt = body.dueAt ? new Date(String(body.dueAt)) : null
 
+    // "Concluir" com tarefas ainda abertas pede confirmação (force: true)
+    if (data.status === 'COMPLETED' && body.force !== true) {
+      const open = await prisma.task.count({ where: { missionId: id, status: { in: ['PENDING', 'QUEUED', 'IN_PROGRESS', 'WAITING_DEPENDENCY'] } } })
+      if (open > 0) {
+        return NextResponse.json(
+          { error: `Esta missão ainda tem ${open} tarefa(s) em aberto. Concluir mesmo assim?`, openTasks: open, needsConfirmation: true },
+          { status: 409 }
+        )
+      }
+    }
+
     const mission = await prisma.mission.update({
       where: { id },
       data,
       include: { client: { select: { id: true, name: true } } },
     })
-    return NextResponse.json({ mission })
+
+    // "Iniciar" de verdade: põe para rodar as tarefas que não dependem de nenhuma outra
+    let started = 0
+    if (data.status === 'IN_PROGRESS') {
+      const { runTask, advanceMission } = await import('@/lib/task-runner')
+      const ready = await prisma.task.findMany({
+        where: { missionId: id, status: { in: ['PENDING', 'QUEUED'] }, agentId: { not: null } },
+        select: { id: true, dependsOn: true },
+      })
+      for (const task of ready) {
+        const deps = Array.isArray(task.dependsOn) ? task.dependsOn : []
+        if (deps.length === 0) {
+          runTask(task.id)
+          started++
+        }
+      }
+      await advanceMission(id)
+    }
+    return NextResponse.json({ mission, started })
   } catch {
     return NextResponse.json({ error: 'Failed to update' }, { status: 500 })
   }

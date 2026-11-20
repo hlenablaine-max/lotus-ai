@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { cn } from "@/lib/utils";
+import { DataView } from "@/components/ui/data-view";
+import { dataToMarkdown } from "@/lib/data-labels";
 import {
   Search, Microscope, Stethoscope, Lightbulb, Layers, Hammer,
   Rocket, TrendingUp, Play, Loader2, ChevronDown, ChevronUp,
@@ -46,7 +48,7 @@ const ENGINES = [
   {
     id: "intelligence" as EngineId,
     num: 1,
-    name: "Intelligence Engine",
+    name: "Motor de Inteligência",
     subtitle: "Inteligência de Mercado",
     description: "Analisa mercado, concorrentes e tendências do setor de saúde em tempo real via IA.",
     icon: Search,
@@ -65,7 +67,7 @@ const ENGINES = [
   {
     id: "investigation" as EngineId,
     num: 2,
-    name: "Investigation Engine",
+    name: "Motor de Investigação",
     subtitle: "Investigação Profunda",
     description: "Auditoria digital 360° do cliente: site, redes sociais, anúncios e funil atual.",
     icon: Microscope,
@@ -85,7 +87,7 @@ const ENGINES = [
   {
     id: "diagnosis" as EngineId,
     num: 3,
-    name: "Diagnosis Engine",
+    name: "Motor de Diagnóstico",
     subtitle: "Diagnóstico Estratégico",
     description: "Score de oportunidade, pontos críticos e ROI estimado em 60 segundos.",
     icon: Stethoscope,
@@ -103,7 +105,7 @@ const ENGINES = [
   {
     id: "strategy" as EngineId,
     num: 4,
-    name: "Strategy Engine",
+    name: "Motor de Estratégia",
     subtitle: "Arquitetura Estratégica",
     description: "Plano de crescimento com OKRs, metas trimestrais e roadmap acionável.",
     icon: Lightbulb,
@@ -122,7 +124,7 @@ const ENGINES = [
   {
     id: "solution-arch" as EngineId,
     num: 5,
-    name: "Solution Architecture",
+    name: "Arquitetura de Soluções",
     subtitle: "Arquitetura de Solução",
     description: "Stack completo de ferramentas e automações com sequenciamento e orçamento.",
     icon: Layers,
@@ -141,7 +143,7 @@ const ENGINES = [
   {
     id: "build" as EngineId,
     num: 6,
-    name: "Build Engine",
+    name: "Motor de Produção",
     subtitle: "Motor de Produção",
     description: "Gera entregáveis reais: landing pages HTML, copy, automações WhatsApp e criativos.",
     icon: Hammer,
@@ -162,7 +164,7 @@ const ENGINES = [
   {
     id: "implementation" as EngineId,
     num: 7,
-    name: "Implementation Engine",
+    name: "Motor de Implementação",
     subtitle: "Motor de Execução",
     description: "Plano de implementação week-by-week com guias passo-a-passo para cada ferramenta.",
     icon: Rocket,
@@ -180,7 +182,7 @@ const ENGINES = [
   {
     id: "revenue" as EngineId,
     num: 8,
-    name: "Revenue Intelligence",
+    name: "Inteligência de Receita",
     subtitle: "Inteligência de Receita",
     description: "Projeções financeiras com 3 cenários, oportunidades de receita e KPIs.",
     icon: TrendingUp,
@@ -273,7 +275,7 @@ function EnginePanel({
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-muted-foreground/50">Engine {engine.num}</span>
+            <span className="text-[10px] text-muted-foreground/50">Motor {engine.num}</span>
             {isDone && state.duration && (
               <span className="text-[10px] text-emerald-400">✓ {formatDuration(state.duration)}</span>
             )}
@@ -449,7 +451,7 @@ function EnginePanel({
             ) : isDone ? (
               <><RefreshCw size={14} /> Re-executar</>
             ) : (
-              <><Play size={14} /> Executar Engine {engine.num}</>
+              <><Play size={14} /> Executar motor {engine.num}</>
             )}
           </button>
 
@@ -512,15 +514,18 @@ function EnginePanel({
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[10px] text-emerald-400 uppercase tracking-wider">Resultado</span>
                     <button
-                      onClick={() => onCopy(JSON.stringify(resultData, null, 2))}
+                      onClick={() => onCopy(dataToMarkdown(resultData))}
                       className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 px-2 py-1 rounded border border-white/10"
                     >
-                      <Copy size={10} /> Copiar JSON
+                      <Copy size={10} /> Copiar texto
                     </button>
                   </div>
-                  <pre className="text-[10px] text-muted-foreground bg-black/30 rounded-lg p-3 overflow-auto max-h-64 leading-relaxed whitespace-pre-wrap border border-white/5">
-                    {JSON.stringify(resultData, null, 2)}
-                  </pre>
+                  <div className="bg-black/30 rounded-lg p-3 overflow-auto max-h-96 border border-white/5">
+                    <DataView data={resultData} />
+                  </div>
+                  {state.result?._savedAt ? (
+                    <p className="text-[10px] text-muted-foreground/70 mt-1.5">Salvo na ficha do cliente em {new Date(String(state.result._savedAt)).toLocaleString("pt-BR")}.</p>
+                  ) : null}
                 </div>
               )}
             </div>
@@ -563,6 +568,33 @@ export default function MotoresPage() {
       .finally(() => setLoadingClients(false));
   }, []);
 
+  // Ao escolher o cliente, traz o último resultado salvo de cada motor (não some ao trocar de tela)
+  useEffect(() => {
+    const blank = () => {
+      const init: Partial<Record<EngineId, EngineState>> = {};
+      for (const e of ENGINES) init[e.id] = { status: "idle", result: null, error: null, startedAt: null, duration: null };
+      return init as Record<EngineId, EngineState>;
+    };
+    if (!selectedClient) {
+      setEngineStates(blank());
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/clients/${selectedClient.id}/engine-results`)
+      .then((r) => (r.ok ? r.json() : { results: {} }))
+      .then((data: { results?: Record<string, { result: unknown; savedAt: string }> }) => {
+        if (cancelled) return;
+        const next = blank();
+        for (const e of ENGINES) {
+          const saved = data.results?.[e.id];
+          if (saved) next[e.id] = { status: "done", result: { success: true, engine: e.id, clientName: selectedClient.name, [e.resultKey]: saved.result, _savedAt: saved.savedAt }, error: null, startedAt: null, duration: null };
+        }
+        setEngineStates(next);
+      })
+      .catch(() => { /* sem histórico: começa do zero */ });
+    return () => { cancelled = true; };
+  }, [selectedClient]);
+
   const handleCopy = useCallback((text: string) => {
     navigator.clipboard.writeText(text).catch(() => {});
     setCopied(true);
@@ -596,16 +628,26 @@ export default function MotoresPage() {
           [engineId]: { status: "error", result: null, error: data.error || "Erro desconhecido", startedAt, duration },
         }));
       } else {
+        // Guarda na ficha do cliente: não se perde ao trocar de tela e entra no portal/PDF
+        let savedAt: string | null = null;
+        try {
+          const save = await fetch(`/api/clients/${selectedClient.id}/engine-results`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ engine: engine.id, engineName: engine.name, result: data[engine.resultKey] }),
+          });
+          if (save.ok) savedAt = (await save.json()).savedAt ?? null;
+        } catch { /* o resultado continua na tela mesmo sem salvar */ }
         setEngineStates(prev => ({
           ...prev,
-          [engineId]: { status: "done", result: data, error: null, startedAt, duration },
+          [engineId]: { status: "done", result: { ...data, _savedAt: savedAt }, error: null, startedAt, duration },
         }));
       }
     } catch (err) {
       const duration = Date.now() - startedAt;
       setEngineStates(prev => ({
         ...prev,
-        [engineId]: { status: "error", result: null, error: String(err), startedAt, duration },
+        [engineId]: { status: "error", result: null, error: err instanceof Error ? err.message : String(err), startedAt, duration },
       }));
     }
   }, [selectedClient]);
@@ -634,7 +676,7 @@ export default function MotoresPage() {
             <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
               Motores Operacionais
               <span className="text-xs font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                8 Engines Reais
+                8 motores com IA real
               </span>
             </h1>
             <p className="text-muted-foreground mt-1 text-sm">
@@ -742,7 +784,7 @@ export default function MotoresPage() {
                   state.status === "error" ? "text-red-400 bg-red-400/10" :
                   "text-muted-foreground/40 bg-white/5"
                 )}>
-                  {state.status === "done" ? "✓ pronto" : state.status === "running" ? "• rodando" : state.status === "error" ? "✗ erro" : "— idle"}
+                  {state.status === "done" ? "✓ pronto" : state.status === "running" ? "• rodando" : state.status === "error" ? "✗ erro" : "— parado"}
                 </span>
               </div>
               {i < ENGINES.length - 1 && (

@@ -45,8 +45,8 @@ interface Mission {
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   ACTIVE:   { label: "Ativo",    color: "text-emerald-400", bg: "bg-emerald-400/10 border-emerald-400/20" },
   PAUSED:   { label: "Pausado",  color: "text-amber-400",   bg: "bg-amber-400/10 border-amber-400/20" },
-  CHURNED:  { label: "Churn",    color: "text-red-400",     bg: "bg-red-400/10 border-red-400/20" },
-  PROSPECT: { label: "Prospect", color: "text-blue-400",    bg: "bg-blue-400/10 border-blue-400/20" },
+  CHURNED:  { label: "Perdido",       color: "text-red-400",     bg: "bg-red-400/10 border-red-400/20" },
+  PROSPECT: { label: "Em prospecção", color: "text-blue-400",    bg: "bg-blue-400/10 border-blue-400/20" },
 };
 
 const MISSION_STATUS: Record<string, { label: string; color: string; icon: React.ElementType }> = {
@@ -79,25 +79,47 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
   const [portalPath, setPortalPath] = useState<string | null>(null);
   const [portalCopied, setPortalCopied] = useState(false);
 
+  const [portalWarning, setPortalWarning] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // O portal roda neste computador: um link "localhost" não abre no celular do cliente.
+  // Com NEXT_PUBLIC_PORTAL_URL configurado (endereço público), o link vai com ele.
   const copyPortalLink = async () => {
     if (!portalPath) return;
-    await navigator.clipboard.writeText(`${window.location.origin}${portalPath}`);
-    setPortalCopied(true);
-    setTimeout(() => setPortalCopied(false), 2500);
+    const publicBase = process.env.NEXT_PUBLIC_PORTAL_URL?.replace(/\/$/, "");
+    const base = publicBase || window.location.origin;
+    try {
+      await navigator.clipboard.writeText(`${base}${portalPath}`);
+      setPortalCopied(true);
+      setTimeout(() => setPortalCopied(false), 2500);
+    } catch {
+      setPortalWarning("Não deu para copiar o link.");
+      return;
+    }
+    setPortalWarning(
+      !publicBase && /localhost|127\.0\.0\.1/.test(base)
+        ? "Atenção: este link só abre neste computador. Para o cliente, mande o relatório em PDF (em Missões ou no Diagnóstico) ou configure um endereço público para o portal."
+        : null
+    );
   };
 
   useEffect(() => {
+    setLoading(true);
+    setLoadError(null);
     Promise.all([
-      fetch(`/api/clients/${id}`).then((r) => r.json()),
-      fetch(`/api/missions?clientId=${id}`).then((r) => r.json()),
+      fetch(`/api/clients/${id}`).then(async (r) => ({ ok: r.ok, status: r.status, data: await r.json().catch(() => ({})) })),
+      fetch(`/api/missions?clientId=${id}`).then((r) => r.json()).catch(() => ({ missions: [] })),
     ])
-      .then(([clientData, missionsData]) => {
-        setClient(clientData.client ?? null);
-        setPortalPath(clientData.portalPath ?? null);
+      .then(([clientRes, missionsData]) => {
+        if (!clientRes.ok && clientRes.status !== 404) throw new Error(clientRes.data.error ?? `erro ${clientRes.status}`);
+        setClient(clientRes.data.client ?? null);
+        setPortalPath(clientRes.data.portalPath ?? null);
         setMissions(missionsData.missions ?? []);
       })
+      .catch((err) => setLoadError(err instanceof Error ? err.message : String(err)))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, reloadKey]);
 
   if (loading) {
     return (
@@ -110,7 +132,10 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
   if (!client) {
     return (
       <div className="p-8">
-        <p className="text-muted-foreground">Cliente não encontrado.</p>
+        <p className="text-muted-foreground">{loadError ? `Não foi possível carregar o cliente (${loadError}).` : "Cliente não encontrado."}</p>
+        {loadError && (
+          <button onClick={() => setReloadKey((k) => k + 1)} className="text-primary text-sm mt-2 mr-4 hover:underline">Tentar de novo</button>
+        )}
         <Link href="/clients" className="text-primary text-sm mt-2 inline-flex items-center gap-1 hover:underline">
           <ArrowLeft className="w-3 h-3" /> Voltar para Clientes
         </Link>
@@ -155,7 +180,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             </div>
             <div className="flex items-center gap-2">
               {client.website && (
-                <a href={client.website} target="_blank" rel="noopener noreferrer"
+                <a href={client.website.startsWith("http") ? client.website : `https://${client.website}`} target="_blank" rel="noopener noreferrer"
                   className="p-2 rounded-lg bg-muted/50 border border-border hover:border-primary/30 transition-all text-muted-foreground hover:text-primary">
                   <Globe className="w-4 h-4" />
                 </a>
@@ -171,6 +196,9 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
                   className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/50 border border-border text-sm text-muted-foreground hover:text-foreground hover:border-primary/30 transition-all">
                   <Link2 className="w-4 h-4" /> {portalCopied ? "Link copiado" : "Portal do cliente"}
                 </button>
+              )}
+              {portalWarning && (
+                <span className="text-[11px] text-amber-300 max-w-[280px] leading-snug">{portalWarning}</span>
               )}
               <Link href={`/ceo?clientId=${client.id}&clientName=${encodeURIComponent(client.name)}`}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary/15 border border-primary/20 text-primary text-sm font-medium hover:bg-primary/25 transition-all">
@@ -221,8 +249,6 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
             <h3 className="text-sm font-semibold text-foreground mb-4">Informações do Cliente</h3>
             <dl className="space-y-3">
               {[
-                { label: "ID", value: client.id.slice(0, 8) + "…" },
-                { label: "Slug", value: client.slug },
                 { label: "Segmento", value: client.segment ?? "—" },
                 { label: "Website", value: client.website ?? "—" },
                 { label: "Instagram", value: client.instagram ?? "—" },
@@ -264,7 +290,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
       {tab === "overview" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="p-5 rounded-xl bg-card border border-border">
-            <h3 className="text-sm font-semibold text-foreground mb-4">Precificação (Client Value Assessment)</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-4">Precificação (avaliação de preço)</h3>
             {!client.assessments?.length ? (
               <p className="text-sm text-muted-foreground py-4">
                 Nenhum assessment ainda. Peça ao Advisor: &quot;faça o assessment de preço de {client.name}&quot;.

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { initializeProviders, registry } from "@lotus/ai-engine";
 import { logEngineRun } from "@/lib/engine-log";
-import { demoInvestigation } from "@/lib/engine-demos";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 90;
@@ -161,13 +160,12 @@ Seja específico nas recomendações de quick wins.
     const aiDown = errorMsg.includes('503') || errorMsg.includes('instabilidade') ||
                    errorMsg.includes('No AI provider') || errorMsg.includes('502') || errorMsg.includes('504');
     if (aiDown) {
-      const cn = body?.clientName || "";
-      await logEngineRun("investigation", cn, "demo");
-      return NextResponse.json({
-        success: true, engine: "investigation",
-        investigation: demoInvestigation(cn, body?.niche || "", body?.city || ""),
-        clientName: cn, _demo: true,
-      });
+      // Sem dado inventado: se a IA está fora do ar, o motor diz isso (regra: nada simulado como real)
+      await logEngineRun("investigation", body?.clientName || "", "failed", { error: errorMsg, aiUnavailable: true });
+      return NextResponse.json(
+        { error: "A IA está fora do ar agora (o provedor não respondeu). Nada foi gerado. Tente de novo em alguns minutos ou troque o provedor em Configurações." },
+        { status: 503 }
+      );
     }
     await logEngineRun("investigation", body?.clientName || "", "failed", { error: errorMsg });
     console.error("Engine Investigation error:", error);
