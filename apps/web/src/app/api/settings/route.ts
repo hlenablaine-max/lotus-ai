@@ -5,6 +5,7 @@ import {
   saveSettings,
   resolveProviderConfig,
   PROVIDER_DEFAULTS,
+  claudeCodeExecutable,
   type AIProviderName,
 } from "@lotus/ai-engine";
 import { requireOwner } from "@/lib/require-owner";
@@ -27,10 +28,25 @@ async function publicSettings() {
   return {
     ai: {
       provider: active,
+      chatProvider: settings.ai.chatProvider ?? null,
       chosen: settings.ai.provider ?? null,
+      creationProvider: settings.ai.creationProvider ?? "claude-code",
       providers: PROVIDERS.map((name) => {
         const resolved = resolveProviderConfig(name);
         const fromFile = !!settings.ai.keys[name];
+        // Claude pela assinatura: não tem chave, depende do Claude Code instalado e logado neste PC
+        if (name === "claude-code") {
+          return {
+            name,
+            label: PROVIDER_DEFAULTS[name].label,
+            configured: claudeCodeExecutable() !== null,
+            keySource: claudeCodeExecutable() ? "assinatura" : null,
+            keyHint: null,
+            model: resolved.model,
+            defaultModel: PROVIDER_DEFAULTS[name].model,
+            baseUrl: "",
+          };
+        }
         return {
           name,
           label: PROVIDER_DEFAULTS[name].label,
@@ -64,6 +80,7 @@ export async function PUT(request: NextRequest) {
     keys?: Record<string, string | null>;
     baseUrls?: Record<string, string | null>;
     permissionMode?: string;
+    creationProvider?: string;
   };
 
   if (body.provider && !PROVIDERS.includes(body.provider as AIProviderName)) {
@@ -72,7 +89,13 @@ export async function PUT(request: NextRequest) {
 
   try {
     saveSettings((current) => {
-      if (body.provider) current.ai.provider = body.provider as AIProviderName;
+      // Claude pela assinatura vira a IA do chat (modo construtor); as outras viram a IA de tudo
+      if (body.provider === "claude-code") current.ai.chatProvider = "claude-code";
+      else if (body.provider) {
+        current.ai.provider = body.provider as AIProviderName;
+        delete current.ai.chatProvider;
+      }
+      if (body.creationProvider && PROVIDERS.includes(body.creationProvider as AIProviderName)) current.ai.creationProvider = body.creationProvider as AIProviderName;
       for (const name of PROVIDERS) {
         const model = body.models?.[name];
         if (typeof model === "string") {

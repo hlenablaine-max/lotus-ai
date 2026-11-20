@@ -64,7 +64,7 @@ const textMessage = (role: Message["role"], text: string, id: string = crypto.ra
 const HELP_TEXT = `**Comandos do chat**
 - \`/help\` — mostra esta ajuda
 - \`/status\` — provedor de IA, modelo, modo de permissão e conexão com o computador
-- \`/provider drael|openai|anthropic\` — troca o provedor de IA
+- \`/provider drael|openai|anthropic|claude-code\` — troca a IA (claude-code = Claude da sua assinatura, modo construtor: cria e melhora a LOTUS)
 - \`/model <id>\` — troca o modelo do provedor atual
 - \`/mode ask|auto\` — \`ask\` pede confirmação antes de alterar algo no PC; \`auto\` executa direto
 - \`/clear\` — começa uma conversa nova
@@ -489,12 +489,18 @@ export function CeoChat({
         return true;
       case "provider": {
         const name = arg.toLowerCase();
-        if (!["drael", "openai", "anthropic"].includes(name)) {
-          pushSystem("Use `/provider drael`, `/provider openai` ou `/provider anthropic`.");
+        if (!["drael", "openai", "anthropic", "claude-code"].includes(name)) {
+          pushSystem("Use `/provider drael`, `/provider openai`, `/provider anthropic` ou `/provider claude-code` (Claude da sua assinatura, modo construtor).");
           return true;
         }
         const warning = await updateSettings({ provider: name });
-        pushSystem(warning ? `⚠️ ${warning} Configure a chave em Configurações.` : `Provedor de IA alterado para **${name}**.`);
+        pushSystem(
+          warning
+            ? `⚠️ ${warning} Configure a chave em Configurações.`
+            : name === "claude-code"
+              ? "**Modo construtor ligado:** o Claude da sua assinatura agora atende este chat e pode criar e melhorar a LOTUS. Os agentes do diagnóstico continuam na Drael. Para voltar: `/provider drael`."
+              : `Provedor de IA alterado para **${name}**.`
+        );
         return true;
       }
       case "model": {

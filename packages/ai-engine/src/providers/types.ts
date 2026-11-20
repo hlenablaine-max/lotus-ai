@@ -69,7 +69,7 @@ export interface AIProvider {
   listModels(): Promise<string[]>;
 }
 
-export type AIProviderName = "drael" | "openai" | "anthropic";
+export type AIProviderName = "drael" | "openai" | "anthropic" | "claude-code";
 
 export interface ProviderConfig {
   apiKey?: string;

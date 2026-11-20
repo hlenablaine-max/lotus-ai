@@ -5,7 +5,21 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { after } from "next/server";
-import { executeTask, loadSettings, type AIImage, type ExecutorDB, type PermissionMode } from "@lotus/ai-engine";
+import { executeTask, loadSettings, registry, type AIImage, type AIProvider, type ExecutorDB, type PermissionMode } from "@lotus/ai-engine";
+
+// Tarefas de CRIAÇÃO (site, ferramentas) vão para o provedor de criação (padrão: Claude pela assinatura);
+// texto e análise ficam com o provedor ativo (Drael). Sem o provedor de criação disponível, segue no ativo.
+export function creationProviderFor(input: unknown): AIProvider | undefined {
+  const data = (input ?? {}) as Record<string, unknown>;
+  const isCreation = data.criacao === true || Array.isArray(data.arquivosDisponiveis);
+  if (!isCreation) return undefined;
+  const name = loadSettings().ai.creationProvider ?? "claude-code";
+  try {
+    return registry.get(name);
+  } catch {
+    return undefined;
+  }
+}
 import { prisma } from "@/lib/prisma";
 import { createRuntimeClient } from "@/lib/runtime-client";
 
@@ -153,6 +167,7 @@ async function executeAndAdvance(taskId: string, opts: { permissionMode?: Permis
     } else {
     const { DB_TOOL_DEFS, createDbToolExecutor } = await import("@/lib/root-master-tools");
     await executeTask(taskId, executorDb(), {
+      provider: creationProviderFor(task.input),
       permissionMode: opts.permissionMode ?? loadSettings().agent.permissionMode,
       images: loadTaskImages(task.input),
       extraTools: DB_TOOL_DEFS.filter((t) => AGENT_WEB_TOOLS.has(t.name)),

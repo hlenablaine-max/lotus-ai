@@ -1,5 +1,9 @@
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import { NextRequest } from "next/server";
 import {
+  runClaudeCode,
   streamRootMaster,
   registry,
   loadSettings,
@@ -26,6 +30,87 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const CLEAR_MARKER = "__CLEAR__";
+
+// ------------------------------------------------------------------ modo construtor (Claude pela assinatura)
+const BUILDER_SESSION_FILE = path.join(os.homedir(), "LOTUS_Workspace", "claude-construtor.json");
+const BUILDER_TOOL_LABELS: Record<string, string> = {
+  Read: "Lendo arquivo",
+  Edit: "Editando arquivo",
+  MultiEdit: "Editando arquivo",
+  Write: "Criando arquivo",
+  Glob: "Procurando arquivos",
+  Grep: "Procurando no código",
+  Bash: "Rodando comando",
+  WebSearch: "Pesquisando na internet",
+  WebFetch: "Lendo página da internet",
+  TodoWrite: "Organizando as etapas",
+  Task: "Delegando parte do trabalho",
+};
+const BUILDER_SYSTEM = [
+  "Você está DENTRO da LOTUS, o app do Ícaro (agência autônoma de marketing para clínicas), conversando com ele pelo chat do app.",
+  "Você é o CONSTRUTOR: cria ferramentas, telas e melhorias na própria LOTUS editando o código deste repositório (monorepo: apps/web = Next.js, apps/desktop = Electron, packages/ai-engine = agentes).",
+  "O Ícaro é iniciante: responda SEMPRE em português simples, explique o que fez e onde ele encontra no app. Nada de jargão sem explicar.",
+  "Regras: nunca remova nem simplifique o escritório 3D (HQ); nada de dado simulado apresentado como real; não mexa em .env.local nem em chaves; não faça push.",
+  "Antes de terminar uma mudança: rode `pnpm exec tsc --noEmit -p apps/web/tsconfig.json` e corrija erros; depois faça um commit local (git add + git commit) com mensagem em português, para dar para desfazer.",
+  "Avise que o app recompila sozinho e a mudança aparece em uns 4 minutos. Mudanças em apps/desktop só valem depois de fechar e abrir o app.",
+  "Se ele pedir algo de operação (diagnóstico de cliente, ver missões, aprovações), diga para trocar a IA do chat para Drael (comando /provider drael): o modo construtor só mexe no código.",
+].join("\n");
+
+function builderSession(clearedAt: Date | null): string | undefined {
+  try {
+    const saved = JSON.parse(fs.readFileSync(BUILDER_SESSION_FILE, "utf-8")) as { sessionId?: string; at?: string };
+    if (!saved.sessionId || !saved.at) return undefined;
+    if (clearedAt && new Date(saved.at) < clearedAt) return undefined; // conversa foi limpa depois
+    return saved.sessionId;
+  } catch {
+    return undefined;
+  }
+}
+
+async function runBuilder(message: string, model: string, signal: AbortSignal, send: (data: Record<string, unknown>) => void): Promise<string> {
+  const repoDir = process.env.LOTUS_REPO_DIR || path.resolve(process.cwd(), "..", "..");
+  const marker = await prisma.chatMessage.findFirst({ where: { role: "SYSTEM", content: CLEAR_MARKER }, orderBy: { createdAt: "desc" }, select: { createdAt: true } });
+  const resume = builderSession(marker?.createdAt ?? null);
+  const run = (resumeId?: string) =>
+    runClaudeCode({
+      prompt: message,
+      systemPrompt: BUILDER_SYSTEM,
+      cwd: repoDir,
+      model,
+      permissionMode: "acceptEdits",
+      allowedTools: [
+        "Read", "Edit", "MultiEdit", "Write", "Glob", "Grep", "TodoWrite", "WebSearch", "WebFetch",
+        "Bash(pnpm exec tsc:*)", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)", "Bash(ls:*)",
+      ],
+      resume: resumeId,
+      signal,
+      timeoutMs: 40 * 60_000,
+      onEvent: (ev) => {
+        if (ev.type === "text" && ev.text) send({ delta: ev.text + "\n\n" });
+        if (ev.type === "tool" && ev.tool) {
+          const input = ev.tool.input;
+          const detail = String(input.file_path ?? input.path ?? input.pattern ?? input.command ?? input.query ?? input.url ?? "").replace(repoDir, "").slice(0, 200);
+          send({ tool: { id: ev.tool.id, name: ev.tool.name, title: BUILDER_TOOL_LABELS[ev.tool.name] ?? ev.tool.name, detail, status: "running" } });
+        }
+        if (ev.type === "tool_result" && ev.toolResult) {
+          send({ tool: { id: ev.toolResult.id, status: ev.toolResult.isError ? "error" : "done", preview: ev.toolResult.content.slice(0, 2000) } });
+        }
+        if (ev.type === "session" && ev.sessionId) {
+          fs.mkdirSync(path.dirname(BUILDER_SESSION_FILE), { recursive: true });
+          fs.writeFileSync(BUILDER_SESSION_FILE, JSON.stringify({ sessionId: ev.sessionId, at: new Date().toISOString() }));
+        }
+      },
+    });
+  let result;
+  try {
+    result = await run(resume);
+  } catch (err) {
+    // Sessão antiga sumiu: começa uma nova
+    if (resume && /session|conversation/i.test(err instanceof Error ? err.message : "")) result = await run(undefined);
+    else throw err;
+  }
+  return result.text;
+}
 const HISTORY_LIMIT = 30;
 const PERMISSION_TIMEOUT_MS = 15 * 60_000;
 
@@ -89,6 +174,8 @@ async function aiStatus() {
   } catch {
     active = null;
   }
+  // O chat mostra a IA dele (Claude no modo construtor), mesmo que os agentes usem outra
+  if (settings.ai.chatProvider && available.includes(settings.ai.chatProvider)) active = settings.ai.chatProvider;
   const desktop = await createRuntimeClient().available();
   return {
     provider: active,
@@ -153,7 +240,8 @@ export async function POST(request: NextRequest) {
       const toolsUsed: Array<{ name: string; title: string; status: string }> = [];
 
       try {
-        const providerName = (body.provider as AIProviderName | undefined) ?? registry.activeName();
+        const chatChoice = loadSettings().ai.chatProvider;
+        const providerName = (body.provider as AIProviderName | undefined) ?? (chatChoice && registry.listAvailable().includes(chatChoice) ? chatChoice : registry.activeName());
         const provider = registry.get(providerName);
         const model = body.model || provider.getDefaultModel();
         send({ meta: { provider: providerName, model } });
@@ -244,24 +332,36 @@ export async function POST(request: NextRequest) {
           }
         };
 
-        for await (const chunk of streamRootMaster(
-          message,
-          {
-            conversationHistory: history,
-            clientId,
-            clientName,
-            extraSystem,
-            model,
-            maxIterations: 40,
-            signal: abort.signal,
-            dbToolDefs: tools,
-            dbToolExecutor: executor,
-          },
-          providerName
-        )) {
-          if (chunk.delta) {
-            fullResponse += chunk.delta;
-            send({ delta: chunk.delta });
+        if (providerName === "claude-code") {
+          // Modo construtor: o Claude Code (assinatura do dono) trabalha direto no código da LOTUS
+          fullResponse = await runBuilder(message, model, abort.signal, (data) => {
+            if (data.delta) fullResponse += data.delta;
+            if (data.tool) {
+              const t = data.tool as { status?: string; title?: string; name?: string };
+              if (t.status === "running") toolsUsed.push({ name: String(t.name ?? ""), title: String(t.title ?? ""), status: "running" });
+            }
+            send(data);
+          });
+        } else {
+          for await (const chunk of streamRootMaster(
+            message,
+            {
+              conversationHistory: history,
+              clientId,
+              clientName,
+              extraSystem,
+              model,
+              maxIterations: 40,
+              signal: abort.signal,
+              dbToolDefs: tools,
+              dbToolExecutor: executor,
+            },
+            providerName
+          )) {
+            if (chunk.delta) {
+              fullResponse += chunk.delta;
+              send({ delta: chunk.delta });
+            }
           }
         }
 

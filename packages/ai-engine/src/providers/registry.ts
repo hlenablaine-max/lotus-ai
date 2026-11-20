@@ -3,10 +3,11 @@
 
 import { AnthropicProvider } from "./anthropic";
 import { OpenAICompatibleProvider } from "./openai-compatible";
+import { ClaudeCodeProvider } from "./claude-code";
 import type { AIProvider, AIProviderName } from "./types";
 import { loadSettings, resolveProviderConfig, settingsVersion } from "../settings";
 
-const PRIORITY: AIProviderName[] = ["drael", "anthropic", "openai"];
+const PRIORITY: AIProviderName[] = ["drael", "anthropic", "openai", "claude-code"];
 
 class ProviderRegistry {
   private providers = new Map<AIProviderName, AIProvider>();
@@ -44,6 +45,9 @@ class ProviderRegistry {
     const anthropic = resolveProviderConfig("anthropic");
     this.providers.set("anthropic", new AnthropicProvider({ apiKey: anthropic.apiKey, defaultModel: anthropic.model }));
 
+    // Claude Code logado neste PC: usa a assinatura do dono, sem chave
+    this.providers.set("claude-code", new ClaudeCodeProvider(resolveProviderConfig("claude-code").model));
+
     this.builtFor = signature;
   }
 
@@ -54,7 +58,11 @@ class ProviderRegistry {
       throw new Error(`Provedor de IA '${name}' não existe. Disponíveis: ${PRIORITY.join(", ")}`);
     }
     if (!provider.isAvailable()) {
-      throw new Error(`Provedor de IA '${name}' está sem chave de API. Configure em Configurações > Inteligência Artificial.`);
+      throw new Error(
+        name === "claude-code"
+          ? "O Claude Code não está instalado ou logado neste computador."
+          : `Provedor de IA '${name}' está sem chave de API. Configure em Configurações > Inteligência Artificial.`
+      );
     }
     return provider;
   }
@@ -62,8 +70,9 @@ class ProviderRegistry {
   activeName(): AIProviderName {
     this.refresh();
     const chosen = loadSettings().ai.provider;
-    if (chosen && this.providers.get(chosen)?.isAvailable()) return chosen;
+    if (chosen && chosen !== "claude-code" && this.providers.get(chosen)?.isAvailable()) return chosen;
     for (const name of PRIORITY) {
+      if (name === "claude-code") continue;
       if (this.providers.get(name)?.isAvailable()) return name;
     }
     throw new Error("No AI provider is available. Configure uma chave de API em Configurações > Inteligência Artificial.");

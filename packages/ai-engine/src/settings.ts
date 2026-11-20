@@ -11,6 +11,10 @@ export type PermissionMode = "ask" | "auto";
 export interface LotusSettings {
   ai: {
     provider?: AIProviderName;
+    // Quem cria sites, ferramentas e produtos (o resto — texto e análise — fica com o provedor ativo)
+    creationProvider?: AIProviderName;
+    // IA só do chat do Root Master (ex.: Claude pela assinatura no modo construtor); os agentes não mudam
+    chatProvider?: AIProviderName;
     models: Partial<Record<AIProviderName, string>>;
     keys: Partial<Record<AIProviderName, string>>;
     baseUrls: Partial<Record<AIProviderName, string>>;
@@ -25,7 +29,8 @@ export interface LotusSettings {
 export const PROVIDER_DEFAULTS: Record<AIProviderName, { label: string; model: string; baseUrl: string; envKey: string }> = {
   drael: { label: "Drael", model: "drael-v1", baseUrl: "https://drael.sh/v1", envKey: "DRAEL_API_KEY" },
   openai: { label: "ChatGPT (OpenAI)", model: "gpt-4o", baseUrl: "https://api.openai.com/v1", envKey: "OPENAI_API_KEY" },
-  anthropic: { label: "Claude (Anthropic)", model: "claude-opus-5-5", baseUrl: "https://api.anthropic.com", envKey: "ANTHROPIC_API_KEY" },
+  anthropic: { label: "Claude (chave de API)", model: "claude-opus-5-5", baseUrl: "https://api.anthropic.com", envKey: "ANTHROPIC_API_KEY" },
+  "claude-code": { label: "Claude (sua assinatura)", model: "opus", baseUrl: "", envKey: "" },
 };
 
 export function settingsFilePath(): string {
@@ -52,6 +57,8 @@ export function loadSettings(): LotusSettings {
   try {
     const raw = JSON.parse(fs.readFileSync(file, "utf-8")) as Partial<LotusSettings>;
     settings.ai.provider = raw.ai?.provider;
+    settings.ai.creationProvider = raw.ai?.creationProvider;
+    settings.ai.chatProvider = raw.ai?.chatProvider;
     Object.assign(settings.ai.models, raw.ai?.models);
     Object.assign(settings.ai.keys, raw.ai?.keys);
     Object.assign(settings.ai.baseUrls, raw.ai?.baseUrls);
@@ -89,7 +96,7 @@ export function resolveProviderConfig(name: AIProviderName): { apiKey: string; b
   const defaults = PROVIDER_DEFAULTS[name];
   const envBase = name === "drael" ? process.env.DRAEL_BASE_URL : name === "openai" ? process.env.OPENAI_BASE_URL : undefined;
   return {
-    apiKey: settings.ai.keys[name] || process.env[defaults.envKey] || "",
+    apiKey: settings.ai.keys[name] || (defaults.envKey ? process.env[defaults.envKey] : "") || "",
     baseUrl: settings.ai.baseUrls[name] || envBase || defaults.baseUrl,
     model: settings.ai.models[name] || defaults.model,
   };

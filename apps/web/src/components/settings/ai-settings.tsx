@@ -8,7 +8,7 @@ interface ProviderState {
   name: string;
   label: string;
   configured: boolean;
-  keySource: "app" | "env" | null;
+  keySource: "app" | "env" | "assinatura" | null;
   keyHint: string | null;
   model: string;
   defaultModel: string;
@@ -16,7 +16,7 @@ interface ProviderState {
 }
 
 interface SettingsState {
-  ai: { provider: string | null; chosen: string | null; providers: ProviderState[] };
+  ai: { provider: string | null; chosen: string | null; creationProvider: string; providers: ProviderState[] };
   agent: { permissionMode: "ask" | "auto" };
   desktop: boolean;
 }
@@ -131,10 +131,12 @@ export function AISettings() {
                 {provider.configured ? (
                   <span className="text-[11px] text-emerald-400 flex items-center gap-1">
                     <CheckCircle2 className="w-3 h-3" />
-                    chave {provider.keyHint} ({provider.keySource === "env" ? "variável de ambiente" : "salva no app"})
+                    {provider.keySource === "assinatura"
+                      ? "usa a sua assinatura do Claude (Claude Code logado neste PC), sem custo extra"
+                      : `chave ${provider.keyHint} (${provider.keySource === "env" ? "variável de ambiente" : "salva no app"})`}
                   </span>
                 ) : (
-                  <span className="text-[11px] text-muted-foreground">sem chave</span>
+                  <span className="text-[11px] text-muted-foreground">{provider.name === "claude-code" ? "Claude Code não instalado ou não logado neste PC" : "sem chave"}</span>
                 )}
                 <div className="ml-auto flex gap-2">
                   {provider.configured && (
@@ -160,6 +162,7 @@ export function AISettings() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {provider.name !== "claude-code" && (
                 <div>
                   <label className="block text-[11px] text-muted-foreground mb-1">Chave de API</label>
                   <div className="flex gap-2">
@@ -183,6 +186,7 @@ export function AISettings() {
                     </button>
                   </div>
                 </div>
+                )}
                 <div>
                   <label className="block text-[11px] text-muted-foreground mb-1">Modelo (padrão: {provider.defaultModel})</label>
                   <div className="flex gap-2">
@@ -220,6 +224,32 @@ export function AISettings() {
             </div>
           );
         })}
+
+        <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-3">
+          <div className="text-sm font-semibold text-foreground">Quem cria sites e ferramentas</div>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            As tarefas de criação (o site de cada cliente e ferramentas) usam esta IA. Texto e análise (diagnóstico, Playbook, copies) continuam com a IA ativa acima.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {settings.ai.providers.map((p) => {
+              const selected = settings.ai.creationProvider === p.name;
+              return (
+                <button
+                  key={p.name}
+                  onClick={() => save(`creation-${p.name}`, { creationProvider: p.name }, `${p.label} agora cria os sites e ferramentas.`)}
+                  disabled={!p.configured || saving !== null}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-medium border disabled:opacity-40",
+                    selected ? "bg-primary/20 border-primary/40 text-primary" : "bg-muted/40 border-border text-foreground hover:bg-muted"
+                  )}
+                >
+                  {p.label}
+                  {selected ? " (em uso)" : ""}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-3">
           <div className="text-sm font-semibold text-foreground">Permissões do Root Master no computador</div>
