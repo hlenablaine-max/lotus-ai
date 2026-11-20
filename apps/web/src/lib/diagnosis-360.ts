@@ -75,15 +75,18 @@ function businessNameFromTitle(title: string, handle: string): string {
   return name && !/^instagram$/i.test(name) ? name : `@${handle}`;
 }
 
-// Logado no Instagram, o título da página vira só "Instagram": o nome do perfil é a linha depois de "seguindo".
+// Logado no Instagram, o título da página vira só "Instagram". O cabeçalho vem como
+// "handle / Nome / 8.068 posts / 564 mil seguidores / 4.206 seguindo / Categoria / bio": o nome é a linha
+// logo depois do @ (antes dos números); a linha depois de "seguindo" costuma ser a CATEGORIA, não o nome.
 function businessNameFromProfile(profile: InstagramProfile, handle: string): string {
   const fromTitle = businessNameFromTitle(profile.fullTitle, handle);
   if (!fromTitle.startsWith("@")) return fromTitle;
-  const header = profile.headerText ?? "";
-  const after = header.split(/\b(?:seguindo|following)\b/i)[1] ?? "";
-  const line = after.split(/\n+/).map((l) => l.trim()).find((l) => l && l.toLowerCase() !== handle.toLowerCase());
-  if (line && line.length >= 3 && line.length <= 90) {
-    const name = businessNameFromTitle(line, handle);
+  const lines = (profile.headerText ?? "").split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  const isStat = (l: string) => /^[\d.,]+\s*(mil|k|m|mi)?\s*(posts?|publica|seguidor|followers|seguindo|following)/i.test(l);
+  const handleIdx = lines.findIndex((l) => l.toLowerCase() === handle.toLowerCase());
+  const candidate = handleIdx >= 0 ? lines[handleIdx + 1] : undefined;
+  if (candidate && !isStat(candidate) && candidate.length >= 2 && candidate.length <= 90) {
+    const name = businessNameFromTitle(candidate, handle);
     if (!name.startsWith("@")) return name;
   }
   return fromTitle;
@@ -133,6 +136,18 @@ function markPinned(posts: InstagramPost[]): InstagramPost[] {
   });
 }
 
+// Mantém só a sequência recente: corta quando aparece um intervalo de mais de 60 dias entre posts
+function recentWindow(posts: InstagramPost[]): InstagramPost[] {
+  const sorted = posts.filter((p) => p.publishedAt).sort((a, b) => new Date(b.publishedAt!).getTime() - new Date(a.publishedAt!).getTime());
+  const kept: InstagramPost[] = [];
+  for (const post of sorted) {
+    const last = kept[kept.length - 1];
+    if (last && new Date(last.publishedAt!).getTime() - new Date(post.publishedAt!).getTime() > 60 * 86_400_000) break;
+    kept.push(post);
+  }
+  return kept;
+}
+
 function median(values: number[]): number | null {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => a - b);
@@ -144,7 +159,9 @@ function median(values: number[]): number | null {
 function computeMetrics(profile: InstagramProfile) {
   const all = profile.posts;
   const pinned = all.filter((p) => p.pinned);
-  const posts = all.filter((p) => !p.pinned);
+  const nonPinned = all.filter((p) => !p.pinned);
+  const posts = recentWindow(nonPinned);
+  const outOfWindow = nonPinned.filter((p) => !posts.includes(p));
   const withLikes = posts.filter((p) => p.likes !== null);
   const followers = profile.followers ?? 0;
   const engagement = (p: InstagramPost) => (followers > 0 && p.likes !== null ? ((p.likes + (p.comments ?? 0)) / followers) * 100 : null);
@@ -159,6 +176,7 @@ function computeMetrics(profile: InstagramProfile) {
     totalDePosts: profile.postsCount,
     postsAnalisados: all.length,
     postsFixadosNoTopo: pinned.map((p) => ({ data: p.publishedAt, curtidas: p.likes, tipo: p.type })),
+    postsAntigosForaDaSequencia: outOfWindow.map((p) => ({ data: p.publishedAt, curtidas: p.likes, tipo: p.type })),
     postsRecentesUsadosNasContas: posts.length,
     reelsEntreOsRecentes: posts.filter((p) => p.type === "reel").length,
     taxaDeEngajamentoMedianaPct: rates.length ? Number(median(rates)!.toFixed(2)) : null,
@@ -540,7 +558,13 @@ async function collectPeople(runtime: RuntimeClient, handle: string, profile: In
   const bump = (h: string, n: number) => counts.set(h, (counts.get(h) ?? 0) + n);
   mentions(`${profile.bio} ${profile.headerText}`).forEach((h) => bump(h, 10));
   sites.forEach((s) => (s && !("erro" in s) ? ((s.instagramsCitados as string[] | undefined) ?? []) : []).forEach((h) => bump(h, 6)));
-  profile.posts.forEach((p) => mentions(p.caption).forEach((h) => bump(h, 1)));
+  // Em legenda, só vale @ que tem a ver com o negócio (ex.: @odonto_marco para "Odonto Marco"); celebridades citadas ficam de fora
+  const businessTokens = nameTokens(`${profile.fullTitle} ${handle.replace(/[._]/g, " ")} ${profile.headerText.split("\n").slice(0, 3).join(" ")}`);
+  profile.posts.forEach((p) =>
+    mentions(p.caption)
+      .filter((h) => businessTokens.some((t) => normalizeText(h).includes(t)))
+      .forEach((h) => bump(h, 1))
+  );
   const candidates = [...counts.entries()]
     .filter(([h]) => h !== handle && !["instagram", "reels"].includes(h))
     .sort((a, b) => b[1] - a[1])
