@@ -13,6 +13,7 @@ import { imageSize } from "@/lib/image-size";
 import { SITE_STYLES, STYLE_GUIDE, renderSite, type SiteContent } from "@/lib/site-render";
 import { AI_TELLS, DESIGN_PRINCIPLES, FONT_PAIRS, segmentFor, type SegmentPlaybook } from "@/lib/design-knowledge";
 import { stockPhotosFor } from "@/lib/stock-photos";
+import { aiPhotosFor } from "@/lib/ai-photos";
 
 const execAsync = promisify(exec);
 type Json = Record<string, unknown>;
@@ -50,15 +51,55 @@ function sizeLabel(w: number | null, h: number | null): string {
   return `PEQUENA (${w}x${h}): não use (ficaria pixelada)`;
 }
 
-export async function prepareSiteAssets(handle: string, brand: Json | null, stockQueries: string[] = []): Promise<{ dir: string; assets: PreparedAsset[] }> {
+// Nome aproximado da cor (o gerador de imagens entende "deep blue" melhor que um código hex)
+function colorWord(hex: string | undefined): string {
+  const m = (hex ?? "").match(/^#?([0-9a-f]{6})$/i);
+  if (!m) return "soft neutral";
+  const n = parseInt(m[1], 16);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => v / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max - min < 0.08) return l > 0.7 ? "white" : l < 0.25 ? "black" : "grey";
+  const d = max - min;
+  let h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  h = (h * 60 + 360) % 360;
+  const names: Array<[number, string]> = [[15, "red"], [40, "orange"], [65, "golden"], [160, "green"], [200, "teal"], [250, "blue"], [290, "purple"], [335, "pink"], [360, "red"]];
+  const hue = names.find(([limit]) => h < limit)?.[1] ?? "blue";
+  return `${l < 0.35 ? "deep " : l > 0.7 ? "light " : ""}${hue}`;
+}
+
+export async function prepareSiteAssets(
+  handle: string,
+  brand: Json | null,
+  stockQueries: string[] = [],
+  aiPrompts: Array<{ prompt: string; formato: "paisagem" | "retrato" }> = []
+): Promise<{ dir: string; assets: PreparedAsset[] }> {
   const dir = path.join(SITES_DIR, `lotus-${slug(handle)}`);
   const assetsDir = path.join(dir, "assets");
   // Pasta limpa a cada site: sobra de tentativa antiga não entra no site novo
   fs.rmSync(assetsDir, { recursive: true, force: true });
   fs.mkdirSync(assetsDir, { recursive: true });
   const assets: PreparedAsset[] = [];
+  // Fotos criadas por IA (chave do ChatGPT) para o topo e os serviços; reaproveitadas nas tentativas seguintes
+  const brandColor = ((brand?.paleta as Json | undefined)?.coresDaMarca as Array<{ hex?: string }> | undefined)?.[0]?.hex;
+  const aiPhotos = aiPrompts.length ? await aiPhotosFor(handle, aiPrompts.map((p) => ({ ...p, prompt: p.prompt.replace(/\{cor\}/g, colorWord(brandColor)) }))) : [];
+  aiPhotos.forEach((photo, i) => {
+    const file = `assets/banco-ia-${i + 1}${path.extname(photo.file)}`;
+    fs.copyFileSync(photo.file, path.join(dir, file));
+    const size = imageSize(photo.file);
+    const w = size?.width ?? photo.width;
+    const h = size?.height ?? photo.height;
+    assets.push({
+      file,
+      descricao: `Foto PROFISSIONAL criada por IA para este site (${i === 0 ? "horizontal, ideal para o topo" : "vertical, ideal para um serviço"}): "${photo.prompt.slice(0, 140)}". ${sizeLabel(w, h)}. Pode ir no TOPO e nos SERVIÇOS; não pode ir em 'sobre' nem na galeria (não é a equipe nem o lugar do cliente)`,
+      source: photo.file,
+      width: w,
+      height: h,
+    });
+  });
   // Fotos profissionais de banco de imagens (Pexels) para o topo e os serviços, se houver chave
-  const stock = await stockPhotosFor(stockQueries, 2);
+  const stock = aiPhotos.length ? [] : await stockPhotosFor(stockQueries, 2);
   stock.forEach((photo, i) => {
     const file = `assets/banco-${i + 1}.jpg`;
     fs.copyFileSync(photo.file, path.join(dir, file));
@@ -145,7 +186,7 @@ function buildInstructions(ctx: { businessName: string; handle: string; assets: 
     "4) FOTOS (olhe as imagens anexadas; `arquivosDisponiveis` diz tamanho e origem de cada uma):",
     "- topo.foto: a imagem mais forte e característica do negócio, SÓ entre as marcadas como GRANDE. Pessoa real sorrindo, profissional atendendo, ambiente bonito. NUNCA boca aberta de perto, procedimento, sangue, instrumento, antes e depois.",
     ctx.hasStock
-      ? "- Há fotos PROFISSIONAIS de banco de imagens (assets/banco-...). Use-as no topo e nas fotos dos serviços quando as fotos do cliente forem fracas: o site profissional depende disso. Nunca em 'sobre' nem na galeria."
+      ? "- Há fotos PROFISSIONAIS feitas para este site (assets/banco-..., criadas por IA ou de banco de imagens). Use a horizontal no topo e as verticais nas fotos dos serviços sempre que as fotos do cliente forem fracas: o visual profissional depende disso. Nunca em 'sobre' nem na galeria."
       : "- Não há fotos de banco de imagens. Se as fotos do cliente forem fracas, use null: o sistema faz um topo tipográfico elegante.",
     "- servicos[].foto: dê foto a TODOS os serviços ou a nenhum (o layout muda: com fotos vira mosaico; sem fotos vira lista elegante). Foto PEQUENA nunca.",
     "- ARTE DE POST NÃO É FOTO: imagem com letras, título, logo grande, promoção, convite, banner ou capa de vídeo com texto NÃO entra em lugar nenhum.",
@@ -225,7 +266,7 @@ export async function createSiteChain(opts: {
   if (!webId || !qaId) return null;
   // Segmento (odonto, estética, academia...) define referências de design e as buscas de fotos profissionais
   const segment = segmentFor(`${opts.businessName} ${JSON.stringify(opts.brief.perfil ?? opts.brief).slice(0, 4000)}`);
-  const { dir, assets } = await prepareSiteAssets(opts.handle, opts.brand, segment.bancoDeImagens);
+  const { dir, assets } = await prepareSiteAssets(opts.handle, opts.brand, segment.bancoDeImagens, segment.fotosIA);
   const palette = (opts.brand?.paleta ?? null) as Json | null;
   // O agente vê as fotos que podem ir para o site (as do cliente e as de banco, maiores primeiro) e o logo
   const usable = assets

@@ -7,6 +7,7 @@ import { spawn } from 'child_process'
 import { WebSocketServer, WebSocket } from 'ws'
 import { LocalRuntime } from './local-runtime'
 import { htmlFileToPdf } from './pdf'
+import { toJpeg } from './image'
 
 const PORT_START = 3777
 const PORT_FILE = path.join(os.homedir(), 'LOTUS_Workspace', '.runtime-port')
@@ -156,6 +157,8 @@ export class RuntimeHttpServer {
         return rt.research.whatsappQrStop()
       case '/runtime/research/avatar':
         return rt.research.instagramAvatar(String(data.handle ?? ''), String(data.outFile ?? ''))
+      case '/runtime/image/jpeg':
+        return toJpeg(String(data.input ?? ''), String(data.output ?? ''), Number(data.maxWidth ?? 1800), Number(data.quality ?? 82))
       case '/runtime/pdf':
         return htmlFileToPdf(String(data.htmlPath ?? ''), String(data.outPath ?? ''))
       case '/runtime/research/whatsapp-send':

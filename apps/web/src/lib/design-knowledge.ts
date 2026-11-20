@@ -34,6 +34,7 @@ export interface SegmentPlaybook {
   estilos: string;
   fontes: string[];
   bancoDeImagens: string[]; // buscas em inglês para o banco de fotos
+  fotosIA: Array<{ prompt: string; formato: "paisagem" | "retrato" }>; // fotos criadas por IA: 1 paisagem (topo) + retratos (serviços)
 }
 
 export const SEGMENTS: SegmentPlaybook[] = [
@@ -47,6 +48,12 @@ export const SEGMENTS: SegmentPlaybook[] = [
     estilos: "clinico ou aurora (odontologia de alto padrão)",
     fontes: ["porcelana", "precisao", "confianca"],
     bancoDeImagens: ["woman smiling white teeth portrait", "dentist talking with patient", "modern dental clinic interior"],
+    fotosIA: [
+      { prompt: "A relaxed Brazilian woman in her thirties smiling naturally while seated in a bright, modern minimalist dental office, the dentist softly out of focus in the background, white and {cor} accents", formato: "paisagem" },
+      { prompt: "Close portrait of a confident Brazilian man in his forties with a natural healthy smile, soft studio light, neutral background", formato: "retrato" },
+      { prompt: "A friendly Brazilian dentist in a clean white coat explaining a treatment plan to a patient using a tablet, modern clinic, warm natural light", formato: "retrato" },
+      { prompt: "Elegant modern dental clinic reception with soft daylight, plants, light wood and {cor} details, no people", formato: "retrato" },
+    ],
   },
   {
     id: "estetica",
@@ -58,6 +65,12 @@ export const SEGMENTS: SegmentPlaybook[] = [
     estilos: "aurora ou editorial",
     fontes: ["luxo", "editorial", "porcelana"],
     bancoDeImagens: ["woman glowing skin natural light portrait", "aesthetic clinic facial treatment", "skincare spa calm"],
+    fotosIA: [
+      { prompt: "A Brazilian woman with naturally glowing skin relaxing in a serene, luxurious aesthetic clinic, soft window light, neutral tones with {cor} accents", formato: "paisagem" },
+      { prompt: "Beauty portrait of a Brazilian woman with healthy natural skin, minimal makeup, soft diffused light, calm expression", formato: "retrato" },
+      { prompt: "A professional aesthetician gently applying skincare to a client's face in a calm treatment room, soft light", formato: "retrato" },
+      { prompt: "Minimalist luxurious treatment room with soft towels, plants and warm light, {cor} details, no people", formato: "retrato" },
+    ],
   },
   {
     id: "medico",
@@ -69,6 +82,12 @@ export const SEGMENTS: SegmentPlaybook[] = [
     estilos: "clinico",
     fontes: ["precisao", "confianca", "humanista"],
     bancoDeImagens: ["doctor consultation with patient", "modern medical clinic reception", "doctor smiling portrait"],
+    fotosIA: [
+      { prompt: "A Brazilian doctor listening attentively to a patient in a bright, modern consultation room, warm natural light, {cor} accents", formato: "paisagem" },
+      { prompt: "Portrait of a friendly Brazilian female doctor in a white coat, modern clinic background softly blurred", formato: "retrato" },
+      { prompt: "A calm modern clinic waiting area with daylight, plants and comfortable chairs, no people", formato: "retrato" },
+      { prompt: "A doctor reviewing results on a tablet with an elderly patient, both smiling, bright clinic", formato: "retrato" },
+    ],
   },
   {
     id: "terapias",
@@ -80,6 +99,12 @@ export const SEGMENTS: SegmentPlaybook[] = [
     estilos: "editorial ou clinico",
     fontes: ["humanista", "editorial", "confianca"],
     bancoDeImagens: ["physiotherapy session", "healthy lifestyle woman", "calm therapy room"],
+    fotosIA: [
+      { prompt: "A physiotherapist guiding a smiling Brazilian patient through a gentle exercise in a bright modern studio, {cor} accents", formato: "paisagem" },
+      { prompt: "A Brazilian woman stretching calmly in a sunlit studio, healthy and relaxed", formato: "retrato" },
+      { prompt: "A therapist and client talking in a calm, warm office with plants and soft light", formato: "retrato" },
+      { prompt: "Healthy colorful meal and fresh ingredients on a light table, natural light", formato: "retrato" },
+    ],
   },
   {
     id: "fitness",
@@ -91,6 +116,12 @@ export const SEGMENTS: SegmentPlaybook[] = [
     estilos: "impacto",
     fontes: ["esporte", "contemporanea"],
     bancoDeImagens: ["gym training athlete", "group fitness class energy", "woman lifting weights gym"],
+    fotosIA: [
+      { prompt: "Energetic Brazilian athletes training in a modern gym with dramatic lighting, motion and sweat, {cor} accents", formato: "paisagem" },
+      { prompt: "A determined Brazilian woman lifting weights in a modern gym, dramatic light", formato: "retrato" },
+      { prompt: "A group fitness class full of energy, people smiling and moving, modern gym", formato: "retrato" },
+      { prompt: "A personal trainer coaching a client on a squat, focused, gym background", formato: "retrato" },
+    ],
   },
   {
     id: "marca-pessoal",
@@ -102,6 +133,12 @@ export const SEGMENTS: SegmentPlaybook[] = [
     estilos: "editorial ou impacto",
     fontes: ["moda", "editorial", "luxo"],
     bancoDeImagens: ["man tailored suit portrait", "style consultant fashion", "confident professional portrait"],
+    fotosIA: [
+      { prompt: "A confident Brazilian professional in a tailored outfit in a sophisticated city setting, editorial fashion photography, {cor} accents", formato: "paisagem" },
+      { prompt: "Editorial portrait of a stylish Brazilian man in a tailored suit, soft light, neutral background", formato: "retrato" },
+      { prompt: "Details of tailored clothing, fabrics and accessories on a clean surface, editorial light", formato: "retrato" },
+      { prompt: "A consultant talking with a client in an elegant studio, natural light", formato: "retrato" },
+    ],
   },
   {
     id: "juridico",
@@ -113,6 +150,12 @@ export const SEGMENTS: SegmentPlaybook[] = [
     estilos: "editorial ou clinico",
     fontes: ["juridico", "confianca"],
     bancoDeImagens: ["lawyer office meeting", "law books desk", "professional consultation office"],
+    fotosIA: [
+      { prompt: "A Brazilian lawyer in a meeting with clients in an elegant, bright office, calm and trustworthy, {cor} accents", formato: "paisagem" },
+      { prompt: "Portrait of a confident Brazilian female lawyer in a modern office", formato: "retrato" },
+      { prompt: "Elegant office desk with documents and a pen, warm light, no people", formato: "retrato" },
+      { prompt: "Two professionals shaking hands in a modern office", formato: "retrato" },
+    ],
   },
 ];
 
@@ -126,6 +169,12 @@ export const DEFAULT_SEGMENT: SegmentPlaybook = {
   estilos: "clinico ou editorial",
   fontes: ["contemporanea", "humanista", "confianca"],
   bancoDeImagens: ["small business owner smiling", "customer service friendly", "modern workspace"],
+  fotosIA: [
+    { prompt: "A Brazilian small business team welcoming a customer in a bright modern space, warm and professional, {cor} accents", formato: "paisagem" },
+    { prompt: "Portrait of a smiling Brazilian professional at work, natural light", formato: "retrato" },
+    { prompt: "A satisfied customer being attended in a modern business, natural light", formato: "retrato" },
+    { prompt: "Clean modern interior of a small business, daylight, no people", formato: "retrato" },
+  ],
 };
 
 export function segmentFor(text: string): SegmentPlaybook {

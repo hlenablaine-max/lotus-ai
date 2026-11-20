@@ -510,12 +510,12 @@ const STYLE_CSS: Record<SiteStyle, string> = {
 .hero.no-photo .lead{margin-inline:auto}.hero.no-photo .hero-btns,.hero.no-photo .facts{justify-content:center}
 .hero-photo{position:absolute;inset:0 0 0 38%;z-index:1}
 .hero-photo img{width:100%;height:100%;object-fit:cover}
-.hero-photo::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,var(--bg) 0%,color-mix(in srgb,var(--bg) 70%,transparent) 22%,transparent 58%),linear-gradient(0deg,var(--bg) 0%,transparent 30%)}
+.hero-photo::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,color-mix(in srgb,var(--bg) 85%,transparent) 0%,transparent 16%),linear-gradient(90deg,var(--bg) 0%,color-mix(in srgb,var(--bg) 70%,transparent) 22%,transparent 58%),linear-gradient(0deg,var(--bg) 0%,transparent 30%)}
 .glow{position:absolute;width:900px;height:900px;left:50%;top:40%;transform:translate(-50%,-50%);background:radial-gradient(circle,color-mix(in srgb,var(--brand) 55%,transparent) 0%,transparent 62%);opacity:.55;filter:blur(20px)}
 .btn-quiet{box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.28)}
 .svc-photo figure,.about-photo,.gallery .g,.map{border-radius:6px}
 .map iframe{filter:invert(.9) hue-rotate(180deg) saturate(.5)}
-@media (max-width:960px){.hero-photo{inset:0}.hero-photo::after{background:linear-gradient(0deg,var(--bg) 18%,color-mix(in srgb,var(--bg) 65%,transparent) 60%,color-mix(in srgb,var(--bg) 35%,transparent))}.hero{align-items:flex-end}}
+@media (max-width:960px){.hero-photo{inset:0 0 auto 0;height:62vh}.hero-photo::after{background:linear-gradient(0deg,var(--bg) 4%,color-mix(in srgb,var(--bg) 55%,transparent) 45%,color-mix(in srgb,var(--bg) 25%,transparent) 100%)}.hero{align-items:flex-end;padding-top:46vh}}
 `,
   clinico: `
 .hero{padding:118px 0 0}
