@@ -10,7 +10,9 @@ import { promisify } from "util";
 import { prisma } from "@/lib/prisma";
 import { createRuntimeClient } from "@/lib/runtime-client";
 import { imageSize } from "@/lib/image-size";
-import { ICON_NAMES, SITE_STYLES, STYLE_GUIDE, renderSite, type SiteContent } from "@/lib/site-render";
+import { SITE_STYLES, STYLE_GUIDE, renderSite, type SiteContent } from "@/lib/site-render";
+import { AI_TELLS, DESIGN_PRINCIPLES, FONT_PAIRS, segmentFor, type SegmentPlaybook } from "@/lib/design-knowledge";
+import { stockPhotosFor } from "@/lib/stock-photos";
 
 const execAsync = promisify(exec);
 type Json = Record<string, unknown>;
@@ -48,13 +50,26 @@ function sizeLabel(w: number | null, h: number | null): string {
   return `PEQUENA (${w}x${h}): não use (ficaria pixelada)`;
 }
 
-export function prepareSiteAssets(handle: string, brand: Json | null): { dir: string; assets: PreparedAsset[] } {
+export async function prepareSiteAssets(handle: string, brand: Json | null, stockQueries: string[] = []): Promise<{ dir: string; assets: PreparedAsset[] }> {
   const dir = path.join(SITES_DIR, `lotus-${slug(handle)}`);
   const assetsDir = path.join(dir, "assets");
   // Pasta limpa a cada site: sobra de tentativa antiga não entra no site novo
   fs.rmSync(assetsDir, { recursive: true, force: true });
   fs.mkdirSync(assetsDir, { recursive: true });
   const assets: PreparedAsset[] = [];
+  // Fotos profissionais de banco de imagens (Pexels) para o topo e os serviços, se houver chave
+  const stock = await stockPhotosFor(stockQueries, 2);
+  stock.forEach((photo, i) => {
+    const file = `assets/banco-${i + 1}.jpg`;
+    fs.copyFileSync(photo.file, path.join(dir, file));
+    assets.push({
+      file,
+      descricao: `Foto PROFISSIONAL de banco de imagens (Pexels, uso livre): "${photo.alt}". ${sizeLabel(photo.width, photo.height)}. Pode ir no TOPO e nos SERVIÇOS; não pode ir em 'sobre' nem na galeria (não é a equipe nem o lugar do cliente)`,
+      source: photo.file,
+      width: photo.width,
+      height: photo.height,
+    });
+  });
   if (!brand) return { dir, assets };
   const copy = (source: unknown, name: string, descricao: string) => {
     if (typeof source !== "string" || !fs.existsSync(source)) return;
@@ -81,67 +96,87 @@ async function recentStyles(): Promise<string[]> {
   return missions.map((m) => String(((m.context ?? {}) as Json).siteStyle ?? "")).filter(Boolean);
 }
 
-function buildInstructions(ctx: { businessName: string; handle: string; assets: PreparedAsset[]; attempt: number; feedback?: string; recent: string[]; hasWhatsapp: boolean; isHealth: boolean }): string {
+function buildInstructions(ctx: { businessName: string; handle: string; assets: PreparedAsset[]; attempt: number; feedback?: string; recent: string[]; hasWhatsapp: boolean; isHealth: boolean; segment: SegmentPlaybook; hasStock: boolean }): string {
   const exemplo: SiteContent = {
     estilo: "aurora | clinico | editorial | impacto",
-    cores: { primaria: "#hex da marca", secundaria: "#hex", destaque: "#hex (cor de realce, pode ser a mesma da primária)" },
-    topo: { selo: "Segmento · cidade", titulo: "Promessa curta (até 7 palavras)", tituloDestaque: "trecho exato do título que ganha cor", subtitulo: "1 ou 2 frases: o que faz, para quem, por que confiar", botao: "Agendar avaliação", botaoSecundario: "Ver tratamentos", foto: "assets/... (só foto GRANDE) ou null" },
+    fontes: "um dos pares de fontes da lista",
+    cores: { primaria: "#hex principal da marca", destaque: "#hex de realce (pode repetir a primária)" },
+    topo: { selo: "Segmento em cidade (sem ponto no meio)", titulo: "Promessa curta e específica (até 7 palavras)", subtitulo: "1 ou 2 frases: o que faz, para quem, por que confiar", botao: "Agendar avaliação pelo WhatsApp", botaoSecundario: "Ver tratamentos", foto: "assets/... (GRANDE) ou null" },
     numeros: [{ valor: "5,0", rotulo: "nota no Google" }],
-    faixa: ["4 a 8 palavras-chave curtas (serviços ou valores) para a faixa animada"],
-    servicos: [{ titulo: "Serviço real", descricao: "benefício em 1 frase", icone: "um dos ícones da lista", mensagem: "mensagem pronta para o WhatsApp sobre este serviço" }],
+    servicos: [{ titulo: "Serviço real", descricao: "benefício concreto em 1 frase", foto: "assets/... ou null", mensagem: "mensagem pronta para o WhatsApp sobre este serviço" }],
     passos: [{ titulo: "Etapa", descricao: "1 frase" }],
-    diferenciais: [{ titulo: "Diferencial", descricao: "1 frase", icone: "ícone" }],
-    sobre: { titulo: "Título", texto: "2 parágrafos curtos separados por quebra de linha", foto: "assets/... (GRANDE ou MÉDIA) ou null", nome: "nome real do responsável ou omita", cargo: "cargo ou omita" },
-    galeria: ["assets/... (3 a 6 fotos boas, sem texto por cima)"],
-    depoimentos: [{ texto: "[Depoimento real do cliente]", autor: "[Nome]" }],
+    diferenciais: [{ titulo: "Diferencial verificável", descricao: "1 frase" }],
+    sobre: { titulo: "Título", texto: "2 parágrafos curtos separados por quebra de linha", foto: "assets/... (foto REAL do cliente) ou null", nome: "nome real ou omita", cargo: "cargo ou omita" },
+    galeria: ["assets/... (só fotos REAIS do cliente, sem texto por cima)"],
+    depoimentos: [{ texto: "depoimento real (Google) ou [Depoimento real do cliente]", autor: "nome real ou [Nome]" }],
     faq: [{ pergunta: "Dúvida real de quem procura este serviço", resposta: "Resposta curta e honesta" }],
-    local: { endereco: "só se estiver nos dados", horario: "só se estiver nos dados, senão [horário de atendimento]", mapa: "termo de busca no Google Maps (nome + cidade)" },
-    chamadaFinal: { titulo: "Chamada final forte", texto: "1 frase", botao: "Texto do botão" },
+    local: { endereco: "só se estiver nos dados", horario: "só se estiver nos dados, senão [horário de atendimento]", mapa: "nome + cidade para o Google Maps" },
+    chamadaFinal: { titulo: "Chamada final", texto: "1 frase", botao: "Texto do botão" },
     rodape: { cnpj: "só se existir nos dados", responsavelTecnico: "só se existir nos dados" },
-    secoes: { servicos: { kicker: "Tratamentos", titulo: "título da seção", texto: "1 frase" } },
+    secoes: { servicos: { titulo: "título da seção (frase normal, não rótulo)", texto: "1 frase opcional" } },
   };
+  const seg = ctx.segment;
   return [
-    `Crie o SITE NOVO da ${ctx.businessName} (@${ctx.handle}). É a proposta que a LOTUS vai mostrar ao dono: ele tem que pensar "eu quero isso" e aceitar pagar caro por ele.`,
+    `Crie o SITE NOVO da ${ctx.businessName} (@${ctx.handle}). É a proposta que a LOTUS mostra ao dono: ele tem que olhar e pensar "que site foda, parece que custou R$ 10 mil".`,
     "",
-    "COMO FUNCIONA: você NÃO escreve HTML. Você escolhe a direção de arte, as cores, as fotos e escreve todo o conteúdo; o sistema monta o site com um design premium já pronto (tipografia, animações, celular, contraste). Sua entrega é um bloco ```json com o conteúdo.",
+    "COMO FUNCIONA: você NÃO escreve HTML. Você é o diretor de arte e redator: escolhe direção de arte, par de fontes, cores e fotos, e escreve todo o texto. O sistema monta o site com acabamento profissional (grid, ritmo, contraste, celular). Entrega: um bloco ```json.",
     "",
-    "1) DIREÇÃO DE ARTE (campo estilo). Escolha a que mais combina com o segmento e o posicionamento do negócio:",
+    "PRINCÍPIOS DE DESIGN DA LOTUS:",
+    ...DESIGN_PRINCIPLES.map((p) => `- ${p}`),
+    "",
+    "SINAIS DE 'SITE FEITO POR IA' QUE VOCÊ NÃO PODE PRODUZIR (a revisora reprova):",
+    ...AI_TELLS.map((t) => `- ${t}`),
+    "",
+    `SEGMENTO DESTE NEGÓCIO: ${seg.nome}.`,
+    `- O mundo do negócio: ${seg.mundo}.`,
+    `- Ordem que converte: ${seg.pagina}.`,
+    `- Foco de conversão: ${seg.conversao}.`,
+    `- Direções que costumam servir: ${seg.estilos}. Fontes que costumam servir: ${seg.fontes.join(", ")}.`,
+    "",
+    "1) DIREÇÃO DE ARTE (campo estilo):",
     ...SITE_STYLES.map((s) => `- ${STYLE_GUIDE[s]}`),
-    ctx.recent.length ? `Os últimos sites da LOTUS usaram: ${ctx.recent.join(", ")}. Se mais de uma direção servir bem para este negócio, prefira uma diferente dessas, para cada cliente ter um site com cara própria.` : "",
+    ctx.recent.length ? `Os últimos sites da LOTUS usaram: ${ctx.recent.join(", ")}. Se mais de uma direção servir, escolha uma diferente, para cada cliente ter cara própria.` : "",
     "",
-    "2) CORES: use as cores reais da marca (coresDaMarca/neutrasDaMarca do contexto e o logo). primaria = cor principal da marca; destaque = a cor de realce. Nada de azul ou roxo genérico se a marca não usa.",
+    "2) FONTES (campo fontes), escolha UM par pelo caráter deste negócio:",
+    ...Object.entries(FONT_PAIRS).map(([id, f]) => `- ${id}: ${f.titulo} + ${f.texto} (${f.descricao})`),
     "",
-    "3) FOTOS (veja as imagens anexadas; a lista `arquivosDisponiveis` diz o tamanho de cada uma):",
-    "- topo.foto: SÓ foto marcada como GRANDE, e só se der vontade de ir ao lugar: pessoa sorrindo, equipe, profissional, ambiente bonito, recepção. NUNCA boca aberta, dentes de perto, procedimento, sangue, instrumentos, antes e depois, nem imagem com texto escrito por cima. Se nenhuma servir, use null: o sistema faz um topo sem foto, elegante (não é defeito).",
-    "- sobre.foto: o profissional ou a equipe (GRANDE ou MÉDIA). galeria: 3 a 6 fotos de ambiente/equipe/resultado discreto, sem texto por cima. Foto PEQUENA nunca.",
-    "- Não repita a mesma foto em dois lugares.",
-    "- ARTE DE POST NÃO É FOTO: imagem com letras, título, logo grande, promoção, convite, banner, carrossel informativo ou capa de vídeo com texto NÃO entra em lugar nenhum do site (nem topo, nem galeria). Olhe cada imagem anexada antes de escolher. Muitos perfis só têm artes: nesse caso use null nas fotos; o site sem foto continua bonito.",
+    "3) CORES: as cores reais da marca (coresDaMarca/neutrasDaMarca e o logo). primaria = cor principal; destaque = realce. O sistema calcula fundo e contraste.",
     "",
-    "4) TEXTO (o que mais vende):",
-    "- Título do topo com no máximo 7 palavras, específico para este negócio (nada de frase genérica que serviria para qualquer clínica). Use o diferencial real que apareceu no diagnóstico.",
-    "- Fale com o cliente final, na forma como o negócio já fala no Instagram, corrigindo os erros apontados no diagnóstico.",
-    "- servicos: os serviços REAIS que o negócio oferece (dos destaques, bio, posts e site). 3 a 6 itens.",
-    "- numeros: só dados reais e verificáveis do contexto (nota e quantidade de avaliações do Google, anos de mercado, pacientes atendidos se o próprio negócio divulga). Se não houver, deixe a lista vazia.",
-    "- faq: 4 a 6 dúvidas reais de quem procura esse serviço.",
-    `- ícones disponíveis: ${ICON_NAMES.join(", ")}.`,
+    "4) FOTOS (olhe as imagens anexadas; `arquivosDisponiveis` diz tamanho e origem de cada uma):",
+    "- topo.foto: a imagem mais forte e característica do negócio, SÓ entre as marcadas como GRANDE. Pessoa real sorrindo, profissional atendendo, ambiente bonito. NUNCA boca aberta de perto, procedimento, sangue, instrumento, antes e depois.",
+    ctx.hasStock
+      ? "- Há fotos PROFISSIONAIS de banco de imagens (assets/banco-...). Use-as no topo e nas fotos dos serviços quando as fotos do cliente forem fracas: o site profissional depende disso. Nunca em 'sobre' nem na galeria."
+      : "- Não há fotos de banco de imagens. Se as fotos do cliente forem fracas, use null: o sistema faz um topo tipográfico elegante.",
+    "- servicos[].foto: dê foto a TODOS os serviços ou a nenhum (o layout muda: com fotos vira mosaico; sem fotos vira lista elegante). Foto PEQUENA nunca.",
+    "- ARTE DE POST NÃO É FOTO: imagem com letras, título, logo grande, promoção, convite, banner ou capa de vídeo com texto NÃO entra em lugar nenhum.",
+    "- sobre.foto e galeria: só fotos REAIS do cliente (profissional, equipe, lugar). Não repita a mesma foto em dois lugares.",
+    "",
+    "5) TEXTO (é o que mais vende):",
+    "- Título do topo: até 7 palavras, específico deste negócio (o diferencial real do diagnóstico), sem palavra destacada. Nada que serviria para qualquer concorrente.",
+    "- Frases normais (sem caixa alta), voz ativa, linguagem do paciente/cliente; cada texto faz um só trabalho. Botões dizem a ação ('Agendar avaliação pelo WhatsApp').",
+    "- servicos: os serviços REAIS (destaques, bio, posts, site), 3 a 6.",
+    "- numeros: só dados reais e verificáveis (nota e avaliações do Google, anos, pacientes se o próprio negócio divulga). Sem dado, lista vazia.",
+    "- faq: 4 a 6 dúvidas reais (dor, preço, convênio, tempo, primeira consulta).",
     ctx.isHealth
       ? "- Saúde: sem promessa de resultado, sem superlativos (melhor, único, garantido), sem antes e depois, sem preço."
-      : "- Este negócio NÃO é da área da saúde: use 'clientes', 'serviços' e o tom do segmento; nada de regras de saúde nem 'responsável técnico'.",
+      : "- Este negócio NÃO é da área da saúde: use 'clientes' e 'serviços' e o tom do segmento.",
     "",
-    "5) NADA INVENTADO: nem depoimento, preço, nome de profissional, endereço, telefone, prêmio ou número. O que só o cliente sabe vira marcador curto entre colchetes, ex.: [horário de atendimento], [Depoimento real do cliente]. Nada de anotação interna (HIPÓTESE, CONFIRMAR, TODO).",
+    "6) NADA INVENTADO: depoimento, preço, nome, endereço, telefone, prêmio e número só se estiverem nos dados. O que só o cliente sabe vira marcador curto: [horário de atendimento], [Depoimento real do cliente]. Nada de anotação interna.",
     ctx.hasWhatsapp
-      ? "Os botões vão para o WhatsApp do próprio negócio (o sistema monta o link); escreva em cada serviço a `mensagem` que o cliente vai mandar."
-      : "Este negócio não tem WhatsApp próprio nos dados: o sistema liga os botões ao direct do Instagram. Não invente número.",
+      ? "Os botões vão para o WhatsApp do próprio negócio (o sistema monta o link); escreva a `mensagem` de cada serviço."
+      : "Sem WhatsApp próprio nos dados: o sistema liga os botões ao direct do Instagram. Não invente número.",
     "",
-    "FORMATO DA ENTREGA: um parágrafo curto explicando a direção de arte escolhida e por quê, depois UM bloco ```json exatamente com esta estrutura (campos sem dado podem ser omitidos):",
+    "ANTES DO JSON, escreva o PLANO DE DESIGN em 5 linhas: (a) o conceito, tirado do mundo deste negócio; (b) a direção e o par de fontes, e por que são DESTE negócio; (c) as cores; (d) o elemento memorável; (e) o que você cortou para não parecer modelo pronto. Depois revise o plano: se alguma parte serviria para qualquer clínica, troque.",
+    "",
+    "FORMATO: o plano curto, depois UM bloco ```json com esta estrutura (campos sem dado podem ser omitidos):",
     "```json",
     JSON.stringify(exemplo, null, 2),
     "```",
-    'Salve com save_document (type "other"), com o bloco json incluído.',
+    'Salve com save_document (type "other"), com o plano e o bloco json.',
     ...(ctx.feedback
       ? [
           "",
-          `ESTA É A TENTATIVA ${ctx.attempt}. A revisora reprovou a versão anterior. Corrija TODOS os pontos abaixo no novo JSON (pode trocar estilo, fotos, cores e textos), mantendo o que estava bom:`,
+          `ESTA É A TENTATIVA ${ctx.attempt}. A revisora reprovou a versão anterior. Corrija TODOS os pontos abaixo no novo JSON (pode trocar estilo, fontes, fotos, cores e textos), mantendo o que estava bom:`,
           ctx.feedback,
         ]
       : []),
@@ -153,9 +188,11 @@ function buildInstructions(ctx: { businessName: string; handle: string; assets: 
 const REVIEW_INSTRUCTIONS = (businessName: string, url: string) =>
   [
     `Revise o site novo da ${businessName}, publicado em ${url}. As imagens anexadas são prints do site no ar (3 partes no computador e o topo no celular).`,
-    "Você é exigente: este site vai ser mostrado ao dono do negócio para vender um projeto de site profissional (algo que se cobra de R$ 3 a 8 mil). Avalie de 0 a 10:",
-    "O design (tipografia, espaçamento, animações) vem de uma direção de arte pronta do sistema (`direcaoDeArte`); o agente escolhe a direção, as cores, as fotos e escreve o texto (`conteudoDoSite`). Suas correções devem dizer o que mudar NESSAS escolhas: trocar a direção de arte, trocar ou remover uma foto (diga qual arquivo), ajustar cor, reescrever um texto. `avisosDoSistema` lista fotos que o sistema recusou por serem pequenas.",
-    "0. Impressiona? Parece site de agência premium, com cara própria deste negócio, ou parece genérico? A direção de arte combina com o segmento e o público?",
+    "Você é exigente como um diretor de arte de agência: este site vai ser mostrado ao dono do negócio para vender um projeto de site de uns R$ 10 mil. O dono tem que olhar e achar o site incrível. Avalie de 0 a 10:",
+    "O acabamento (grid, espaçamento, contraste) vem do sistema; o agente escolhe direção de arte, par de fontes, cores, fotos e escreve o texto (`conteudoDoSite`). Suas correções dizem o que mudar NESSAS escolhas: trocar direção, fontes, foto (diga qual arquivo), cor ou texto. `avisosDoSistema` lista fotos que o sistema recusou.",
+    "0. Impressiona? Tem cara própria deste negócio ou parece modelo pronto / feito por IA? Procure estes sinais de site gerado por IA (cada um é correção obrigatória):",
+    ...AI_TELLS.map((t) => `   - ${t}`),
+    "0b. As fotos são profissionais e fortes? Foto fraca, arte de post ou foto de evento num lugar de destaque derruba a nota. Fotos de banco de imagens (Pexels) são bem-vindas no topo e nos serviços.",
     "1. Visual: usa as cores e o logo da marca? As fotos são reais e bem usadas? Algo quebrado, cortado, sobreposto ou ilegível?",
     "1b. Olhe de perto: alguma foto está PIXELADA ou borrada (imagem pequena esticada)? Algum botão ou texto tem pouco contraste (ex.: letra escura sobre fundo escuro)? Cada um desses é correção obrigatória.",
     "2. Celular: o topo funciona no celular, texto legível, botão de agendar visível?",
@@ -186,17 +223,20 @@ export async function createSiteChain(opts: {
   const webId = await agentFor("agent-web", "web-dev");
   const qaId = await agentFor("agent-auditor", "mission-control");
   if (!webId || !qaId) return null;
-  const { dir, assets } = prepareSiteAssets(opts.handle, opts.brand);
+  // Segmento (odonto, estética, academia...) define referências de design e as buscas de fotos profissionais
+  const segment = segmentFor(`${opts.businessName} ${JSON.stringify(opts.brief.perfil ?? opts.brief).slice(0, 4000)}`);
+  const { dir, assets } = await prepareSiteAssets(opts.handle, opts.brand, segment.bancoDeImagens);
   const palette = (opts.brand?.paleta ?? null) as Json | null;
-  // O agente vê as fotos que podem ir para o site (as maiores primeiro) e o logo
+  // O agente vê as fotos que podem ir para o site (as do cliente e as de banco, maiores primeiro) e o logo
   const usable = assets
-    .filter((a) => !/logo-instagram/.test(a.file) && (a.width ?? 0) >= 480)
+    .filter((a) => !/logo/.test(a.file) && (a.width ?? 0) >= 480)
     .sort((a, b) => (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0));
   const logo = assets.find((a) => /^assets\/logo\./.test(a.file));
-  const imagePaths = [...(logo ? [logo] : []), ...usable].slice(0, 8).map((a) => path.join(dir, a.file));
+  const imagePaths = [...(logo ? [logo] : []), ...usable].slice(0, 10).map((a) => path.join(dir, a.file));
   const suffix = attempt > 1 ? ` (tentativa ${attempt})` : "";
   const hasWhatsapp = Array.isArray(opts.brief.whatsappEncontrado) && (opts.brief.whatsappEncontrado as unknown[]).length > 0;
   const isHealth = typeof opts.brief.negocioDeSaude === "boolean" ? (opts.brief.negocioDeSaude as boolean) : HEALTH_HINT.test(JSON.stringify(opts.brief.perfil ?? opts.brief).slice(0, 4000));
+  const hasStock = assets.some((a) => /^assets\/banco-/.test(a.file));
 
   const build = await prisma.task.create({
     data: {
@@ -204,7 +244,7 @@ export async function createSiteChain(opts: {
       agentId: webId,
       title: `Produção: site novo${isHealth ? " da clínica" : ""}${suffix}`,
       description: "Conteúdo, fotos, cores e direção de arte do site; o sistema monta o site premium e publica.",
-      instructions: buildInstructions({ businessName: opts.businessName, handle: opts.handle, assets, attempt, feedback: opts.feedback, recent: await recentStyles(), hasWhatsapp, isHealth }),
+      instructions: buildInstructions({ businessName: opts.businessName, handle: opts.handle, assets, attempt, feedback: opts.feedback, recent: await recentStyles(), hasWhatsapp, isHealth, segment, hasStock }),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       input: {
         fase: "producao",

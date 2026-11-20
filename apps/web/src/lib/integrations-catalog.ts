@@ -123,6 +123,15 @@ export const INTEGRATIONS: IntegrationDef[] = [
     fields: [{ key: "token", label: "Token (opcional)", secret: true, placeholder: "xxxxxxxx", env: "VERCEL_TOKEN" }],
     whereToGet: "vercel.com > Account Settings > Tokens",
   },
+  {
+    id: "pexels",
+    name: "Pexels (fotos profissionais)",
+    category: "infrastructure",
+    description: "Banco de fotos profissionais gratuito (uso comercial liberado, sem precisar dar crédito). Os sites das clínicas usam essas fotos no topo e nos serviços quando o cliente não tem fotos boas.",
+    usedBy: "Fotos dos sites criados pela LOTUS",
+    fields: [{ key: "apiKey", label: "Chave da API", secret: true, placeholder: "cole a chave do Pexels", env: "PEXELS_API_KEY" }],
+    whereToGet: "pexels.com/api > crie a conta grátis > Your API Key",
+  },
 ];
 
 function rawValue(def: IntegrationDef, field: IntegrationField): string {
@@ -198,6 +207,12 @@ export async function testIntegration(id: string): Promise<{ ok: boolean; messag
         return { ok: true, message: `Conectado como ${data.name}; conta de anúncios "${accData.name}".` };
       }
       return { ok: true, message: `Token válido (${data.name}). Falta o ID da conta de anúncios.` };
+    }
+    if (id === "pexels") {
+      const key = value("apiKey");
+      if (!key) return { ok: false, message: "Cole a chave do Pexels." };
+      const { testPexels } = await import("@/lib/stock-photos");
+      return testPexels(key);
     }
     if (id === "vercel") {
       const { exec } = await import("child_process");
