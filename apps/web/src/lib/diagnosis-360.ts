@@ -75,6 +75,51 @@ function businessNameFromTitle(title: string, handle: string): string {
   return name && !/^instagram$/i.test(name) ? name : `@${handle}`;
 }
 
+// Logado no Instagram, o título da página vira só "Instagram": o nome do perfil é a linha depois de "seguindo".
+function businessNameFromProfile(profile: InstagramProfile, handle: string): string {
+  const fromTitle = businessNameFromTitle(profile.fullTitle, handle);
+  if (!fromTitle.startsWith("@")) return fromTitle;
+  const header = profile.headerText ?? "";
+  const after = header.split(/\b(?:seguindo|following)\b/i)[1] ?? "";
+  const line = after.split(/\n+/).map((l) => l.trim()).find((l) => l && l.toLowerCase() !== handle.toLowerCase());
+  if (line && line.length >= 3 && line.length <= 90) {
+    const name = businessNameFromTitle(line, handle);
+    if (!name.startsWith("@")) return name;
+  }
+  return fromTitle;
+}
+
+const GENERIC_WORDS = new Set(["clinica", "clinic", "odontologia", "odontologica", "dentista", "consultorio", "instagram", "oficial", "saude", "estetica", "centro", "studio", "espaco", "instituto", "grupo", "brasil", "official"]);
+
+function normalizeText(value: string): string {
+  return value.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+function nameTokens(value: string): string[] {
+  return normalizeText(value).split(/[^a-z0-9]+/).filter((t) => t.length >= 4 && !GENERIC_WORDS.has(t));
+}
+
+// O texto (domínio, título) é do próprio negócio? Ex.: oulab.com.br não é do @marciolucas10, mesmo sendo o link da bio dele.
+function mentionsBusiness(text: string, businessName: string, handle: string): boolean {
+  const hay = normalizeText(text);
+  const compactHandle = normalizeText(handle).replace(/[^a-z0-9]/g, "");
+  const tokens = [...new Set([...nameTokens(businessName), ...nameTokens(handle.replace(/[._]/g, " "))])];
+  return tokens.some((t) => hay.includes(t)) || (compactHandle.length >= 5 && hay.replace(/[^a-z0-9]/g, "").includes(compactHandle));
+}
+
+function siteIsOwn(site: Json | { erro: string } | null, businessName: string, handle: string): boolean {
+  if (!site || "erro" in site) return false;
+  let host = "";
+  try {
+    host = new URL(String(site.finalUrl ?? site.url ?? "")).hostname;
+  } catch {
+    /* sem url */
+  }
+  return mentionsBusiness(`${host} ${String(site.title ?? "")}`, businessName, handle);
+}
+
+const HEALTH_WORDS = /odonto|dent[ai]|cl[ií]nica|m[eé]dic|\bdr\.?\s|\bdra\.?\s|cirurgi|est[eé]tica|harmoniza|fisioter|nutri[cç]|nutricionista|psic[oó]|sa[uú]de|dermat|implante|ortodon|bari[aá]tric|biom[eé]dic|fonoaud|podolog|oftalm|ginecol|pediatr|cardiol|ortoped|botox|preenchimento|lentes de contato dental|veterin/i;
+
 // Indicadores calculados direto dos dados (sem IA), para os agentes partirem de números reais.
 // Os primeiros posts do perfil podem ser FIXADOS (antigos, escolhidos pelo dono). Eles entram na análise
 // de conteúdo, mas não podem entrar na frequência nem na média de engajamento: um viral fixado de meses
@@ -256,7 +301,9 @@ async function collectAndAnalyze(ctx: {
     throw new Error(reason);
   }
 
-  const businessName = businessNameFromTitle(profile.fullTitle, handle);
+  const businessName = businessNameFromProfile(profile, handle);
+  // O diagnóstico, a mensagem de teste e as regras de publicidade são pensados para clínicas e saúde
+  const isHealth = HEALTH_WORDS.test(`${businessName} ${profile.bio} ${profile.headerText} ${profile.highlights.join(" ")}`);
 
   // 2) Link da bio / site
   const candidateSite = input.website || profile.externalLinks.find((l) => !SOCIAL_OR_CHAT.test(l)) || null;
@@ -298,22 +345,48 @@ async function collectAndAnalyze(ctx: {
   const maps = await safeCollect("Google Maps", () => runtime.call("/runtime/research/maps", { query: mapsQuery }, 90_000) as Promise<Json>);
 
   // 4b) Ficha completa do negócio no Google, com o texto das avaliações
-  const place = await safeCollect("Ficha do Google", () =>
+  const placeRaw = await safeCollect("Ficha do Google", () =>
     runtime.call("/runtime/research/place", { query: mapsQuery, name: businessName.startsWith("@") ? handle : businessName }, 150_000) as Promise<Json>
   );
 
+  let place: Json | { erro: string } = placeRaw;
+  if (!hasError(placeRaw) && placeRaw.encontrado) {
+    const sameName = mentionsBusiness(String(placeRaw.nome ?? ""), businessName, handle);
+    const placePhone = String(placeRaw.telefone ?? "").replace(/\D/g, "");
+    const knownPhones = profile.externalLinks.map((l) => decodeURIComponent(l).match(/(?:phone=|wa\.me\/)\+?(\d{10,15})/)?.[1]).filter(Boolean) as string[];
+    const sameContact = !!placePhone && knownPhones.some((n) => n.endsWith(placePhone.slice(-8)));
+    const sameSite = [site, mainSite].some((s) => s && !hasError(s) && String(placeRaw.site ?? "").trim() !== "" && String(s.finalUrl ?? "").includes(String(placeRaw.site).trim().replace(/^www\./, "")));
+    const healthCategory = HEALTH_WORDS.test(String(placeRaw.categoria ?? "")) || /dentist|m[eé]dic|cl[ií]nic/i.test(String(placeRaw.categoria ?? ""));
+    const confirmed = sameName && (sameContact || sameSite || !!input.city || (isHealth && healthCategory));
+    if (!confirmed) {
+      place = {
+        query: placeRaw.query,
+        encontrado: false,
+        fichaDescartada: { nome: placeRaw.nome, categoria: placeRaw.categoria },
+        observacao: `O Google mostrou "${String(placeRaw.nome)}" (${String(placeRaw.categoria ?? "sem categoria")}), mas não há como confirmar que é este negócio (pode ser outra pessoa com nome parecido). Ficha ignorada.`,
+      };
+    }
+  }
+
+  // Sites só contam como "do negócio" se o domínio ou o título forem dele (link da bio pode ser de um parceiro)
+  for (const s of [site, mainSite]) {
+    if (s && !hasError(s)) {
+      const own = siteIsOwn(s, businessName, handle);
+      (s as Json).ehDoProprioNegocio = own;
+      if (!own) (s as Json).observacaoDeIdentidade = "Este link não parece ser do próprio negócio (domínio e título não têm o nome dele): pode ser loja de parceiro, publi ou indicação. WhatsApp, CNPJ e marca deste site NÃO foram atribuídos ao negócio.";
+    }
+  }
+  const ownSites = [mainSite, site].filter((s) => s && !hasError(s) && (s as Json).ehDoProprioNegocio) as Json[];
+
   // 4c) Kit da marca: logo, fotos e cores reais (base do site novo e da análise visual)
-  const brandSite =
-    [mainSite, site]
-      .map((s) => (s && !hasError(s) && !s.isLinkAggregator && !s.redirectsToWhatsApp && s.finalUrl ? String(s.finalUrl) : ""))
-      .find(Boolean) || null;
+  const brandSite = ownSites.map((s) => (!s.isLinkAggregator && !s.redirectsToWhatsApp && s.finalUrl ? String(s.finalUrl) : "")).find(Boolean) || null;
   const brand = await safeCollect("Marca", () => runtime.call("/runtime/research/brand", { handle, site: brandSite }, 200_000) as Promise<Json>);
 
   // 4d) Pessoas ligadas ao negócio (dono, sócios, dentistas): perfis citados na bio, no site e nas legendas
-  const people = await collectPeople(runtime, handle, profile, [site, mainSite]);
+  const people = await collectPeople(runtime, handle, profile, ownSites);
 
   // 4e) Dados públicos da empresa pelo CNPJ (Receita Federal, via BrasilAPI)
-  const cnpjs = [site, mainSite].flatMap((s) => (s && !hasError(s) ? ((s.cnpjs as string[] | undefined) ?? []) : []));
+  const cnpjs = ownSites.flatMap((s) => (s.cnpjs as string[] | undefined) ?? []);
   const company = cnpjs.length > 0 ? await lookupCnpj(cnpjs[0]) : { observacao: "Nenhum CNPJ publicado no site; dá para pedir na reunião ou procurar pelo nome na Receita." };
 
   // 5) Vídeos: transcrição da fala e quadros dos 3 reels mais recentes
@@ -341,8 +414,7 @@ async function collectAndAnalyze(ctx: {
   // WhatsApp encontrado na bio ou no site
   const whatsappNumbers = [
     ...profile.externalLinks.map((l) => decodeURIComponent(l).match(/(?:phone=|wa\.me\/)\+?(\d{10,15})/)?.[1]),
-    ...(!hasError(site) && site ? ((site.whatsappNumbers as string[] | undefined) ?? []) : []),
-    ...(!hasError(mainSite) && mainSite ? ((mainSite.whatsappNumbers as string[] | undefined) ?? []) : []),
+    ...ownSites.flatMap((s) => (s.whatsappNumbers as string[] | undefined) ?? []),
   ].filter((n): n is string => !!n);
   const whatsapp = [...new Set(whatsappNumbers)];
 
@@ -382,6 +454,7 @@ async function collectAndAnalyze(ctx: {
     pessoasLigadas: people,
     empresa: company,
     whatsappEncontrado: whatsapp,
+    tipoDeNegocio: isHealth ? "clínica / área da saúde" : "NÃO parece clínica nem área da saúde (pode ser influenciador, loja ou outro tipo de negócio)",
     coletadoEm: new Date().toISOString(),
   };
 
@@ -392,7 +465,8 @@ async function collectAndAnalyze(ctx: {
     `- Engajamento (mediana dos posts recentes): ${metrics.taxaDeEngajamentoMedianaPct ?? "n/d"}% · Posts por semana: ${metrics.postsPorSemana ?? "n/d"} · Último post há ${metrics.diasDesdeOUltimoPost ?? "?"} dia(s) · Fixados no topo: ${metrics.postsFixadosNoTopo.length}`,
     `- Link na bio: ${candidateSite ?? "nenhum"}`,
     `- Anúncios ativos do próprio negócio na Meta: ${hasError(ads) ? "não foi possível verificar" : matchingAds.length}`,
-    `- WhatsApp encontrado: ${whatsapp.join(", ") || "nenhum"}`,
+    `- WhatsApp do próprio negócio: ${whatsapp.join(", ") || "nenhum"}`,
+    `- Tipo de negócio: ${isHealth ? "clínica / saúde" : "NÃO parece clínica nem saúde"}`,
     `- Vídeos analisados: ${videos.length}`,
     ``,
     "```json",
@@ -410,10 +484,13 @@ async function collectAndAnalyze(ctx: {
     data: { clientId, missionId, taskId: collectTaskId, action: "DIAGNOSIS_DATA_COLLECTED", details: { handle, posts: profile.posts.length, videos: videos.length, ads: matchingAds.length, whatsapp: whatsapp.length }, level: "INFO" },
   });
 
-  await createAnalysisTasks({ missionId, businessName, handle, profile, metrics, videos, site, mainSite, candidateSite, ads: collected.anuncios as Json, maps, place, brand, people, company, whatsapp, produce: input.produce !== false });
+  await createAnalysisTasks({ missionId, businessName, handle, profile, metrics, videos, site, mainSite, candidateSite, ads: collected.anuncios as Json, maps, place, brand, people, company, whatsapp, isHealth, produce: input.produce !== false });
 
-  // Teste de atendimento no WhatsApp
-  if (whatsapp.length > 0) {
+  // Teste de atendimento no WhatsApp: só para negócio de saúde (a mensagem é de paciente querendo agendar avaliação)
+  if (whatsapp.length > 0 && !isHealth) {
+    await prisma.activityLog.create({ data: { clientId, missionId, action: "WHATSAPP_PROBE_SKIPPED", details: { motivo: "O perfil não parece ser de clínica ou da área da saúde" }, level: "WARN" } });
+  }
+  if (whatsapp.length > 0 && isHealth) {
     const payload = { action: "whatsapp_probe", phone: whatsapp[0], message: WHATSAPP_PROBE_MESSAGE, clientId, agentId: await resolveAgent("agent-sales", "sales") };
     const approval = await prisma.approval.create({
       data: {
@@ -452,6 +529,7 @@ interface AnalysisContext {
   people: Json[];
   company: Json;
   whatsapp: string[];
+  isHealth: boolean;
   produce: boolean;
 }
 
@@ -726,6 +804,18 @@ async function createAnalysisTasks(c: AnalysisContext): Promise<void> {
   if (perfilDef && !hasError(c.brand)) {
     perfilDef.input = { ...perfilDef.input, coresDaMarca: (c.brand.paleta as Json | undefined)?.coresDaMarca ?? null };
     perfilDef.instructions += "\n6. Identidade visual: as cores reais da marca (coresDaMarca) e o logo aparecem com consistência nos posts? A estética combina com o público que a clínica quer atrair?";
+  }
+
+  // Todas as frentes sabem que tipo de negócio é: se não for saúde, adaptam a linguagem e pulam as regras do CFO/CRM
+  for (const def of definitions) {
+    def.input = { ...def.input, tipoDeNegocio: c.isHealth ? "clínica / área da saúde" : "NÃO parece clínica nem área da saúde" };
+    if (!c.isHealth) {
+      def.instructions += "\nATENÇÃO: os dados indicam que este perfil NÃO é uma clínica nem da área da saúde. Diga isso no início, adapte a análise ao tipo real de negócio (ex.: influenciador, marca pessoal, loja), troque 'paciente' por 'cliente' ou 'seguidor' e não aplique regras de publicidade em saúde. Não invente que é clínica.";
+    }
+  }
+  if (!c.isHealth) {
+    const idx = definitions.findIndex((d) => d.key === "compliance");
+    if (idx >= 0) definitions.splice(idx, 1);
   }
 
   const analysisIds: string[] = [];
