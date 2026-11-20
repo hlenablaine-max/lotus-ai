@@ -58,7 +58,7 @@ interface Patient {
   purchases: Array<{ id: string; date: string; value: number; procedure: string | null }>;
 }
 interface Detail {
-  conversation: { id: string; name: string | null; phone: string | null; source: string; sourceBy: string | null; campaign: string | null; aiHint: string | null; firstResponseMin: number | null; fromHistory: boolean; leadId: string | null };
+  conversation: { id: string; name: string | null; phone: string | null; source: string; sourceBy: string | null; campaign: string | null; aiHint: string | null; firstResponseMin: number | null; fromHistory: boolean; leadId: string | null; aiDraft: string | null; aiPausedUntil: string | null };
   messages: Msg[];
   lead: Lead | null;
   patient: Patient | null;
@@ -307,6 +307,13 @@ export function Inbox({ clientId, connected, initialFilter = "todas" }: { client
               {conv && (
                 <div className="ml-auto flex items-center gap-2">
                   <SourcePill source={conv.source} campaign={conv.campaign} />
+                  <button
+                    onClick={() => void patch({ aiPauseHours: conv.aiPausedUntil && new Date(conv.aiPausedUntil) > new Date() ? 0 : 24 }).then(() => flash(conv.aiPausedUntil && new Date(conv.aiPausedUntil) > new Date() ? "IA retomada nesta conversa" : "IA pausada por 24 h nesta conversa"))}
+                    className={cn("text-[10px] px-2 py-0.5 rounded-md border", conv.aiPausedUntil && new Date(conv.aiPausedUntil) > new Date() ? "border-amber-500/40 text-amber-300" : "border-violet-500/40 text-violet-300")}
+                    title="A IA atendente só age se estiver ligada em Automações"
+                  >
+                    {conv.aiPausedUntil && new Date(conv.aiPausedUntil) > new Date() ? "IA pausada · retomar" : "IA ativa · pausar"}
+                  </button>
                   {conv.sourceBy && <span className="hidden lg:inline text-[10px] text-muted-foreground">{conv.sourceBy === "saudacao" ? "pela saudação" : conv.sourceBy === "base" ? "está na base" : conv.sourceBy === "campanha" ? "respondeu campanha" : conv.sourceBy === "codigo" ? "código de indicação" : "marcado à mão"}</span>}
                 </div>
               )}
@@ -341,6 +348,17 @@ export function Inbox({ clientId, connected, initialFilter = "todas" }: { client
               <div ref={endRef} />
             </div>
 
+            {conv?.aiDraft && (
+              <div className="mx-4 mb-2 rounded-xl border border-violet-400/50 bg-violet-500/15 p-3 text-xs space-y-2">
+                <div className="flex items-center gap-2 text-violet-200 font-semibold"><Sparkles className="w-3.5 h-3.5" /> A IA escreveu esta resposta. Envia?</div>
+                <p className="text-foreground whitespace-pre-wrap">{conv.aiDraft}</p>
+                <div className="flex flex-wrap gap-2">
+                  <button onClick={() => void patch({ sendDraft: true }).then(() => flash("Resposta da IA enviada"))} className="px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-medium hover:bg-violet-500">Enviar</button>
+                  <button onClick={() => { setText(conv.aiDraft ?? ""); void patch({ discardDraft: true }); }} className={cn(btnGhost, "py-1.5 text-xs")}>Editar antes</button>
+                  <button onClick={() => void patch({ discardDraft: true })} className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:text-red-300">Descartar</button>
+                </div>
+              </div>
+            )}
             {suggestion && (
               <div className="mx-4 mb-2 rounded-xl border border-violet-500/30 bg-violet-500/10 p-3 text-xs space-y-1.5">
                 <div className="flex items-center gap-2">

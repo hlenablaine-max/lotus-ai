@@ -17,6 +17,19 @@ export async function GET() {
   const notifications: Notification[] = [];
 
   try {
+    // Avisos do atendimento e da prospecção (alguém respondeu, a IA agendou, pediram humano...)
+    const events = await prisma.appNotification.findMany({ where: { createdAt: { gte: new Date(Date.now() - 3 * 86_400_000) } }, orderBy: { createdAt: "desc" }, take: 25 });
+    for (const e of events) {
+      notifications.push({
+        id: `app-${e.id}`,
+        severity: e.kind === "humano" || e.kind === "prospect" || e.kind === "agendou" ? "critical" : "info",
+        title: e.title,
+        body: e.body,
+        action: "Abrir",
+        href: e.href ?? "/",
+        ts: e.createdAt.getTime(),
+      });
+    }
     const now = Date.now();
     const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
     const threeDaysAgo = new Date(now - 3 * 24 * 60 * 60 * 1000);

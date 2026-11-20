@@ -12,6 +12,7 @@ import { createRuntimeClient } from "@/lib/runtime-client";
 import { imageSize } from "@/lib/image-size";
 import { SITE_STYLES, STYLE_GUIDE, renderSite, type SiteContent } from "@/lib/site-render";
 import { AI_TELLS, DESIGN_PRINCIPLES, FONT_PAIRS, segmentFor, type SegmentPlaybook } from "@/lib/design-knowledge";
+import { triagePhotos, usableVerdict, type PhotoVerdict } from "@/lib/photo-triage";
 import { awwwardsCategoryLabel, awwwardsReferences, type AwwwardsRef } from "@/lib/awwwards";
 import { stockPhotosFor } from "@/lib/stock-photos";
 import { aiPhotosFor } from "@/lib/ai-photos";
@@ -84,11 +85,13 @@ export async function prepareSiteAssets(
   const assets: PreparedAsset[] = [];
   // Fotos criadas por IA (chave do ChatGPT) para o topo e os serviços; reaproveitadas nas tentativas seguintes
   const brandColor = ((brand?.paleta as Json | undefined)?.coresDaMarca as Array<{ hex?: string }> | undefined)?.[0]?.hex;
+  // Triagem das fotos REAIS: a IA separa foto de verdade (paciente, profissional, equipe, clínica) de arte com texto
+  const realFiles = [...((brand?.fotosSite as string[] | undefined) ?? []).slice(0, 8), ...((brand?.fotosInstagram as string[] | undefined) ?? []).slice(0, 9)].filter((f) => typeof f === "string" && fs.existsSync(f));
+  const verdicts = await triagePhotos(realFiles).catch(() => new Map<string, PhotoVerdict>());
   // O site tem que ter a cara da clínica: com 4+ fotos reais boas, nada de foto de IA; com 1 a 3, no máximo 2 para completar
-  const realGood = [...((brand?.fotosSite as string[] | undefined) ?? []), ...((brand?.fotosInstagram as string[] | undefined) ?? [])].filter((f) => {
-    if (typeof f !== "string" || !fs.existsSync(f)) return false;
+  const realGood = realFiles.filter((f) => {
     const s = imageSize(f);
-    return !!s && s.width >= 600 && s.height >= 600;
+    return !!s && s.width >= 600 && s.height >= 600 && usableVerdict(verdicts.get(f));
   }).length;
   aiPrompts = realGood >= 4 ? [] : realGood >= 1 ? aiPrompts.slice(0, 2) : aiPrompts;
   const aiPhotos = aiPrompts.length ? await aiPhotosFor(handle, aiPrompts.map((p) => ({ ...p, prompt: p.prompt.replace(/\{cor\}/g, colorWord(brandColor)) }))) : [];
@@ -122,6 +125,10 @@ export async function prepareSiteAssets(
   if (!brand) return { dir, assets };
   const copy = (source: unknown, name: string, descricao: string) => {
     if (typeof source !== "string" || !fs.existsSync(source)) return;
+    const v = verdicts.get(source);
+    // Arte com texto, pôster ou procedimento não entra no site
+    if (v && !usableVerdict(v)) return;
+    if (v) descricao = `FOTO REAL do cliente — ${v.tipo}: ${v.descricao} (qualidade ${v.nota}/5, sem texto por cima). PRIORIDADE no site`;
     const file = `assets/${name}${path.extname(source).toLowerCase()}`;
     fs.copyFileSync(source, path.join(dir, file));
     const size = imageSize(source);

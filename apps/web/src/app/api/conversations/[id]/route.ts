@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireOwner } from "@/lib/require-owner";
 import { applyLeadUpdate } from "@/lib/lead-update";
-import { referralLink } from "@/lib/whatsapp";
+import { referralLink, sendNow } from "@/lib/whatsapp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,6 +42,31 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
 
   if (typeof body.name === "string" && body.name.trim()) await prisma.conversation.update({ where: { id }, data: { name: body.name.trim() } });
+  // IA: pausar (horas) ou retomar (0) nesta conversa; descartar o rascunho
+  if (typeof body.aiPauseHours === "number") {
+    await prisma.conversation.update({ where: { id }, data: { aiPausedUntil: body.aiPauseHours > 0 ? new Date(Date.now() + body.aiPauseHours * 3_600_000) : null } });
+  }
+  if (body.discardDraft) await prisma.conversation.update({ where: { id }, data: { aiDraft: null, aiDraftAction: null } });
+  // Enviar o rascunho da IA (do jeito que está ou editado)
+  if (body.sendDraft) {
+    const text = String(typeof body.draftText === "string" ? body.draftText : conv.aiDraft ?? "").trim();
+    if (!text) return Response.json({ error: "Rascunho vazio" }, { status: 400 });
+    try {
+      await sendNow(conv.clientId, { jid: conv.jid, phone: conv.phone }, text, "ia");
+      await prisma.conversation.update({ where: { id }, data: { aiDraft: null, aiDraftAction: null } });
+      // A ação que a IA tinha decidido acontece agora, junto com o envio
+      const action = conv.aiDraftAction ?? "";
+      if (action.startsWith("agendar:")) {
+        const when = action.slice(8);
+        if (conv.leadId) await applyLeadUpdate(conv.leadId, { appointmentAt: when });
+        if (conv.prospectId) await prisma.prospect.update({ where: { id: conv.prospectId }, data: { status: "CALL_MARCADA", notes: `Call: ${when}` } });
+      } else if (action.startsWith("humano:")) {
+        await prisma.conversation.update({ where: { id }, data: { aiPausedUntil: new Date(Date.now() + 24 * 3_600_000) } });
+      }
+    } catch (err) {
+      return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 502 });
+    }
+  }
   if (typeof body.optOut === "boolean" && conv.patientId) await prisma.patient.update({ where: { id: conv.patientId }, data: { optOut: body.optOut } });
 
   let leadId = conv.leadId;

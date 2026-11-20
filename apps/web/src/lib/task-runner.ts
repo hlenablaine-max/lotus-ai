@@ -120,7 +120,7 @@ export function runTask(taskId: string, opts: { permissionMode?: PermissionMode 
 async function executeAndAdvance(taskId: string, opts: { permissionMode?: PermissionMode }): Promise<void> {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
-    select: { id: true, status: true, agentId: true, missionId: true, dependsOn: true, retryCount: true, maxRetries: true, input: true },
+    select: { id: true, status: true, agentId: true, missionId: true, dependsOn: true, retryCount: true, maxRetries: true, input: true, output: true },
   });
   if (!task || !task.agentId) return;
   if (task.status === "IN_PROGRESS" || TERMINAL.has(task.status)) return;
@@ -170,14 +170,27 @@ async function executeAndAdvance(taskId: string, opts: { permissionMode?: Permis
       }
     } else {
     const { DB_TOOL_DEFS, createDbToolExecutor } = await import("@/lib/root-master-tools");
-    await executeTask(taskId, executorDb(), {
-      provider: creationProviderFor(task.input),
-      permissionMode: opts.permissionMode ?? loadSettings().agent.permissionMode,
-      images: loadTaskImages(task.input),
-      extraTools: DB_TOOL_DEFS.filter((t) => AGENT_WEB_TOOLS.has(t.name)),
-      extraToolExecutor: createDbToolExecutor(),
-      signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
-    });
+    const refused = (out: unknown) => /pol[ií]tica de uso|Usage Policy/i.test(String((out as { error?: unknown } | null)?.error ?? ""));
+    const run = (provider: AIProvider | undefined) =>
+      executeTask(taskId, executorDb(), {
+        provider,
+        permissionMode: opts.permissionMode ?? loadSettings().agent.permissionMode,
+        images: loadTaskImages(task.input),
+        extraTools: DB_TOOL_DEFS.filter((t) => AGENT_WEB_TOOLS.has(t.name)),
+        extraToolExecutor: createDbToolExecutor(),
+        signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
+      });
+    // Se o Claude já recusou esta tarefa pela política de uso, vai direto para o provedor ativo (Drael)
+    const creation = refused(task.output) ? undefined : creationProviderFor(task.input);
+    try {
+      await run(creation);
+    } catch (err) {
+      // Recusa do Claude: refaz NA HORA com o provedor ativo, sem gastar tentativa nem esperar
+      const after = await prisma.task.findUnique({ where: { id: taskId }, select: { output: true } });
+      if (!creation || !(refused(after?.output) || /pol[ií]tica de uso|Usage Policy/i.test(String(err)))) throw err;
+      await prisma.task.update({ where: { id: taskId }, data: { status: "IN_PROGRESS", retryCount: { decrement: 1 } } }).catch(() => {});
+      await run(undefined);
+    }
     }
   } catch {
     failed = true;

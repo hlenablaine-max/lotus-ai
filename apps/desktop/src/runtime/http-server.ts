@@ -162,7 +162,9 @@ export class RuntimeHttpServer {
       case '/runtime/wa/disconnect':
         return rt.whatsapp.disconnect(String(data.clientId ?? ''), !!data.logout)
       case '/runtime/wa/send':
-        return rt.whatsapp.send(String(data.clientId ?? ''), String(data.to ?? ''), String(data.text ?? ''))
+        return rt.whatsapp.send(String(data.clientId ?? ''), String(data.to ?? ''), String(data.text ?? ''), Number(data.maxWaitMs) || 120_000)
+      case '/runtime/wa/shield':
+        return { shield: rt.whatsapp.shieldStatus(String(data.clientId ?? '')) }
       case '/runtime/wa/check':
         return rt.whatsapp.checkNumber(String(data.clientId ?? ''), String(data.phone ?? ''))
       case '/runtime/qr':

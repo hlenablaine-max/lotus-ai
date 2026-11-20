@@ -204,6 +204,10 @@ model Conversation {
   unread          Int        @default(0)
   lastPreview     String?
   aiHint          String?    // leitura da IA: quente/morno/frio e próximo passo
+  aiDraft         String?    // resposta que a IA escreveu e espera aprovação (modo rascunho)
+  aiDraftAction   String?    // o que fazer ao enviar o rascunho: "agendar:<ISO>" | "humano:<motivo>"
+  aiPausedUntil   DateTime?  // a IA não responde até esta hora (um humano assumiu a conversa)
+  prospectId      String?    // conversa com uma clínica prospectada pela LOTUS
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
@@ -283,6 +287,49 @@ model Purchase {
   @@index([clientId, date])
   @@index([patientId])
   @@map("purchases")
+}
+
+// Avisos para o Ícaro dentro do app (sino e notificação do Windows): alguém respondeu, a IA agendou, pediram humano...
+model AppNotification {
+  id        String    @id @default(cuid())
+  kind      String    // resposta | agendou | humano | prospect | relatorio | sistema
+  title     String
+  body      String
+  href      String?
+  clientId  String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([createdAt])
+  @@map("app_notifications")
+}
+
+// Clínicas encontradas pela prospecção da LOTUS (Google Maps), com o gargalo e a abordagem personalizada
+model Prospect {
+  id             String    @id @default(cuid())
+  campaign       String    // ex.: "Odontologia em Feira de Santana — 20/11"
+  name           String
+  phone          String?   // só dígitos com 55
+  site           String?
+  instagram      String?
+  address        String?
+  rating         Float?
+  reviews        Int?
+  category       String?
+  score          Int       @default(0) // 0 a 100: quanto a clínica precisa da LOTUS
+  gargalos       Json?     // lista de problemas encontrados
+  message        String?   // primeira mensagem personalizada (para aprovar)
+  status         String    @default("APROVAR") // APROVAR | NA_FILA | ENVIADO | RESPONDEU | CONVERSANDO | CALL_MARCADA | SEM_INTERESSE | DESCARTADO | SEM_WHATSAPP
+  conversationId String?
+  sentAt         DateTime?
+  repliedAt      DateTime?
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([status, createdAt])
+  @@index([phone])
+  @@map("prospects")
 }
 
 // Fila de mensagens que a LOTUS vai mandar pelo WhatsApp da clínica (lembretes, campanhas, respostas)

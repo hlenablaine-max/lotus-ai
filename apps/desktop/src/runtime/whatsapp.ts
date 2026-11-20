@@ -6,6 +6,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import QRCode from 'qrcode'
 import pino from 'pino'
+import { WaShield } from './wa-shield'
 import { WORKSPACE_DIR } from './paths'
 
 // A biblioteca é ESM; o app de PC é CommonJS. Este import dinâmico não é reescrito pelo TypeScript.
@@ -34,6 +35,8 @@ interface Session {
   historyCount: number
   names: Map<string, string>
   sent: Map<string, any>
+  shield: WaShield
+  outgoing: Map<string, number> // mensagens que a LOTUS está mandando (para não confundir com alguém digitando no celular)
 }
 
 export interface WaMessageEvent {
@@ -48,6 +51,7 @@ export interface WaMessageEvent {
   kind: string
   sentAt: string
   history: boolean
+  viaApi?: boolean
 }
 export interface WaStatusEvent {
   type: 'status'
@@ -150,6 +154,11 @@ export class WhatsAppHub {
     return { state: s.state, qrImage: s.state === 'qr' ? s.qrImage : null, phone: s.phone, name: s.name, lastError: s.lastError, savedSession: true }
   }
 
+  shieldStatus(clientId: string) {
+    const s = this.sessions.get(safeId(clientId))
+    return s ? s.shield.status() : null
+  }
+
   list() {
     return [...this.sessions.values()].map((s) => ({ clientId: s.clientId, state: s.state, phone: s.phone, name: s.name }))
   }
@@ -172,6 +181,8 @@ export class WhatsAppHub {
       historyCount: 0,
       names: new Map(),
       sent: new Map(),
+      shield: new WaShield(path.join(WA_DIR, clientId)),
+      outgoing: new Map(),
     }
     session.state = 'conectando'
     session.stopping = false
@@ -311,6 +322,8 @@ export class WhatsAppHub {
     const fromMe = !!msg.key.fromMe
     const ts = Number(msg.messageTimestamp ?? 0) * 1000 || Date.now()
     const name = fromMe ? session.names.get(who.jid) ?? null : msg.pushName || session.names.get(who.jid) || null
+    // O escudo aprende com quem o número já conversa (contato conhecido não conta como "novo")
+    session.shield.seen(who.jid, !fromMe, ts)
     this.push({
       type: 'message',
       clientId: session.clientId,
@@ -323,6 +336,7 @@ export class WhatsAppHub {
       kind: info.kind,
       sentAt: new Date(ts).toISOString(),
       history,
+      viaApi: fromMe && (session.sent.has(msg.key.id) || session.outgoing.has(who.jid + "|" + info.text.trim())),
     })
     return true
   }
@@ -338,7 +352,9 @@ export class WhatsAppHub {
     return { exists: !!hit, jid: hit?.jid ?? null }
   }
 
-  async send(clientIdRaw: string, to: string, text: string): Promise<{ waId: string; jid: string; phone: string | null; sentAt: string }> {
+  // Toda mensagem passa pelo escudo anti-ban (fila, intervalo, "digitando…", limites). maxWaitMs: quanto a chamada
+  // aceita esperar na fila; se o escudo pedir mais, a chamada volta com "Escudo anti-ban ... Tenta de novo em N s".
+  async send(clientIdRaw: string, to: string, text: string, maxWaitMs = 120_000): Promise<{ waId: string; jid: string; phone: string | null; sentAt: string }> {
     const s = this.sessions.get(safeId(clientIdRaw))
     if (!s?.sock || s.state !== 'conectado') throw new Error('O WhatsApp deste cliente não está conectado.')
     const body = String(text ?? '').trim()
@@ -349,7 +365,21 @@ export class WhatsAppHub {
       if (!check.exists || !check.jid) throw new Error('Esse número não tem WhatsApp.')
       jid = check.jid
     }
-    const sent = await s.sock.sendMessage(jid, { text: body })
+    const sock = s.sock
+    const sent: any = await s.shield.run(
+      jid,
+      body,
+      async (state) => {
+        if (state === 'composing') await sock.presenceSubscribe(jid).catch(() => undefined)
+        await sock.sendPresenceUpdate(state, jid)
+      },
+      () => {
+        s.outgoing.set(jid + "|" + body, Date.now())
+        setTimeout(() => s.outgoing.delete(jid + "|" + body), 120_000)
+        return sock.sendMessage(jid, { text: body })
+      },
+      maxWaitMs
+    )
     if (sent?.key?.id) {
       s.sent.set(sent.key.id, sent)
       if (s.sent.size > 300) s.sent.delete(s.sent.keys().next().value as string)

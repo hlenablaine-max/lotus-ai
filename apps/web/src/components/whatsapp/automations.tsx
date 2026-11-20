@@ -3,6 +3,7 @@
 // Automações do WhatsApp da clínica: o que a LOTUS manda sozinha, com o texto de cada uma e o que já saiu.
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Ban, CalendarCheck, Cake, Gift, Hand, Loader2, RotateCcw, Save, ShieldCheck, Star, Wallet } from "lucide-react";
+import { AiBlock, ReportBlock } from "./ai-settings";
 import { cn } from "@/lib/utils";
 import { Card, Notice, Toggle, btnGhost, btnPrimary, field, fmtDate, fmtTime } from "./ui";
 
@@ -16,6 +17,8 @@ type Settings = {
   retorno: { on: boolean; meses: number; texto: string; porDia: number };
   aniversario: { on: boolean; texto: string };
   indicacao: { on: boolean; texto: string; diasDepois: number };
+  ia: { on: boolean; modo: "automatico" | "rascunho"; conhecimento: string; agenda: { dias: number[]; inicio: string; fim: string; duracaoMin: number; almoco: string }; pausaHumanoHoras: number };
+  relatorio: { on: boolean; telefone: string; dia: number; hora: number };
 };
 interface Outbox {
   items: Array<{ id: string; label: string; status: string; body: string; phone: string | null; scheduledFor: string; sentAt: string | null; error: string | null; campaignId: string | null }>;
@@ -111,6 +114,9 @@ export function Automations({ clientId, initial, connected }: { clientId: string
             <Num value={s.porHora} onChange={(n) => setS({ ...s, porHora: n })} suffix="por hora, no máximo" max={60} />
           </div>
         </Card>
+
+        <AiBlock value={s.ia} onChange={(ia) => setS({ ...s, ia })} />
+        <ReportBlock clientId={clientId} value={s.relatorio} onChange={(relatorio) => setS({ ...s, relatorio })} />
 
         <Block icon={<Hand className="w-4 h-4" />} title="Boas-vindas na hora" why="Responde em segundos quando um lead novo chama (inclusive de madrugada). Quem responde primeiro agenda mais." on={s.boasVindas.on} onToggle={(v) => set("boasVindas", { on: v })}>
           <textarea className={cn(field, "text-xs resize-none")} rows={2} value={s.boasVindas.texto} onChange={(e) => set("boasVindas", { texto: e.target.value })} />

@@ -4,6 +4,8 @@
 import type { LeadSource } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createRuntimeClient } from "@/lib/runtime-client";
+import { defaultAi, type AiSettings } from "@/lib/ai-attendant";
+import { notify } from "@/lib/notify";
 
 export interface TrackedLink {
   id: string;
@@ -27,6 +29,7 @@ export interface MessageEvent {
   kind: string;
   sentAt: string;
   history: boolean;
+  viaApi?: boolean; // saiu pela LOTUS (app, IA, automação), não digitado no celular
 }
 export interface StatusEvent {
   type: "status";
@@ -294,6 +297,7 @@ async function ingestLive(ev: MessageEvent) {
   }
 
   await prisma.conversation.update({ where: { id: conv.id }, data: update });
+  await afterLiveMessage(ev, conv.id).catch((err) => console.error("[whatsapp] pós-mensagem:", err instanceof Error ? err.message : err));
 }
 
 // Histórico que o celular manda ao conectar: entra em lote, sem criar leads (não são contatos novos)
@@ -374,12 +378,12 @@ export function fillTemplate(text: string, vars: Record<string, string | null | 
   }).replace(/\s+([,.!?])/g, "$1").replace(/ {2,}/g, " ").trim();
 }
 
-export async function sendNow(clientId: string, to: { jid?: string | null; phone?: string | null }, text: string, sentBy: "lotus" | "automacao") {
+export async function sendNow(clientId: string, to: { jid?: string | null; phone?: string | null }, text: string, sentBy: "lotus" | "automacao" | "ia", maxWaitMs = 120_000) {
   const runtime = createRuntimeClient();
   if (!(await runtime.available())) throw new Error("Abra o aplicativo LOTUS neste computador para enviar mensagens.");
   const target = to.jid || normalizePhone(to.phone);
   if (!target) throw new Error("Contato sem número.");
-  const res = (await runtime.call("/runtime/wa/send", { clientId, to: target, text }, 60_000)) as { waId: string; jid: string; phone: string | null; sentAt: string };
+  const res = (await runtime.call("/runtime/wa/send", { clientId, to: target, text, maxWaitMs }, maxWaitMs + 45_000)) as { waId: string; jid: string; phone: string | null; sentAt: string };
   const sentAt = new Date(res.sentAt);
   const phone = normalizePhone(res.phone ?? to.phone ?? null);
   let conv = await findConversation(clientId, res.jid, phone);
@@ -426,6 +430,8 @@ export interface AutomationSettings {
   retorno: { on: boolean; meses: number; texto: string; porDia: number };
   aniversario: { on: boolean; texto: string };
   indicacao: { on: boolean; texto: string; diasDepois: number };
+  ia: AiSettings; // IA que atende e agenda sozinha
+  relatorio: { on: boolean; telefone: string; dia: number; hora: number }; // resumo semanal no WhatsApp do dono
 }
 
 export function defaultSettings(): AutomationSettings {
@@ -443,6 +449,8 @@ export function defaultSettings(): AutomationSettings {
     retorno: { on: false, meses: 6, texto: "Oi, {primeiro_nome}! Já faz um tempinho desde sua última visita à {clinica}. Que tal agendar seu retorno? Temos horários nesta semana.", porDia: 25 },
     aniversario: { on: false, texto: "Feliz aniversário, {primeiro_nome}! A {clinica} preparou um presente para você este mês. Quer saber qual é?" },
     indicacao: { on: false, texto: "{primeiro_nome}, que bom ter você com a gente! Se indicar um amigo, ele só precisa mandar mensagem por este link: {link_indicacao}", diasDepois: 7 },
+    ia: defaultAi(),
+    relatorio: { on: false, telefone: "", dia: 1, hora: 9 },
   };
 }
 
@@ -675,4 +683,57 @@ export async function patientStats(clientId: string) {
     top: [...patients].sort((a, b) => b.totalSpent - a.totalSpent).slice(0, 10).map((p) => ({ id: p.id, name: p.name, totalSpent: p.totalSpent, visits: p.visits, lastVisitAt: p.lastVisitAt, origin: p.origin })),
     topReferrers: [...referrers.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id, count]) => ({ id, name: byId.get(id)?.name ?? "—", count })),
   };
+}
+
+// ===== Depois de cada mensagem ao vivo: IA atendente, pausa quando humano assume, prospect respondeu =====
+
+export const LOTUS_SLUG = "lotus-interno";
+
+// Cliente interno da LOTUS: o WhatsApp do Ícaro (prospecção, avisos de diagnóstico, relatórios para os donos)
+export async function ensureLotusClient(): Promise<{ id: string; name: string }> {
+  const found = await prisma.client.findUnique({ where: { slug: LOTUS_SLUG }, select: { id: true, name: true } });
+  if (found) return found;
+  return prisma.client.create({ data: { name: "LOTUS (interno)", slug: LOTUS_SLUG, segment: "Agência de marketing para clínicas", description: "Número da própria LOTUS: prospecção, avisos e relatórios." }, select: { id: true, name: true } });
+}
+
+async function afterLiveMessage(ev: MessageEvent, conversationId: string) {
+  const conv = await prisma.conversation.findUnique({ where: { id: conversationId } });
+  if (!conv) return;
+  const now = Date.now();
+  const settings = await getSettings(ev.clientId);
+
+  if (ev.fromMe) {
+    // Alguém da clínica respondeu pelo celular: a IA sai da conversa por um tempo
+    if (!ev.viaApi && settings.ia.on) {
+      await prisma.conversation.update({ where: { id: conv.id }, data: { aiPausedUntil: new Date(now + settings.ia.pausaHumanoHoras * 3_600_000), aiDraft: null } });
+      await prisma.outboundMessage.updateMany({ where: { clientId: ev.clientId, kind: "ia", status: "PENDENTE", refId: { startsWith: `${conv.id}:` } }, data: { status: "CANCELADO", error: "Um humano assumiu a conversa" } });
+    }
+    return;
+  }
+
+  // Clínica prospectada respondeu
+  const client = await prisma.client.findUnique({ where: { id: ev.clientId }, select: { slug: true, name: true } });
+  if (client?.slug === LOTUS_SLUG) {
+    const key = phoneKey(conv.phone);
+    const prospect = conv.prospectId
+      ? await prisma.prospect.findUnique({ where: { id: conv.prospectId } })
+      : key
+        ? (await prisma.prospect.findMany({ where: { phone: { endsWith: key.slice(-8) }, status: { in: ["ENVIADO", "RESPONDEU", "CONVERSANDO"] } }, take: 3 })).find((p) => phoneKey(p.phone) === key) ?? null
+        : null;
+    if (prospect) {
+      if (!conv.prospectId) await prisma.conversation.update({ where: { id: conv.id }, data: { prospectId: prospect.id } });
+      const first = prospect.status === "ENVIADO";
+      await prisma.prospect.update({ where: { id: prospect.id }, data: { status: first ? "RESPONDEU" : prospect.status === "RESPONDEU" ? "CONVERSANDO" : prospect.status, repliedAt: prospect.repliedAt ?? new Date() } });
+      if (first) await notify({ kind: "prospect", title: `${prospect.name} respondeu`, body: ev.text.slice(0, 200), href: `/prospeccao?p=${prospect.id}`, clientId: ev.clientId });
+    }
+  }
+
+  // IA atendente: espera uns segundos para juntar as mensagens que a pessoa manda em sequência
+  if (!settings.ia.on) return;
+  if (conv.aiPausedUntil && conv.aiPausedUntil.getTime() > now) return;
+  if (conv.fromHistory && !conv.leadId && !conv.prospectId) return;
+  await prisma.outboundMessage.updateMany({ where: { clientId: ev.clientId, kind: "ia", status: "PENDENTE", refId: { startsWith: `${conv.id}:` } }, data: { status: "CANCELADO", error: "Chegou mensagem nova: a IA responde tudo junto" } });
+  await prisma.outboundMessage.create({
+    data: { clientId: ev.clientId, kind: "ia", refId: `${conv.id}:${ev.waId}`, jid: conv.jid, phone: conv.phone, body: "(a IA escreve na hora de enviar)", scheduledFor: new Date(now + 15_000 + Math.random() * 15_000) },
+  }).catch(() => undefined);
 }

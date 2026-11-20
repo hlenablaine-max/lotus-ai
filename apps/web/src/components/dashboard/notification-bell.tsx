@@ -64,6 +64,28 @@ export function NotificationBell() {
       // A API manda { body, severity, ts, href }; o sino usa { message, priority, createdAt, href }
       const PRIORITY: Record<string, Notification["priority"]> = { critical: "HIGH", warning: "MEDIUM", info: "LOW" };
       const list = (data.notifications ?? []) as Array<{ id: string; title: string; body?: string; severity?: string; ts?: number; href?: string }>;
+      // Aviso novo do atendimento/prospecção: notificação do Windows (uma vez por aviso)
+      try {
+        const seenKey = "lotus_notified_v1";
+        const seen = new Set<string>(JSON.parse(localStorage.getItem(seenKey) ?? "[]") as string[]);
+        const fresh = list.filter((n) => n.id.startsWith("app-") && !seen.has(n.id) && Date.now() - (n.ts ?? 0) < 15 * 60_000);
+        if (fresh.length && typeof Notification !== "undefined") {
+          if (Notification.permission === "default") await Notification.requestPermission().catch(() => undefined);
+          if (Notification.permission === "granted") {
+            for (const n of fresh.slice(0, 3)) {
+              const toast = new Notification(n.title, { body: n.body ?? "", tag: n.id });
+              toast.onclick = () => {
+                window.focus();
+                if (n.href) router.push(n.href);
+              };
+            }
+          }
+        }
+        for (const n of list) if (n.id.startsWith("app-")) seen.add(n.id);
+        localStorage.setItem(seenKey, JSON.stringify([...seen].slice(-300)));
+      } catch {
+        // sem notificação do sistema: o sino continua mostrando
+      }
       setNotifications(
         list.map((n) => ({
           id: n.id,
@@ -82,7 +104,7 @@ export function NotificationBell() {
   useEffect(() => {
     setReadIds(getReadIds());
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 60000);
+    const interval = setInterval(fetchNotifications, 20000);
     return () => clearInterval(interval);
   }, []);
 

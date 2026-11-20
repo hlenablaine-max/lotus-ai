@@ -5,6 +5,8 @@
 import { prisma } from "@/lib/prisma";
 import { createRuntimeClient } from "@/lib/runtime-client";
 import { fillTemplate, getSettings, normalizePhone, referralLink, sendNow, type AutomationSettings } from "@/lib/whatsapp";
+import { planWeeklyReports, runAiQueue } from "@/lib/whatsapp-ai-queue";
+import { prospectSent } from "@/lib/prospecting";
 
 const TZ = "America/Sao_Paulo";
 const HOUR = 3_600_000;
@@ -148,7 +150,7 @@ async function sendDue(clientId: string, s: AutomationSettings) {
   // Intervalo de 25 a 45 s entre mensagens automáticas, como uma pessoa mandando
   const gap = 25_000 + Math.random() * 20_000;
   const due = await prisma.outboundMessage.findMany({
-    where: { clientId, status: "PENDENTE", scheduledFor: { lte: now } },
+    where: { clientId, status: "PENDENTE", scheduledFor: { lte: now }, kind: { not: "ia" } },
     orderBy: [{ scheduledFor: "asc" }],
     take: 5,
   });
@@ -171,13 +173,21 @@ async function sendDue(clientId: string, s: AutomationSettings) {
     const claimed = await prisma.outboundMessage.updateMany({ where: { id: job.id, status: "PENDENTE" }, data: { status: "ENVIANDO" } });
     if (claimed.count === 0) continue;
     try {
-      await sendNow(clientId, { jid: job.jid, phone: job.phone }, job.body, job.kind === "manual" ? "lotus" : "automacao");
+      // A fila não fica parada esperando o escudo: se ele pedir mais de 20 s, a mensagem é reagendada
+      await sendNow(clientId, { jid: job.jid, phone: job.phone }, job.body, job.kind === "manual" ? "lotus" : "automacao", 20_000);
       await prisma.outboundMessage.update({ where: { id: job.id }, data: { status: "ENVIADO", sentAt: new Date(), error: null } });
+      if (job.kind === "prospeccao" && job.refId) await prospectSent(job.refId, true).catch(() => undefined);
       sentThisTick += 1;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      const shieldWait = msg.match(/Escudo anti-ban:.*Tenta de novo em (\d+) s/);
+      if (shieldWait) {
+        await prisma.outboundMessage.update({ where: { id: job.id }, data: { status: "PENDENTE", error: msg, scheduledFor: new Date(Date.now() + Number(shieldWait[1]) * 1000) } });
+        break;
+      }
       const retry = /não está conectado|Abra o aplicativo/.test(msg);
       await prisma.outboundMessage.update({ where: { id: job.id }, data: retry ? { status: "PENDENTE", error: msg } : { status: "FALHOU", error: msg } });
+      if (!retry && job.kind === "prospeccao" && job.refId) await prospectSent(job.refId, false, msg).catch(() => undefined);
       if (retry) break;
     }
   }
@@ -190,6 +200,7 @@ export async function runWhatsappAutomations(): Promise<void> {
   try {
     // Mensagens presas em "ENVIANDO" por um reinício voltam para a fila
     await prisma.outboundMessage.updateMany({ where: { status: "ENVIANDO", createdAt: { lt: new Date(Date.now() - 10 * 60_000) } }, data: { status: "PENDENTE" } });
+    await planWeeklyReports().catch((err) => console.error("[whatsapp] relatório semanal:", err instanceof Error ? err.message : err));
     const channels = await prisma.whatsappChannel.findMany({ where: { status: "conectado" }, select: { clientId: true, client: { select: { name: true } } } });
     if (channels.length === 0) return;
     const runtime = createRuntimeClient();
@@ -212,6 +223,8 @@ export function scheduleWhatsappAutomations() {
   const g = globalThis as unknown as { __lotusWaTimer?: NodeJS.Timeout };
   if (g.__lotusWaTimer) return;
   g.__lotusWaTimer = setInterval(() => void runWhatsappAutomations().catch(() => undefined), 60_000);
+  // IA atendente: olha a fila a cada 15 s (responder rápido é o que mais converte)
+  setInterval(() => void runAiQueue().catch(() => undefined), 15_000);
 }
 
 // Campanha de reativação disparada pelo Ícaro na aba Pacientes: entra na fila e sai aos poucos

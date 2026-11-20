@@ -21,6 +21,7 @@ import {
   Cpu,
   Shield,
   Bell,
+  Radar,
 } from "lucide-react";
 
 function LotusIcon({ size = 18, className = "" }: { size?: number; className?: string }) {
@@ -119,6 +120,12 @@ const navItems: Array<{
     href: "/crm",
     icon: TrendingUp,
     description: "Leads, fechamentos e faturamento",
+  },
+  {
+    label: "Prospecção",
+    href: "/prospeccao",
+    icon: Radar,
+    description: "Achar e abordar clínicas",
   },
   {
     label: "Soluções",
