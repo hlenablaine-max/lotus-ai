@@ -130,6 +130,8 @@ export class RuntimeHttpServer {
       case '/runtime/research/close':
         await rt.research.close()
         return { ok: true }
+      case '/runtime/research/instagram-search':
+        return rt.research.instagramSearch(String(data.query ?? ''))
       case '/runtime/research/instagram':
         return rt.research.instagramProfile(String(data.handle ?? ''), data.maxPosts)
       case '/runtime/research/release':

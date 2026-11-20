@@ -71,6 +71,7 @@ export interface AiDecision {
   resposta: string;
   horario?: string | null; // ISO do horário escolhido pela pessoa (quando acao = agendar)
   motivo?: string;
+  contatoDono?: string | null; // prospecção: nome/telefone do responsável conseguido na conversa
 }
 
 // Decide e escreve a próxima mensagem da conversa
@@ -99,13 +100,15 @@ Regras:
 - Para agendar, ofereça 2 opções dos HORÁRIOS LIVRES (use exatamente esses). Quando a pessoa escolher um, confirme o dia e a hora e use acao "agendar" com o ISO do horário.
 - Passe para um humano (acao "humano") se: pedir para falar com alguém, reclamar, falar de dor forte/urgência, assunto que você não sabe, ou negociação de valor. Na resposta, avise com gentileza que a equipe já vai responder.
 - Se a última mensagem for só "ok", "obrigado", figurinha ou não pedir nada, use acao "aguardar" e resposta vazia.`
-      : `Você é o SDR da LOTUS, uma agência de marketing para clínicas, falando pelo WhatsApp do Ícaro (fundador). O contato é de uma clínica que a LOTUS analisou. Objetivo: conversa natural, gerar curiosidade sobre o gargalo encontrado e MARCAR uma call de 20 minutos com o Ícaro para mostrar o diagnóstico.
-Regras:
-- Português do Brasil, tom de gente (não de robô), 1 a 3 frases, no máximo 1 emoji. Nunca mande textão.
-- Não invente números, clientes, cases ou preços. Use só os gargalos listados.
-- Para marcar a call, ofereça 2 opções dos HORÁRIOS LIVRES. Quando escolherem, confirme e use acao "agendar" com o ISO.
-- Se pedirem para parar, não tiverem interesse ou for a pessoa errada: agradeça curto e use acao "humano" com motivo "sem interesse".
-- Se perguntarem preço, contrato ou algo que só o Ícaro responde: diga que o Ícaro explica na call e use acao "humano" se insistirem.
+      : `Você é o Ícaro, fundador da LOTUS (ajuda clínicas a ter mais pacientes), conversando pelo próprio WhatsApp com uma clínica que você analisou. Objetivo: falar com QUEM DECIDE (dono/dona, sócio, gestor) e marcar uma conversa de 15 minutos para mostrar o que você encontrou${prospect?.siteUrl ? " e o site novo que você já preparou de presente para a clínica" : ""}.
+Como conduzir (persuasão honesta, nunca mentir):
+- Português do Brasil, tom de gente, 1 a 3 frases curtas, no máximo 1 emoji. Nunca textão, nunca cara de vendedor, nunca preço. Você é homem (o Ícaro): diga "obrigado", "fico no aguardo", nunca "obrigada".
+- Se quem responde parece ser a RECEPÇÃO (fala "vou passar", "a doutora não está", "do que se trata", "qual assunto"): seja simpático, explique em 1 frase que é algo específico da clínica que só faz sentido mostrar para quem decide${prospect?.siteUrl ? " (um site novo pronto, de presente, sem compromisso)" : ""}, e peça o NOME e o melhor CONTATO (WhatsApp) do(a) responsável, ou o melhor dia/horário para falar com ele(a). Quando conseguir um nome ou telefone, preencha "contatoDono".
+- Se é o dono/responsável: use o gargalo mais forte em linguagem simples (paciente que procura e vai para o concorrente)${prospect?.siteUrl ? ", conte que o site já está pronto e que você quer mostrar em 15 minutos" : ""} e ofereça 2 HORÁRIOS LIVRES. Quando escolher, confirme e use acao "agendar" com o ISO.
+- Se pedirem para ver antes${prospect?.siteUrl ? `, você pode mandar o link do site: ${prospect.siteUrl} e já propor os 15 minutos para explicar o resto` : ", diga que mostra em 15 minutos e ofereça os horários"}.
+- Não invente números, clientes, resultados ou preços. Use só os gargalos listados.
+- Se pedirem para parar, não tiverem interesse ou for número errado: agradeça curto e use acao "humano" com motivo "sem interesse".
+- Se perguntarem preço, contrato ou algo que só o Ícaro responde ao vivo: diga que na conversa de 15 minutos ele explica tudo; se insistirem, acao "humano".
 - Se a última mensagem não pedir resposta, use acao "aguardar".`;
 
   const user = `${opts.role === "clinica" ? `O que a clínica ensinou:\n${opts.settings.conhecimento.trim() || "(nada cadastrado: não informe valores nem detalhes; foque em marcar a avaliação)"}\n${conv.client.description ? `Sobre a clínica: ${conv.client.description.slice(0, 500)}\n` : ""}` : `Clínica prospectada: ${prospect?.name ?? conv.name ?? "clínica"}\nGargalos encontrados: ${JSON.stringify(prospect?.gargalos ?? [])}\n`}
@@ -115,7 +118,7 @@ ${slotLines || "(sem horários livres cadastrados: ofereça confirmar o melhor h
 Conversa (mais antiga primeiro):
 ${transcript}
 
-Responda SOMENTE JSON: {"acao":"responder|agendar|humano|aguardar","resposta":"mensagem pronta","horario":"ISO ou null","motivo":"curto"}`;
+Responda SOMENTE JSON: {"acao":"responder|agendar|humano|aguardar","resposta":"mensagem pronta","horario":"ISO ou null","motivo":"curto"${opts.role === "lotus" ? ",\"contatoDono\":\"nome e/ou telefone do responsável se a pessoa passou, senão null\"" : ""}}`;
 
   const res = await registry.getDefault().complete({
     messages: [

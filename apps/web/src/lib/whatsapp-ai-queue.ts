@@ -50,6 +50,11 @@ export async function runAiQueue(): Promise<void> {
           continue;
         }
         const who = conv.name ?? (conv.phone ? `+${conv.phone}` : "contato");
+        // Prospecção: a recepção passou o contato do dono
+        if (role === "lotus" && conv.prospectId && d.contatoDono && String(d.contatoDono).trim() && String(d.contatoDono) !== "null") {
+          await prisma.prospect.update({ where: { id: conv.prospectId }, data: { ownerContact: String(d.contatoDono).slice(0, 200) } });
+          await notify({ kind: "prospect", title: `Contato do responsável: ${who}`, body: String(d.contatoDono).slice(0, 200), href: "/prospeccao", clientId: job.clientId });
+        }
         const href = role === "lotus" ? "/prospeccao" : `/clients/${job.clientId}?aba=atendimento`;
         // Modo rascunho: a IA escreve, você aprova com 1 clique na conversa
         if (settings.ia.modo === "rascunho") {

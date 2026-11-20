@@ -5,7 +5,7 @@
 // Quem responde conversa com a IA (SDR) até marcar a call, e o Ícaro recebe o aviso.
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { CheckCheck, ExternalLink, Loader2, MapPin, MessageCircle, Phone, Radar, Search, ShieldCheck, Star, Trash2, X } from "lucide-react";
+import { CheckCheck, ExternalLink, Gift, Globe, Instagram, Loader2, MapPin, MessageCircle, Phone, Radar, Search, ShieldCheck, Star, Trash2, UserCheck, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, Kpi, Notice, btnGhost, btnPrimary, field, formatPhone } from "@/components/whatsapp/ui";
 
@@ -24,6 +24,12 @@ interface Prospect {
   message: string | null;
   status: string;
   notes: string | null;
+  instagram: string | null;
+  followers: number | null;
+  lastPostDays: number | null;
+  siteUrl: string | null;
+  siteMissionId: string | null;
+  ownerContact: string | null;
   sentAt: string | null;
   repliedAt: string | null;
 }
@@ -95,6 +101,12 @@ export default function ProspeccaoPage() {
     const d = (await res.json().catch(() => ({}))) as { queued?: number; reason?: string };
     setMsg(res.ok ? { kind: "ok", text: `${d.queued} mensagem(ns) na fila. Saem no horário permitido, uma de cada vez, com "digitando…".` } : { kind: "error", text: d.reason ?? "Não foi possível." });
     void load();
+  };
+
+  const freeSite = async (id: string) => {
+    setMsg({ kind: "ok", text: "Montando o site grátis: a LOTUS pega logo, fotos e cores reais do Instagram, cria o site e a revisora confere. Leva uns 10 a 15 minutos; você recebe um aviso quando ficar pronto e a mensagem é reescrita para oferecer o site." });
+    await fetch("/api/prospects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "site", id }) });
+    setTimeout(() => void load(), 4000);
   };
 
   const patch = async (id: string, body: Record<string, unknown>) => {
@@ -207,6 +219,13 @@ export default function ProspeccaoPage() {
                   {p.site && <a href={/^https?:/.test(p.site) ? p.site : `https://${p.site}`} target="_blank" rel="noreferrer" className="hover:text-primary truncate max-w-[180px]">{p.site}</a>}
                   {p.address && <span className="flex items-center gap-1 truncate max-w-[220px]"><MapPin className="w-3 h-3" /> {p.address}</span>}
                 </div>
+                {p.instagram && (
+                  <a href={`https://instagram.com/${p.instagram}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-[11px] text-pink-300 hover:underline mt-1">
+                    <Instagram className="w-3 h-3" /> @{p.instagram}
+                    {p.followers !== null && <span className="text-muted-foreground">· {p.followers.toLocaleString("pt-BR")} seguidores</span>}
+                    {p.lastPostDays !== null && <span className="text-muted-foreground">· último post há {p.lastPostDays} d</span>}
+                  </a>
+                )}
               </div>
               <div className="text-right">
                 <div className={cn("text-lg font-bold", p.score >= 50 ? "text-emerald-300" : p.score >= 25 ? "text-amber-300" : "text-muted-foreground")}>{p.score}</div>
@@ -220,6 +239,26 @@ export default function ProspeccaoPage() {
                 ))}
               </div>
             )}
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+              {p.siteUrl ? (
+                <a href={p.siteUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 hover:bg-emerald-500/25">
+                  <Globe className="w-3 h-3" /> Site grátis pronto: abrir
+                </a>
+              ) : p.siteMissionId ? (
+                <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-primary/10 border border-primary/30 text-primary">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Montando o site grátis (logo, fotos e cores reais)…
+                </span>
+              ) : p.instagram && ["APROVAR", "ENVIADO", "RESPONDEU", "CONVERSANDO"].includes(p.status) ? (
+                <button onClick={() => void freeSite(p.id)} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-border text-foreground hover:border-primary/50" title="A LOTUS monta um site com a marca real da clínica para usar como motivo da call">
+                  <Gift className="w-3 h-3 text-primary" /> Preparar site grátis
+                </button>
+              ) : null}
+              {p.ownerContact && (
+                <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-violet-500/15 border border-violet-500/30 text-violet-200">
+                  <UserCheck className="w-3 h-3" /> Responsável: {p.ownerContact}
+                </span>
+              )}
+            </div>
             {p.status === "APROVAR" ? (
               <textarea className={cn(field, "text-xs resize-y")} rows={4} defaultValue={p.message ?? ""} key={`${p.id}-${p.message}`} onBlur={(e) => e.target.value !== (p.message ?? "") && void patch(p.id, { message: e.target.value })} />
             ) : (

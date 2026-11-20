@@ -347,6 +347,11 @@ model Prospect {
   phone          String?   // só dígitos com 55
   site           String?
   instagram      String?
+  followers      Int?      // seguidores no Instagram
+  lastPostDays   Int?      // há quantos dias foi o último post
+  siteUrl        String?   // site grátis que a LOTUS preparou para a clínica
+  siteMissionId  String?   // missão que está montando o site grátis
+  ownerContact   String?   // contato do dono/responsável conseguido na conversa
   address        String?
   rating         Float?
   reviews        Int?

@@ -1,6 +1,7 @@
-// Prospecção da LOTUS: acha clínicas no Google Maps, descobre os gargalos de cada uma, escreve uma primeira
-// mensagem personalizada (nunca igual para todas) e, depois que o Ícaro aprova, manda pelo WhatsApp da LOTUS
-// passando pelo escudo anti-ban. Quem responde conversa com a IA (SDR) até marcar uma call.
+// Prospecção da LOTUS: acha clínicas no Google Maps, olha Google + site + Instagram de cada uma (uma versão rápida
+// do diagnóstico), escreve uma primeira mensagem personalizada e, se o Ícaro quiser, prepara um SITE GRÁTIS com a
+// marca real da clínica para usar como motivo da call. Depois que o Ícaro aprova, a mensagem sai pelo WhatsApp da
+// LOTUS (escudo anti-ban) e quem responde conversa com a IA (SDR) até marcar a call com quem decide.
 import { registry } from "@lotus/ai-engine";
 import { prisma } from "@/lib/prisma";
 import { createRuntimeClient } from "@/lib/runtime-client";
@@ -9,7 +10,7 @@ import { ensureLotusClient, normalizePhone, phoneKey } from "@/lib/whatsapp";
 
 export interface Gargalo {
   tipo: string;
-  texto: string; // frase curta e verificável, ex.: "nota 4,1 no Google com só 23 avaliações"
+  texto: string; // frase curta e verificável, ex.: "só 23 avaliações no Google"
   peso: number;
 }
 
@@ -26,23 +27,30 @@ function parseRating(s: unknown): { rating: number | null; reviews: number | nul
   return { rating, reviews };
 }
 
-// Olha o site rapidamente: está no ar? tem HTTPS? tem botão de WhatsApp? demora?
-async function checkSite(url: string): Promise<Gargalo[]> {
+const IG_RE = /instagram\.com\/(?!p\/|reel\/|explore\/|accounts\/|stories\/)([A-Za-z0-9_.]{3,30})/i;
+
+// Olha o site rapidamente: está no ar? tem HTTPS? tem botão de WhatsApp? demora? E pega o @ do Instagram
+async function checkSite(url: string): Promise<{ gargalos: Gargalo[]; instagram: string | null }> {
   const out: Gargalo[] = [];
-  const full = /^https?:\/\//.test(url) ? url : `https://${url}`;
+  const clean = url.trim().replace(/\s+/g, "");
+  const full = /^https?:\/\//.test(clean) ? clean : `https://${clean}`;
   const t = Date.now();
+  const get = (u: string) => fetch(u, { redirect: "follow", signal: AbortSignal.timeout(15_000), headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131 Safari/537.36" } });
   try {
-    const res = await fetch(full, { redirect: "follow", signal: AbortSignal.timeout(15_000), headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131 Safari/537.36" } });
+    // Tenta com e sem HTTPS antes de dizer que o site não abre (gargalo falso queima a abordagem)
+    const res = await get(full).catch(() => get(full.replace(/^https:/, "http:")));
     const ms = Date.now() - t;
     const html = (await res.text()).slice(0, 400_000);
     if (!res.ok) out.push({ tipo: "site_fora", texto: `o site (${new URL(full).hostname}) não abre direito (erro ${res.status})`, peso: 25 });
-    if (!res.url.startsWith("https://")) out.push({ tipo: "sem_https", texto: "o site aparece como 'não seguro' no navegador (sem HTTPS)", peso: 10 });
+    if (!res.url.startsWith("https://")) out.push({ tipo: "sem_https", texto: "o site aparece como 'não seguro' no navegador", peso: 10 });
     if (!/wa\.me|api\.whatsapp\.com|whatsapp/i.test(html)) out.push({ tipo: "sem_whatsapp_site", texto: "o site não tem botão de WhatsApp para o paciente agendar", peso: 15 });
-    if (ms > 6000) out.push({ tipo: "site_lento", texto: `o site demora ${Math.round(ms / 1000)} s para abrir no celular`, peso: 10 });
+    if (ms > 6000) out.push({ tipo: "site_lento", texto: `o site demora ${Math.round(ms / 1000)} s para abrir`, peso: 10 });
+    const ig = html.match(IG_RE)?.[1]?.replace(/\.$/, "") ?? null;
+    return { gargalos: out, instagram: ig && !/^(share|sharer|intent)$/i.test(ig) ? ig : null };
   } catch {
     out.push({ tipo: "site_fora", texto: "o site informado no Google não abre", peso: 25 });
+    return { gargalos: out, instagram: null };
   }
-  return out;
 }
 
 function gargalosFromPlace(p: { rating: number | null; reviews: number | null; site: string | null }): Gargalo[] {
@@ -53,24 +61,84 @@ function gargalosFromPlace(p: { rating: number | null; reviews: number | null; s
   return g;
 }
 
-async function writeOpener(p: { name: string; city: string; niche: string; gargalos: Gargalo[]; rating: number | null; reviews: number | null }): Promise<string> {
+interface IgProfile {
+  found: boolean;
+  isPrivate: boolean;
+  followers: number | null;
+  bio: string;
+  externalLinks: string[];
+  posts: Array<{ type: string; publishedAt: string | null; likes: number | null }>;
+}
+
+// Versão rápida da análise de Instagram do diagnóstico
+function gargalosFromInstagram(handle: string, p: IgProfile): { gargalos: Gargalo[]; followers: number | null; lastPostDays: number | null } {
+  const g: Gargalo[] = [];
+  if (!p.found) return { gargalos: g, followers: null, lastPostDays: null };
+  const dates = p.posts.map((x) => (x.publishedAt ? new Date(x.publishedAt).getTime() : 0)).filter(Boolean).sort((a, b) => b - a);
+  const lastPostDays = dates.length ? Math.floor((Date.now() - dates[0]) / 86_400_000) : null;
+  if (p.followers !== null && p.followers < 1500) g.push({ tipo: "ig_poucos_seguidores", texto: `@${handle} tem só ${p.followers.toLocaleString("pt-BR")} seguidores`, peso: 10 });
+  if (lastPostDays !== null && lastPostDays > 20) g.push({ tipo: "ig_parado", texto: `o último post do @${handle} foi há ${lastPostDays} dias`, peso: 15 });
+  if (dates.length >= 6 && Math.round((dates[0] - dates[Math.min(5, dates.length - 1)]) / 86_400_000) > 45) g.push({ tipo: "ig_pouco_frequente", texto: `o Instagram posta pouco (6 posts em mais de 45 dias)`, peso: 10 });
+  if (p.posts.length && !p.posts.some((x) => x.type === "reel")) g.push({ tipo: "ig_sem_reels", texto: "o Instagram não usa Reels, que é o formato que mais alcança gente nova", peso: 10 });
+  const bio = `${p.bio} ${p.externalLinks.join(" ")}`;
+  if (!/wa\.me|whatsapp|linktr|link\.|agend/i.test(bio)) g.push({ tipo: "ig_bio_sem_link", texto: "a bio do Instagram não tem link de WhatsApp para agendar", peso: 15 });
+  return { gargalos: g, followers: p.followers, lastPostDays };
+}
+
+// Primeira mensagem: pensada para quem atende (muitas vezes a recepção), sem cara de venda, com valor real
+// Acha o Instagram da clínica pela busca do Instagram e só aceita se o nome bater (evita pegar a conta de outra clínica)
+const STOP = new Set(["clinica", "odontologia", "odonto", "odontologica", "dentista", "estetica", "consultorio", "centro", "saude", "dr", "dra", "de", "da", "do", "das", "dos", "e", "the"]);
+const words = (s: string) =>
+  s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/\(.*?\)/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(" ")
+    .filter((w) => w.length > 2);
+export async function findInstagram(name: string, city: string): Promise<string | null> {
+  const rt = createRuntimeClient();
+  const clean = name.replace(/\(.*?\)/g, "").trim();
+  const r = (await rt.call("/runtime/research/instagram-search", { query: clean }, 90_000)) as { ok: boolean; users: Array<{ username: string; fullName: string }> };
+  if (!r.ok || !r.users.length) return null;
+  const nameWords = words(clean);
+  const strong = nameWords.filter((w) => !STOP.has(w));
+  const cityWords = words(city);
+  let best: { username: string; score: number } | null = null;
+  for (const u of r.users) {
+    const hay = new Set([...words(u.fullName), ...words(u.username.replace(/[._]/g, " ")), u.username.toLowerCase().replace(/[._]/g, "")]);
+    const joined = [...hay].join(" ");
+    const strongHits = strong.filter((w) => joined.includes(w)).length;
+    const allHits = nameWords.filter((w) => joined.includes(w)).length;
+    const cityHit = cityWords.some((w) => joined.includes(w));
+    // Precisa bater uma palavra que identifica a clínica (não só "odonto"), ou o nome todo + a cidade
+    const score = strong.length ? strongHits / strong.length + (cityHit ? 0.3 : 0) : allHits / Math.max(1, nameWords.length) + (cityHit ? 0.5 : 0) - 0.4;
+    if (!best || score > best.score) best = { username: u.username, score };
+  }
+  return best && best.score >= 0.75 ? best.username : null;
+}
+
+export async function writeOpener(p: { name: string; city: string; niche: string; gargalos: Gargalo[]; rating: number | null; reviews: number | null; siteUrl?: string | null; analisados?: string[] }): Promise<string> {
+  const analisados = p.analisados?.length ? p.analisados.join(", ").replace(/, ([^,]*)$/, " e $1") : "o perfil no Google";
   const res = await registry.getDefault().complete({
     messages: [
       {
         role: "system",
-        content: `Você escreve a PRIMEIRA mensagem de WhatsApp do Ícaro (fundador da LOTUS, agência de marketing para clínicas) para o dono/recepção de uma clínica. Regras:
-- Soe como uma pessoa real, educada, direta. 2 a 4 frases curtas. Sem emoji ou no máximo 1. Sem link. Sem "promoção", sem preço, sem textão de vendas.
-- Cite UM gargalo concreto da lista (do jeito que está, sem exagerar) e diga em meia frase por que ele faz a clínica perder paciente.
-- Termine com UMA pergunta simples que dê vontade de responder (ex.: se faz sentido eu te mostrar o que encontrei).
-- Comece com "Oi, tudo bem?" ou variação natural, e se apresente: "Aqui é o Ícaro, da LOTUS".
-- Escreva de um jeito diferente a cada vez (varie abertura e pergunta). Responda só com a mensagem.`,
+        content: `Você escreve a PRIMEIRA mensagem de WhatsApp do Ícaro (fundador da LOTUS, que ajuda clínicas a ter mais pacientes) para o WhatsApp de uma clínica. Quem lê quase sempre é a RECEPÇÃO, não o dono. O objetivo é: (1) despertar curiosidade com algo concreto e verdadeiro, (2) fazer a recepção levar ao dono/responsável (pedir o contato dele ou o melhor horário), (3) conseguir uma conversa rápida de 15 minutos.
+Técnica (persuasão honesta, sem mentir):
+- 3 a 5 frases curtas, tom de gente, educado e direto. No máximo 1 emoji. Sem link. Sem preço. Sem "promoção", "oportunidade única", "parceria", "agência de marketing".
+- Abra com um "oi" natural + "aqui é o Ícaro, da LOTUS". Logo depois, UMA observação específica e verdadeira da lista de gargalos (a mais forte), e em meia frase o que ela custa (paciente que procura e vai para outra clínica).
+${p.siteUrl ? "- DIGA que você JÁ preparou um site novo para a clínica, de presente, sem custo e sem compromisso, e que quer mostrar para o(a) responsável em uma conversa rápida. Isso é verdade: o site existe." : `- Ofereça mostrar, sem custo, o que você encontrou numa análise rápida de ${analisados} da clínica para o(a) responsável. Cite SÓ esses canais: o que não está nessa lista você não olhou.`}
+- Peça à recepção, com naturalidade, o nome e o melhor contato do(a) responsável/dono(a), OU que repasse a mensagem. Dê uma saída fácil ("se for você mesmo(a) que cuida disso, melhor ainda").
+- Nunca invente número, cliente, resultado ou prazo. Varie a abertura e a pergunta a cada mensagem. O Ícaro é homem: "obrigado", nunca "obrigada". Responda só com a mensagem.`,
       },
-      { role: "user", content: `Clínica: ${p.name} (${p.niche} em ${p.city}). Google: ${p.rating ?? "sem nota"} (${p.reviews ?? "?"} avaliações).\nGargalos encontrados:\n${p.gargalos.map((g) => `- ${g.texto}`).join("\n") || "- nenhum gargalo forte: elogie algo e pergunte como estão captando pacientes novos"}` },
+      { role: "user", content: `Clínica: ${p.name} (${p.niche} em ${p.city}). Google: ${p.rating ?? "sem nota"} (${p.reviews ?? "?"} avaliações).\nGargalos encontrados (do mais forte para o mais fraco):\n${[...p.gargalos].sort((a, b) => b.peso - a.peso).map((g) => `- ${g.texto}`).join("\n") || "- nenhum gargalo forte: elogie algo real e pergunte como estão trazendo pacientes novos"}` },
     ],
-    maxTokens: 300,
+    maxTokens: 350,
     temperature: 0.9,
   });
-  return res.content.trim().replace(/^["']|["']$/g, "").slice(0, 700);
+  return res.content.trim().replace(/^["']|["']$/g, "").slice(0, 800);
 }
 
 // Busca em segundo plano (uma por vez, para não pesar o computador)
@@ -90,7 +158,6 @@ async function runSearch(input: { niche: string; city: string; max: number }, ca
   const rt = createRuntimeClient();
   const st = state.__lotusProspecting!;
   const log = (m: string) => st.log.push(m);
-  // Várias buscas parecidas para achar mais clínicas (o Maps mostra poucas por vez)
   const variants = [`${input.niche} em ${input.city}`, `${input.niche} ${input.city} avaliação`, `clínica ${input.niche} ${input.city}`, `${input.niche} centro ${input.city}`];
   const names = new Map<string, number | null>();
   for (const q of variants) {
@@ -106,11 +173,14 @@ async function runSearch(input: { niche: string; city: string; max: number }, ca
   const known = await prisma.prospect.findMany({ select: { name: true, phone: true } });
   const knownNames = new Set(known.map((k) => k.name.toLowerCase()));
   const knownPhones = new Set(known.map((k) => phoneKey(k.phone)).filter(Boolean));
-  const clients = await prisma.client.findMany({ select: { name: true } });
-  const clientNames = clients.map((c) => c.name.toLowerCase());
-  for (const [name] of names) {
+  const clients = await prisma.client.findMany({ where: { status: { not: "PROSPECT" } }, select: { name: true } });
+  const clientNames = clients.map((c) => c.name.toLowerCase().split("|")[0].trim());
+  for (const [rawName] of names) {
     if (st.found >= input.max) break;
-    if (knownNames.has(name.toLowerCase()) || clientNames.some((c) => c.includes(name.toLowerCase()) || name.toLowerCase().includes(c.split("|")[0].trim()))) continue;
+    // Tira o que o Google gruda no nome ("·Link acessado", "(Dentista)")
+    const name = rawName.split("·")[0].replace(/\((?:dentista|cl[ií]nica[^)]*|odont[^)]*)\)/gi, "").replace(/\s{2,}/g, " ").trim() || rawName;
+    const low = name.toLowerCase();
+    if (knownNames.has(low) || clientNames.some((c) => c && (c.includes(low) || low.includes(c)))) continue;
     try {
       const p = (await rt.call("/runtime/research/place", { query: `${name} ${input.city}`, name }, 150_000)) as Record<string, unknown>;
       if (p.encontrado === false) continue;
@@ -119,28 +189,118 @@ async function runSearch(input: { niche: string; city: string; max: number }, ca
         log(`${name}: sem telefone ou já prospectada`);
         continue;
       }
-      // Celular quase sempre tem WhatsApp; fixo às vezes (WhatsApp Business): confere no envio
       const isMobile = phone.length === 13 && phone[4] === "9";
       const parsed = parseRating(p.notaETotal);
-      const rating = parsed.rating;
-      // O total de avaliações vem no resumo da ficha ("4,4 (123)" ou "123 avaliações")
       const resumo = String(p.resumo ?? "");
-      const reviews = parsed.reviews ?? (Number((resumo.match(/\(([\d.]+)\)/)?.[1] ?? resumo.match(/([\d.]+)\s*(?:avalia|coment|reviews)/i)?.[1] ?? "").replace(/\D/g, "")) || null);
+      const rating = parsed.rating;
+      // Total de avaliações: só o número logo depois da nota ("4,9 (75)") ou "75 avaliações" (nunca o DDD do telefone)
+      const reviews = parsed.reviews ?? (Number((resumo.match(/\b[1-5][.,]\d\s*\(([\d.]+)\)/)?.[1] ?? resumo.match(/([\d.]+)\s*(?:avalia|coment|reviews)/i)?.[1] ?? "").replace(/\D/g, "")) || null);
       const site = String(p.site ?? "").trim() || null;
-      const gargalos = [...gargalosFromPlace({ rating, reviews, site }), ...(site ? await checkSite(site) : [])];
+      const siteCheck = site ? await checkSite(site) : { gargalos: [], instagram: null };
+      // Instagram: pelo link do site, pela ficha do Google ou pela busca do próprio Instagram (conferindo se é a mesma clínica)
+      let instagram = siteCheck.instagram ?? resumo.match(IG_RE)?.[1] ?? null;
+      if (!instagram) instagram = await findInstagram(name, input.city).catch(() => null);
+      let ig = { gargalos: [] as Gargalo[], followers: null as number | null, lastPostDays: null as number | null };
+      let igRead = false;
+      if (instagram) {
+        try {
+          const prof = (await rt.call("/runtime/research/instagram", { handle: instagram, maxPosts: 9 }, 150_000)) as IgProfile;
+          ig = gargalosFromInstagram(instagram, prof);
+          igRead = prof.found;
+        } catch (err) {
+          log(`${name}: Instagram não lido (${err instanceof Error ? err.message.slice(0, 60) : err})`);
+        }
+      } else {
+        ig.gargalos.push({ tipo: "sem_instagram", texto: "não encontramos um Instagram da clínica", peso: 10 });
+      }
+      const gargalos = [...gargalosFromPlace({ rating, reviews, site }), ...siteCheck.gargalos, ...ig.gargalos];
       const score = Math.max(0, Math.min(100, gargalos.reduce((a, g) => a + g.peso, 0) + (isMobile ? 0 : -5)));
-      const message = await writeOpener({ name, city: input.city, niche: input.niche, gargalos, rating, reviews }).catch(() => null);
+      const analisados = ["o perfil no Google", ...(site ? ["o site"] : []), ...(igRead ? ["o Instagram"] : [])];
+      const message = await writeOpener({ name, city: input.city, niche: input.niche, gargalos, rating, reviews, analisados }).catch(() => null);
       await prisma.prospect.create({
-        data: { campaign, name, phone, site, address: String(p.endereco ?? "") || null, rating, reviews, category: String(p.categoria ?? "") || null, score, gargalos: gargalos as unknown as object, message, status: "APROVAR", notes: isMobile ? null : "Telefone fixo: muita clínica usa WhatsApp Business no fixo. A LOTUS confere na hora de enviar; se não tiver, marca Sem WhatsApp." },
+        data: {
+          campaign, name, phone, site, instagram, followers: ig.followers, lastPostDays: ig.lastPostDays,
+          address: String(p.endereco ?? "") || null, rating, reviews, category: String(p.categoria ?? "") || null,
+          score, gargalos: gargalos as unknown as object, message, status: "APROVAR",
+          notes: isMobile ? null : "Telefone fixo: muita clínica usa WhatsApp Business no fixo. A LOTUS confere na hora de enviar.",
+        },
       });
       knownPhones.add(phoneKey(phone));
       st.found += 1;
-      log(`${name}: nota ${rating ?? "?"} (${reviews ?? "?"}), ${gargalos.length} gargalo(s)`);
+      log(`${name}: nota ${rating ?? "?"} (${reviews ?? "?"})${instagram ? `, @${instagram}` : ""}, ${gargalos.length} gargalo(s)`);
     } catch (err) {
       log(`${name}: falhou (${err instanceof Error ? err.message : err})`);
     }
   }
   await notify({ kind: "prospect", title: `Prospecção pronta: ${st.found} clínica(s)`, body: `${campaign}. As mensagens estão esperando sua aprovação.`, href: "/prospeccao" });
+}
+
+// ===== Site grátis para a clínica prospectada =====
+
+// Monta o site com a marca real (logo, fotos e cores do Instagram), passando pela mesma revisão de qualidade dos clientes
+export async function prepareFreeSite(prospectId: string): Promise<{ started: boolean; reason?: string }> {
+  const p = await prisma.prospect.findUnique({ where: { id: prospectId } });
+  if (!p) return { started: false, reason: "Clínica não encontrada" };
+  if (p.siteMissionId && !p.siteUrl) return { started: false, reason: "O site já está sendo montado." };
+  if (!p.instagram) return { started: false, reason: "Sem Instagram da clínica: a LOTUS precisa das fotos e do logo reais para montar o site." };
+  const rt = createRuntimeClient();
+  if (!(await rt.available())) return { started: false, reason: "Abra o aplicativo LOTUS neste computador." };
+  const handle = p.instagram.replace(/^@/, "");
+  // Marca já como "preparando" para um segundo clique não montar outro site
+  await prisma.prospect.update({ where: { id: p.id }, data: { siteMissionId: "preparando" } });
+  try {
+    return await buildFreeSite(p, handle);
+  } catch (err) {
+    await prisma.prospect.update({ where: { id: p.id }, data: { siteMissionId: null } });
+    throw err;
+  }
+}
+
+async function buildFreeSite(p: NonNullable<Awaited<ReturnType<typeof prisma.prospect.findUnique>>>, handle: string): Promise<{ started: boolean; reason?: string }> {
+  const rt = createRuntimeClient();
+  // Kit de marca (logo, fotos, cores): o mesmo do diagnóstico
+  const brand = (await rt.call("/runtime/research/brand", { handle, site: p.site }, 300_000)) as Record<string, unknown>;
+  const profile = (await rt.call("/runtime/research/instagram", { handle, maxPosts: 9 }, 150_000).catch(() => null)) as (IgProfile & { fullTitle?: string }) | null;
+  const client = await prisma.client.create({
+    data: { name: `${p.name} (prospecção)`, slug: `prospect-${handle.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now().toString(36)}`, segment: p.category ?? null, instagram: `@${handle}`, website: p.site, status: "PROSPECT", description: `Clínica prospectada pela LOTUS. Endereço: ${p.address ?? "não informado"}.` },
+  });
+  const mission = await prisma.mission.create({
+    data: { clientId: client.id, title: `Site grátis — ${p.name}`, description: "Site de presente para a clínica prospectada (motivo da call).", objective: "Mostrar ao dono da clínica, numa call de 15 minutos, um site novo com a marca real dele.", status: "IN_PROGRESS", context: { prospectId: p.id, handle } as object },
+  });
+  const brief = {
+    perfil: { nome: p.name, categoria: p.category, endereco: p.address, google: { nota: p.rating, avaliacoes: p.reviews }, instagram: profile ? { titulo: profile.fullTitle, bio: profile.bio, seguidores: profile.followers } : null },
+    whatsappEncontrado: p.phone ? [p.phone] : [],
+    negocioDeSaude: true,
+    observacao: "Site de PRÉVIA para apresentar ao dono numa call. Use só dados reais coletados; o que faltar vira marcador curto.",
+  };
+  const { createSiteChain } = await import("@/lib/site-builder");
+  const chain = await createSiteChain({ missionId: mission.id, businessName: p.name, handle, brief, brand, dependsOn: [] });
+  if (!chain) {
+    await prisma.prospect.update({ where: { id: p.id }, data: { siteMissionId: null } });
+    return { started: false, reason: "Faltam os agentes de web ou de qualidade." };
+  }
+  await prisma.prospect.update({ where: { id: p.id }, data: { siteMissionId: mission.id } });
+  const { runTask } = await import("@/lib/task-runner");
+  runTask(chain.buildId);
+  return { started: true };
+}
+
+// Confere se algum site grátis ficou pronto: guarda o link e reescreve a mensagem (agora pode falar do site)
+export async function syncFreeSites(): Promise<void> {
+  const pending = await prisma.prospect.findMany({ where: { siteMissionId: { not: null }, NOT: { siteMissionId: "preparando" }, siteUrl: null } });
+  for (const p of pending) {
+    const decision = await prisma.task.findFirst({ where: { missionId: p.siteMissionId!, title: { startsWith: "Decisão sobre o site" }, status: "COMPLETED" }, orderBy: { completedAt: "desc" }, select: { output: true } });
+    const out = (decision?.output ?? null) as { url?: string; aprovado?: boolean } | null;
+    if (!out?.url || !out.aprovado) continue;
+    const update: Record<string, unknown> = { siteUrl: out.url };
+    if (p.status === "APROVAR") {
+      const city = p.campaign.split(" em ")[1]?.split(" — ")[0] ?? "";
+      const niche = p.campaign.split(" em ")[0] ?? "clínica";
+      update.message = await writeOpener({ name: p.name, city, niche, gargalos: (p.gargalos ?? []) as unknown as Gargalo[], rating: p.rating, reviews: p.reviews, siteUrl: out.url, analisados: ["o perfil no Google", ...(p.site ? ["o site"] : []), ...(p.instagram ? ["o Instagram"] : [])] }).catch(() => p.message);
+    }
+    await prisma.prospect.update({ where: { id: p.id }, data: update });
+    await notify({ kind: "prospect", title: `Site grátis da ${p.name} pronto`, body: `${out.url}${p.status === "APROVAR" ? " · a mensagem foi reescrita para oferecer o site" : ""}`, href: "/prospeccao" });
+  }
 }
 
 // Aprovar: entra na fila do WhatsApp da LOTUS (sai no horário e no ritmo do escudo)
@@ -176,3 +336,4 @@ export async function prospectSent(prospectId: string, ok: boolean, error?: stri
     await prisma.prospect.update({ where: { id: prospectId }, data: { status: /não tem WhatsApp/i.test(error ?? "") ? "SEM_WHATSAPP" : "APROVAR", notes: error?.slice(0, 300) ?? null } });
   }
 }
+

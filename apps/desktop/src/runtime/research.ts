@@ -163,6 +163,52 @@ export class ResearchBrowser {
     }
   }
 
+  // Busca contas no Instagram pelo nome (como a lupa do app), usando o Instagram já logado no navegador de pesquisa.
+  // Uma busca por clínica, sem curtir, seguir nem mandar nada.
+  async instagramSearch(query: string): Promise<{ ok: boolean; users: Array<{ username: string; fullName: string; verified: boolean; isPrivate: boolean }>; tried?: string }> {
+    return this.withPage(async (page) => {
+      await page.goto('https://www.instagram.com/', { waitUntil: 'domcontentloaded', timeout: 45_000 })
+      await page.waitForTimeout(2500 + Math.random() * 1500)
+      // Abre a busca pela lupa do menu (como uma pessoa faz); se não achar, vai direto na página de busca
+      const loginWall = await page.locator('input[name="username"]').count().catch(() => 0)
+      if (loginWall) return { ok: false, users: [], tried: 'o Instagram pediu login neste navegador' }
+      const lupa = page.locator('svg[aria-label^="Pesquis"], svg[aria-label="Search"], a[href="/explore/search/"]').first()
+      const clicked = await lupa.click({ timeout: 6000 }).then(() => true).catch(() => false)
+      if (!clicked) {
+        await page.goto('https://www.instagram.com/explore/search/', { waitUntil: 'domcontentloaded', timeout: 45_000 })
+        await page.waitForTimeout(2000)
+      }
+      const input = page.locator('input[aria-label*="Pesquis"], input[placeholder*="Pesquis"], input[aria-label*="Search"], input[placeholder*="Search"]').first()
+      try {
+        await input.waitFor({ timeout: 8000 })
+      } catch {
+        return { ok: false, users: [], tried: 'campo de busca não apareceu em ' + page.url() + ' (' + (await page.title().catch(() => '')) + ')' }
+      }
+      // Digita devagar, letra por letra
+      await input.pressSequentially(query, { delay: 70 + Math.floor(Math.random() * 60) })
+      await page.waitForTimeout(3500 + Math.random() * 1000)
+      const users = await page.evaluate(() => {
+        const seen = new Set<string>()
+        const out: Array<{ username: string; fullName: string; verified: boolean; isPrivate: boolean }> = []
+        const reserved = /^(explore|reels|direct|accounts|stories|p|reel|about|legal|web|emails|challenge|tags|locations)$/i
+        for (const a of Array.from(document.querySelectorAll('a[href^="/"]')) as HTMLAnchorElement[]) {
+          const m = a.getAttribute('href')?.match(/^\/([A-Za-z0-9_.]{2,30})\/?$/)
+          if (!m || reserved.test(m[1]) || seen.has(m[1])) continue
+          const text = (a.innerText || '').trim()
+          if (!text || !text.includes(m[1])) continue // resultados da busca mostram o @ no texto
+          seen.add(m[1])
+          const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+          out.push({ username: m[1], fullName: lines.find((l) => l !== m[1] && !/seguidor|follower|•/i.test(l)) ?? '', verified: !!a.querySelector('svg[aria-label*="erificad"]'), isPrivate: false })
+          if (out.length >= 8) break
+        }
+        return out
+      })
+      this.log('info', `Instagram: busca "${query}" → ${users.length} conta(s)`)
+      return { ok: true, users }
+    })
+  }
+
+
   // === Contas conectadas ===
 
   async status(): Promise<{ instagram: boolean; google: boolean; whatsappProfile: boolean; browserOpen: boolean; visible: boolean }> {
