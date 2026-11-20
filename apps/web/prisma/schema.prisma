@@ -108,6 +108,7 @@ model Client {
   leads            Lead[]
   monthlyNumbers   ClientMonthlyNumbers[]
   whatsapp         WhatsappChannel?
+  manychat         ManychatAccount?
   conversations    Conversation[]
   patients         Patient[]
 
@@ -132,6 +133,7 @@ model Lead {
   notes          String?
   viaLotus       Boolean    @default(true) // veio por ação da LOTUS (anúncio, site, campanha)?
   conversationId String?    // conversa de WhatsApp que gerou o lead
+  channel        String     @default("whatsapp") // por onde o lead conversa: whatsapp | instagram
   patientId      String?
   appointmentAt  DateTime?  // data e hora da consulta marcada
   quotedValue    Float?     // valor do orçamento passado
@@ -208,6 +210,7 @@ model Conversation {
   aiDraftAction   String?    // o que fazer ao enviar o rascunho: "agendar:<ISO>" | "humano:<motivo>"
   aiPausedUntil   DateTime?  // a IA não responde até esta hora (um humano assumiu a conversa)
   prospectId      String?    // conversa com uma clínica prospectada pela LOTUS
+  channel         String     @default("whatsapp") // whatsapp | instagram
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
 
@@ -287,6 +290,38 @@ model Purchase {
   @@index([clientId, date])
   @@index([patientId])
   @@map("purchases")
+}
+
+// Instagram da clínica ligado pela conta do ManyChat (parceiro oficial da Meta): DMs entram no Atendimento
+model ManychatAccount {
+  id           String    @id @default(cuid())
+  clientId     String    @unique
+  apiKeyEnc    String    // chave da API do ManyChat, criptografada
+  pageName     String?
+  igUsername   String?
+  inboundToken String    @unique // segredo do endereço que recebe as mensagens
+  status       String    @default("conectado")
+  lastEventAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("manychat_accounts")
+}
+
+// Mensagens que chegaram pela internet (ManyChat, formulários) enquanto o app estava fechado: o app processa ao abrir
+model InboundEvent {
+  id          String    @id @default(cuid())
+  source      String    // manychat | formulario
+  token       String
+  payload     Json
+  processedAt DateTime?
+  error       String?
+  createdAt   DateTime  @default(now())
+
+  @@index([processedAt, createdAt])
+  @@map("inbound_events")
 }
 
 // Avisos para o Ícaro dentro do app (sino e notificação do Windows): alguém respondeu, a IA agendou, pediram humano...

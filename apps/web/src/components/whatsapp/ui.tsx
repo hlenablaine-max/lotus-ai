@@ -177,3 +177,38 @@ export function parseSheet(text: string, map: Record<string, string>): Array<Rec
     return row;
   });
 }
+
+// Canal da conversa: WhatsApp e Instagram separados em todo lugar (CRM, painel, caixa de conversas)
+export const CHANNELS = [
+  { id: "", label: "Todos os canais" },
+  { id: "whatsapp", label: "WhatsApp" },
+  { id: "instagram", label: "Instagram" },
+] as const;
+
+export function ChannelFilter({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="inline-flex rounded-lg border border-border bg-muted/30 p-0.5">
+      {CHANNELS.map((c) => (
+        <button
+          key={c.id || "todos"}
+          type="button"
+          onClick={() => onChange(c.id)}
+          className={cn(
+            "px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+            value === c.id ? (c.id === "instagram" ? "bg-pink-500/20 text-pink-200" : c.id === "whatsapp" ? "bg-emerald-500/20 text-emerald-200" : "bg-card text-foreground shadow-sm") : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          {c.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function ChannelBadge({ channel }: { channel: string }) {
+  return channel === "instagram" ? (
+    <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-gradient-to-r from-pink-500/25 to-amber-500/25 text-pink-200 border border-pink-500/30">IG</span>
+  ) : (
+    <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">WA</span>
+  );
+}

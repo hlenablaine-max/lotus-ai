@@ -20,6 +20,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const where: Prisma.ConversationWhereInput = { clientId: id };
   if (q) where.OR = [{ name: { contains: q, mode: "insensitive" } }, { phone: { contains: q.replace(/\D/g, "") || q } }, { lastPreview: { contains: q, mode: "insensitive" } }];
   if (source) where.source = source as Prisma.ConversationWhereInput["source"];
+  const canal = sp.get("canal");
+  if (canal === "whatsapp" || canal === "instagram") where.channel = canal;
   if (filtro === "base") where.patientId = { not: null };
   if (filtro === "leads" || filtro === "fechados") where.leadId = { not: null };
 
@@ -34,6 +36,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     name: c.name,
     phone: c.phone,
     source: c.source,
+    channel: c.channel,
     sourceBy: c.sourceBy,
     campaign: c.campaign,
     lastPreview: c.lastPreview,

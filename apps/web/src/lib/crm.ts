@@ -45,6 +45,8 @@ export interface ClientResults {
   leads: number;
   leadsViaLotus: number;
   bySource: Array<{ source: Source; label: string; leads: number; closed: number; revenue: number }>;
+  byChannel: Array<{ channel: string; label: string; leads: number; closed: number; revenue: number }>; // WhatsApp e Instagram separados
+  channel: string | null; // filtro aplicado
   funnel: Array<{ stage: Stage; label: string; count: number }>;
   rates: { contato: number | null; agendamento: number | null; comparecimento: number | null; fechamento: number | null; leadParaVenda: number | null };
   closed: number;
@@ -62,14 +64,16 @@ export interface ClientResults {
   previous: { leads: number; closed: number; revenueClosed: number } | null;
 }
 
-export async function clientResults(clientId: string, month?: string): Promise<ClientResults> {
+export async function clientResults(clientId: string, month?: string, channel?: string | null): Promise<ClientResults> {
   const r = monthRange(month);
   const prev = monthRange(`${r.start.getMonth() === 0 ? r.start.getFullYear() - 1 : r.start.getFullYear()}-${String(r.start.getMonth() === 0 ? 12 : r.start.getMonth()).padStart(2, "0")}`);
-  const [leads, numbers, prevLeads] = await Promise.all([
-    prisma.lead.findMany({ where: { clientId, createdAt: { gte: r.start, lt: r.end } }, select: { stage: true, source: true, value: true, viaLotus: true, createdAt: true } }),
+  const [leadsAll, numbers, prevLeads] = await Promise.all([
+    prisma.lead.findMany({ where: { clientId, createdAt: { gte: r.start, lt: r.end } }, select: { stage: true, source: true, value: true, viaLotus: true, createdAt: true, channel: true } }),
     prisma.clientMonthlyNumbers.findUnique({ where: { clientId_month: { clientId, month: r.month } } }),
-    prisma.lead.findMany({ where: { clientId, createdAt: { gte: prev.start, lt: prev.end } }, select: { stage: true, value: true } }),
+    prisma.lead.findMany({ where: { clientId, createdAt: { gte: prev.start, lt: prev.end }, ...(channel ? { channel } : {}) }, select: { stage: true, value: true } }),
   ]);
+  const allLeads = leadsAll;
+  const leads = channel ? allLeads.filter((l) => l.channel === channel) : allLeads;
   const reached = (s: Stage) => leads.filter((l) => RANK[l.stage as Stage] >= RANK[s]).length;
   const closedLeads = leads.filter((l) => l.stage === "FECHADO");
   const revenueClosed = closedLeads.reduce((sum, l) => sum + (l.value ?? 0), 0);
@@ -79,6 +83,12 @@ export async function clientResults(clientId: string, month?: string): Promise<C
 
   return {
     month: r.month,
+    channel: channel ?? null,
+    byChannel: ["whatsapp", "instagram"].map((ch) => {
+      const of = allLeads.filter((l) => l.channel === ch);
+      const won = of.filter((l) => l.stage === "FECHADO");
+      return { channel: ch, label: ch === "instagram" ? "Instagram" : "WhatsApp", leads: of.length, closed: won.length, revenue: won.reduce((sum, l) => sum + (l.value ?? 0), 0) };
+    }),
     leads: total,
     leadsViaLotus: leads.filter((l) => l.viaLotus).length,
     bySource: SOURCES.map((s) => {

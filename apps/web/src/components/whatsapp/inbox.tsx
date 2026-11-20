@@ -4,13 +4,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarClock, Check, CheckCheck, Copy, Loader2, MessageSquarePlus, Search, Send, Sparkles, UserRound, Wand2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { SOURCE_META, STAGE_META, SourcePill, brl, btnGhost, btnSoft, field, fmtDate, fmtDayLabel, fmtTime, fmtWait, fmtWhen, formatPhone } from "./ui";
+import { ChannelBadge, ChannelFilter, SOURCE_META, STAGE_META, SourcePill, brl, btnGhost, btnSoft, field, fmtDate, fmtDayLabel, fmtTime, fmtWait, fmtWhen, formatPhone } from "./ui";
 
 interface Row {
   id: string;
   name: string | null;
   phone: string | null;
   source: string;
+  channel: string;
   sourceBy: string | null;
   campaign: string | null;
   lastPreview: string | null;
@@ -58,7 +59,7 @@ interface Patient {
   purchases: Array<{ id: string; date: string; value: number; procedure: string | null }>;
 }
 interface Detail {
-  conversation: { id: string; name: string | null; phone: string | null; source: string; sourceBy: string | null; campaign: string | null; aiHint: string | null; firstResponseMin: number | null; fromHistory: boolean; leadId: string | null; aiDraft: string | null; aiPausedUntil: string | null };
+  conversation: { id: string; name: string | null; phone: string | null; source: string; sourceBy: string | null; campaign: string | null; aiHint: string | null; firstResponseMin: number | null; fromHistory: boolean; leadId: string | null; aiDraft: string | null; aiPausedUntil: string | null; channel: string };
   messages: Msg[];
   lead: Lead | null;
   patient: Patient | null;
@@ -106,6 +107,7 @@ export function Inbox({ clientId, connected, initialFilter = "todas" }: { client
   const [rows, setRows] = useState<Row[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [filter, setFilter] = useState(initialFilter);
+  const [channel, setChannel] = useState("");
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -120,11 +122,12 @@ export function Inbox({ clientId, connected, initialFilter = "todas" }: { client
 
   const loadList = useCallback(async () => {
     const sp = new URLSearchParams({ filtro: filter });
+    if (channel) sp.set("canal", channel);
     if (q.trim()) sp.set("q", q.trim());
     const res = await fetch(`/api/clients/${clientId}/whatsapp/conversations?${sp}`).catch(() => null);
     if (res?.ok) setRows(((await res.json()) as { conversations: Row[] }).conversations);
     setLoadingList(false);
-  }, [clientId, filter, q]);
+  }, [clientId, filter, q, channel]);
 
   const loadDetail = useCallback(async (id: string) => {
     const res = await fetch(`/api/conversations/${id}`).catch(() => null);
@@ -243,6 +246,7 @@ export function Inbox({ clientId, connected, initialFilter = "todas" }: { client
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input className={cn(field, "pl-9")} placeholder="Buscar nome, número ou mensagem" value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
+          <ChannelFilter value={channel} onChange={setChannel} />
           <div className="flex gap-1.5 overflow-x-auto pb-0.5">
             {FILTERS.map((f) => (
               <button key={f.id} onClick={() => setFilter(f.id)} className={cn("px-2.5 py-1 rounded-full text-[11px] whitespace-nowrap border", filter === f.id ? "bg-primary/20 border-primary/40 text-primary" : "border-border text-muted-foreground hover:text-foreground")}>
@@ -275,6 +279,7 @@ export function Inbox({ clientId, connected, initialFilter = "todas" }: { client
                   {r.unread > 0 && <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 text-[10px] font-bold text-white flex items-center justify-center">{r.unread}</span>}
                 </div>
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                  <ChannelBadge channel={r.channel} />
                   {!r.fromHistory || r.lead ? <SourcePill source={r.source} campaign={r.campaign} /> : null}
                   {r.lead && <span className={cn("text-[10px] font-medium", STAGE_META[r.lead.stage]?.cls)}>{STAGE_META[r.lead.stage]?.label}</span>}
                   {r.isPatient && <span className="text-[10px] text-sky-300">paciente</span>}
@@ -401,11 +406,11 @@ export function Inbox({ clientId, connected, initialFilter = "todas" }: { client
                   }
                 }}
                 rows={Math.min(5, Math.max(1, text.split("\n").length))}
-                placeholder={connected ? "Escreva uma mensagem (Enter envia, Shift+Enter pula linha)" : "Conecte o WhatsApp para enviar"}
-                disabled={!connected}
+                placeholder={connected || conv?.channel === "instagram" ? "Escreva uma mensagem (Enter envia, Shift+Enter pula linha)" : "Conecte o WhatsApp para enviar"}
+                disabled={!connected && conv?.channel !== "instagram"}
                 className={cn(field, "resize-none min-h-[40px]")}
               />
-              <button onClick={() => void send()} disabled={!connected || sending || !text.trim()} className="h-10 w-10 flex-shrink-0 rounded-full bg-emerald-600 text-white flex items-center justify-center hover:bg-emerald-500 disabled:opacity-40" aria-label="Enviar">
+              <button onClick={() => void send()} disabled={(!connected && conv?.channel !== "instagram") || sending || !text.trim()} className="h-10 w-10 flex-shrink-0 rounded-full bg-emerald-600 text-white flex items-center justify-center hover:bg-emerald-500 disabled:opacity-40" aria-label="Enviar">
                 {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               </button>
             </div>

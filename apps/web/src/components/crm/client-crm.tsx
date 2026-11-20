@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Loader2, Plus, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ChannelBadge, ChannelFilter } from "@/components/whatsapp/ui";
 
 const STAGES = [
   { id: "NOVO", label: "Novo" },
@@ -37,12 +38,14 @@ interface Lead {
   value: number | null;
   createdAt: string;
   viaLotus: boolean;
+  channel?: string;
 }
 interface Results {
   month: string;
   leads: number;
   leadsViaLotus: number;
   bySource: Array<{ source: string; label: string; leads: number; closed: number; revenue: number }>;
+  byChannel?: Array<{ channel: string; label: string; leads: number; closed: number; revenue: number }>;
   funnel: Array<{ stage: string; label: string; count: number }>;
   rates: { contato: number | null; agendamento: number | null; comparecimento: number | null; fechamento: number | null; leadParaVenda: number | null };
   closed: number;
@@ -90,6 +93,7 @@ function parseSheet(text: string): Array<Record<string, string>> {
 
 export function ClientCrm({ clientId, clientName }: { clientId: string; clientName: string }) {
   const [month, setMonth] = useState(thisMonth());
+  const [channel, setChannel] = useState("");
   const [results, setResults] = useState<Results | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -103,7 +107,7 @@ export function ClientCrm({ clientId, clientName }: { clientId: string; clientNa
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [r, l] = await Promise.all([fetch(`/api/clients/${clientId}/results?month=${month}`), fetch(`/api/clients/${clientId}/leads?month=${month}`)]);
+      const [r, l] = await Promise.all([fetch(`/api/clients/${clientId}/results?month=${month}${channel ? `&canal=${channel}` : ""}`), fetch(`/api/clients/${clientId}/leads?month=${month}`)]);
       if (!r.ok || !l.ok) throw new Error(`erro ${r.status}/${l.status}`);
       const res = (await r.json()) as Results;
       setResults(res);
@@ -114,7 +118,7 @@ export function ClientCrm({ clientId, clientName }: { clientId: string; clientNa
     } finally {
       setLoading(false);
     }
-  }, [clientId, month]);
+  }, [clientId, month, channel]);
 
   useEffect(() => {
     setLoading(true);
@@ -159,7 +163,7 @@ export function ClientCrm({ clientId, clientName }: { clientId: string; clientNa
     void load();
   };
 
-  const byStage = useMemo(() => Object.fromEntries(STAGES.map((s) => [s.id, leads.filter((l) => l.stage === s.id)])), [leads]);
+  const byStage = useMemo(() => Object.fromEntries(STAGES.map((s) => [s.id, leads.filter((l) => l.stage === s.id && (!channel || (l.channel ?? "whatsapp") === channel))])), [leads, channel]);
   const maxFunnel = Math.max(1, ...(results?.funnel.map((f) => f.count) ?? [1]));
 
   if (loading && !results) {
@@ -174,6 +178,7 @@ export function ClientCrm({ clientId, clientName }: { clientId: string; clientNa
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
         <input type="month" value={month} onChange={(e) => setMonth(e.target.value || thisMonth())} className={cn(field, "w-auto")} />
+        <ChannelFilter value={channel} onChange={setChannel} />
         <button onClick={() => setShowAdd((v) => !v)} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/15 border border-primary/30 text-primary text-sm font-medium hover:bg-primary/25">
           <Plus className="w-4 h-4" /> Novo lead
         </button>
@@ -237,6 +242,22 @@ export function ClientCrm({ clientId, clientName }: { clientId: string; clientNa
               </div>
             ))}
           </div>
+
+          {!channel && results.byChannel && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {results.byChannel.map((c) => (
+                <div key={c.channel} className={cn("rounded-xl border p-4 flex items-center gap-4", c.channel === "instagram" ? "border-pink-500/25 bg-pink-500/[0.04]" : "border-emerald-500/25 bg-emerald-500/[0.04]")}>
+                  <ChannelBadge channel={c.channel} />
+                  <div className="text-sm font-semibold text-foreground w-24">{c.label}</div>
+                  <div className="flex-1 grid grid-cols-3 gap-2 text-center">
+                    <div><div className="text-base font-bold text-foreground">{c.leads}</div><div className="text-[10px] text-muted-foreground">leads</div></div>
+                    <div><div className="text-base font-bold text-foreground">{c.closed}</div><div className="text-[10px] text-muted-foreground">fecharam</div></div>
+                    <div><div className="text-base font-bold text-emerald-300">{brl(c.revenue)}</div><div className="text-[10px] text-muted-foreground">faturou</div></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="rounded-xl border border-border bg-card p-5">
@@ -312,7 +333,7 @@ export function ClientCrm({ clientId, clientName }: { clientId: string; clientNa
               <div className="space-y-2">
                 {(byStage[s.id] ?? []).slice(0, 40).map((lead) => (
                   <div key={lead.id} className="rounded-lg border border-border bg-card p-2.5">
-                    <div className="text-xs font-medium text-foreground truncate">{lead.name}</div>
+                    <div className="text-xs font-medium text-foreground truncate flex items-center gap-1.5">{lead.channel && <ChannelBadge channel={lead.channel} />}{lead.name}</div>
                     <div className="text-[11px] text-muted-foreground truncate">{SOURCE_LABEL[lead.source] ?? lead.source}{lead.interest ? `, ${lead.interest}` : ""}</div>
                     {lead.value ? <div className="text-[11px] text-emerald-400">{brl(lead.value)}</div> : null}
                     <select

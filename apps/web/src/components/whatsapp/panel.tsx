@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Clock, Loader2, MessageCircle, Timer } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Card, Kpi, SOURCE_META, brl, fmtMinutes } from "./ui";
+import { Card, ChannelBadge, ChannelFilter, Kpi, SOURCE_META, brl, fmtMinutes } from "./ui";
 
 interface Metrics {
   arrived: number;
@@ -28,6 +28,7 @@ interface Metrics {
   bySource: Array<{ source: string; label: string; leads: number; answered: number; scheduled: number; closed: number; revenue: number }>;
   byCampaign: Array<{ campaign: string; leads: number; closed: number; revenue: number }>;
   byHour: Array<{ hour: number; leads: number; fast: number }>;
+  byChannel?: Array<{ channel: string; leads: number; answered: number; scheduled: number; closed: number; revenue: number }>;
 }
 
 const PERIODS = [
@@ -42,15 +43,16 @@ const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : "�
 
 export function AttendancePanel({ clientId, onOpenWaiting }: { clientId: string; onOpenWaiting: () => void }) {
   const [period, setPeriod] = useState("hoje");
+  const [channel, setChannel] = useState("");
   const [m, setM] = useState<Metrics | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/clients/${clientId}/whatsapp/metrics?periodo=${period}`).catch(() => null);
+    const res = await fetch(`/api/clients/${clientId}/whatsapp/metrics?periodo=${period}${channel ? `&canal=${channel}` : ""}`).catch(() => null);
     if (!res?.ok) return setError("Não foi possível carregar o painel.");
     setError(null);
     setM((await res.json()) as Metrics);
-  }, [clientId, period]);
+  }, [clientId, period, channel]);
 
   useEffect(() => {
     setM(null);
@@ -77,7 +79,10 @@ export function AttendancePanel({ clientId, onOpenWaiting }: { clientId: string;
             {p.label}
           </button>
         ))}
-        <span className="text-[11px] text-muted-foreground ml-auto">Atualiza sozinho a cada 15 segundos</span>
+        <div className="ml-auto flex items-center gap-3">
+          <ChannelFilter value={channel} onChange={setChannel} />
+          <span className="text-[11px] text-muted-foreground hidden xl:inline">Atualiza sozinho a cada 15 s</span>
+        </div>
       </div>
       {error && <p className="text-sm text-red-300">{error}</p>}
       {!m && !error && (
@@ -151,6 +156,33 @@ export function AttendancePanel({ clientId, onOpenWaiting }: { clientId: string;
               )}
             </Card>
           </div>
+
+          {!channel && m.byChannel && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {m.byChannel.map((c) => (
+                <div key={c.channel} className={cn("rounded-xl border p-4", c.channel === "instagram" ? "border-pink-500/25 bg-pink-500/[0.04]" : "border-emerald-500/25 bg-emerald-500/[0.04]")}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <ChannelBadge channel={c.channel} />
+                    <span className="text-sm font-semibold text-foreground">{c.channel === "instagram" ? "Instagram" : "WhatsApp"}</span>
+                  </div>
+                  <div className="grid grid-cols-5 gap-2 text-center">
+                    {[
+                      ["Chegaram", String(c.leads)],
+                      ["Respondidos", String(c.answered)],
+                      ["Agendaram", String(c.scheduled)],
+                      ["Fecharam", String(c.closed)],
+                      ["Faturou", brl(c.revenue)],
+                    ].map(([label, v]) => (
+                      <div key={label}>
+                        <div className="text-base font-bold text-foreground">{v}</div>
+                        <div className="text-[10px] text-muted-foreground">{label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           <Card title="Resultado por origem" subtitle="Cada canal tem uma saudação diferente: é assim que a LOTUS sabe de onde o lead veio">
             {m.bySource.length === 0 ? (

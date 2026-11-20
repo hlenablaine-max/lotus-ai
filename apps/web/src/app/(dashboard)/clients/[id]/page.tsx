@@ -15,7 +15,7 @@ import { Patients } from "@/components/patients/patients";
 
 type Tab = "overview" | "attendance" | "crm" | "patients" | "missions" | "chat";
 const TABS: Tab[] = ["overview", "attendance", "crm", "patients", "missions", "chat"];
-const TAB_LABEL: Record<Tab, string> = { overview: "Visão geral", attendance: "Atendimento (WhatsApp)", crm: "CRM e resultados", patients: "Pacientes e LTV", missions: "Missões", chat: "Chat com CEO" };
+const TAB_LABEL: Record<Tab, string> = { overview: "Visão geral", attendance: "Atendimento (WhatsApp e Instagram)", crm: "CRM e resultados", patients: "Pacientes e LTV", missions: "Missões", chat: "Chat com CEO" };
 
 interface Client {
   id: string;

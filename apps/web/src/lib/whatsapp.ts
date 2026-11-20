@@ -1,6 +1,7 @@
 // Atendimento por WhatsApp de cada clínica: recebe as mensagens que o app de PC repassa, monta as conversas,
 // descobre de onde o contato veio pela saudação (cada canal tem um texto diferente), cria o lead sozinho,
 // mede o tempo de resposta e liga o contato ao paciente da base (para o LTV).
+import * as crypto from "crypto";
 import type { LeadSource } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createRuntimeClient } from "@/lib/runtime-client";
@@ -30,6 +31,7 @@ export interface MessageEvent {
   sentAt: string;
   history: boolean;
   viaApi?: boolean; // saiu pela LOTUS (app, IA, automação), não digitado no celular
+  channel?: "whatsapp" | "instagram";
 }
 export interface StatusEvent {
   type: "status";
@@ -168,7 +170,7 @@ interface Attribution {
   referredById: string | null;
 }
 
-async function attribute(clientId: string, text: string, phone: string | null): Promise<Attribution> {
+async function attribute(clientId: string, text: string, phone: string | null, channel = "whatsapp"): Promise<Attribution> {
   const [links, patient, campaign] = await Promise.all([getLinks(clientId), findPatientByPhone(clientId, phone), recentCampaignTo(clientId, phone)]);
   const ref = text.match(REFERRAL_RE)?.[1]?.toUpperCase();
   if (ref) {
@@ -183,6 +185,8 @@ async function attribute(clientId: string, text: string, phone: string | null): 
     return { source: "REATIVACAO", sourceBy: "campanha", linkId: null, campaign: campaign.kind === "retorno" ? "Lembrete de retorno" : campaign.kind === "aniversario" ? "Aniversário" : "Reativação da base", viaLotus: true, patientId: patient?.id ?? null, referredById: null };
   }
   if (patient) return { source: "PACIENTE_BASE", sourceBy: "base", linkId: null, campaign: null, viaLotus: false, patientId: patient.id, referredById: null };
+  // DM no Instagram sem saudação de link: veio pelo Instagram (orgânico)
+  if (channel === "instagram") return { source: "INSTAGRAM", sourceBy: "canal", linkId: null, campaign: null, viaLotus: false, patientId: null, referredById: null };
   return { source: "WHATSAPP", sourceBy: null, linkId: null, campaign: null, viaLotus: false, patientId: null, referredById: null };
 }
 
@@ -222,7 +226,7 @@ async function ingestLive(ev: MessageEvent) {
 
   if (!conv) {
     conv = await prisma.conversation.create({
-      data: { clientId: ev.clientId, jid: ev.jid, phone, name: ev.fromMe ? null : ev.name, firstMessageAt: sentAt, lastMessageAt: sentAt },
+      data: { clientId: ev.clientId, jid: ev.jid, phone, name: ev.fromMe ? null : ev.name, firstMessageAt: sentAt, lastMessageAt: sentAt, channel: ev.channel ?? "whatsapp" },
     });
     newOpportunity = !ev.fromMe;
   } else if (!ev.fromMe) {
@@ -257,7 +261,7 @@ async function ingestLive(ev: MessageEvent) {
   }
 
   if (newOpportunity) {
-    const a = await attribute(ev.clientId, ev.text, phone ?? conv.phone);
+    const a = await attribute(ev.clientId, ev.text, phone ?? conv.phone, conv.channel);
     const lead = await prisma.lead.create({
       data: {
         clientId: ev.clientId,
@@ -267,6 +271,7 @@ async function ingestLive(ev: MessageEvent) {
         campaign: a.campaign,
         viaLotus: a.viaLotus,
         conversationId: conv.id,
+        channel: conv.channel,
         patientId: a.patientId,
         createdAt: sentAt,
         notes: a.referredById ? `Indicado pelo paciente ${a.referredById}` : null,
@@ -379,6 +384,8 @@ export function fillTemplate(text: string, vars: Record<string, string | null | 
 }
 
 export async function sendNow(clientId: string, to: { jid?: string | null; phone?: string | null }, text: string, sentBy: "lotus" | "automacao" | "ia", maxWaitMs = 120_000) {
+  // Instagram (ManyChat): sai pela API oficial, sem passar pelo WhatsApp
+  if (to.jid?.startsWith("ig:")) return sendViaInstagram(clientId, to.jid, text, sentBy);
   const runtime = createRuntimeClient();
   if (!(await runtime.available())) throw new Error("Abra o aplicativo LOTUS neste computador para enviar mensagens.");
   const target = to.jid || normalizePhone(to.phone);
@@ -551,10 +558,10 @@ const SOURCE_LABEL: Record<string, string> = {
 };
 export const sourceLabel = (s: string) => SOURCE_LABEL[s] ?? s;
 
-export async function whatsappMetrics(clientId: string, from: Date, to: Date) {
+export async function whatsappMetrics(clientId: string, from: Date, to: Date, channel?: string | null) {
   const leads = await prisma.lead.findMany({
-    where: { clientId, conversationId: { not: null }, createdAt: { gte: from, lt: to } },
-    select: { id: true, source: true, stage: true, value: true, viaLotus: true, createdAt: true, conversationId: true, campaign: true },
+    where: { clientId, conversationId: { not: null }, createdAt: { gte: from, lt: to }, ...(channel ? { channel } : {}) },
+    select: { id: true, source: true, stage: true, value: true, viaLotus: true, createdAt: true, conversationId: true, campaign: true, channel: true },
   });
   const convIds = leads.map((l) => l.conversationId!).filter(Boolean);
   const convs = convIds.length
@@ -634,6 +641,12 @@ export async function whatsappMetrics(clientId: string, from: Date, to: Date) {
     messagesOut: outCount,
     messagesAuto: autoCount,
     bySource: [...bySourceMap.values()].sort((a, b) => b.leads - a.leads),
+    // WhatsApp e Instagram separados, para não misturar
+    byChannel: ["whatsapp", "instagram"].map((ch) => {
+      const list = leads.filter((l) => l.channel === ch);
+      const won = list.filter((l) => l.stage === "FECHADO");
+      return { channel: ch, leads: list.length, answered: list.filter((l) => convById.get(l.conversationId!)?.firstResponseAt).length, scheduled: list.filter((l) => ["AGENDADO", "COMPARECEU", "FECHADO"].includes(l.stage)).length, closed: won.length, revenue: won.reduce((a, l) => a + (l.value ?? 0), 0) };
+    }),
     byCampaign: [...byCampaign.values()].sort((a, b) => b.leads - a.leads),
     byHour,
   };
@@ -736,4 +749,45 @@ async function afterLiveMessage(ev: MessageEvent, conversationId: string) {
   await prisma.outboundMessage.create({
     data: { clientId: ev.clientId, kind: "ia", refId: `${conv.id}:${ev.waId}`, jid: conv.jid, phone: conv.phone, body: "(a IA escreve na hora de enviar)", scheduledFor: new Date(now + 15_000 + Math.random() * 15_000) },
   }).catch(() => undefined);
+}
+
+// ===== Instagram (ManyChat) =====
+
+// Manda a resposta pelo ManyChat e registra na conversa (mesmo jeito do WhatsApp)
+async function sendViaInstagram(clientId: string, jid: string, text: string, sentBy: string) {
+  const { sendInstagram } = await import("@/lib/manychat");
+  await sendInstagram(clientId, jid.slice(3), text);
+  const sentAt = new Date();
+  const conv = await prisma.conversation.findUnique({ where: { clientId_jid: { clientId, jid } } });
+  if (!conv) throw new Error("Conversa do Instagram não encontrada");
+  const waId = `ig-out-${sentAt.getTime()}-${Math.random().toString(36).slice(2, 8)}`;
+  await prisma.whatsappMessage.create({ data: { conversationId: conv.id, clientId, waId, direction: "OUT", body: text, kind: "texto", sentBy, sentAt } });
+  const data: Record<string, unknown> = { lastMessageAt: sentAt, lastOutboundAt: sentAt, unread: 0, lastPreview: `Você: ${text}`.slice(0, 160) };
+  if (!conv.firstResponseAt && conv.leadId && conv.lastInboundAt) {
+    data.firstResponseAt = sentAt;
+    data.firstResponseMin = Math.round(((sentAt.getTime() - conv.firstMessageAt.getTime()) / 60_000) * 10) / 10;
+    await prisma.lead.updateMany({ where: { id: conv.leadId, stage: "NOVO" }, data: { stage: "EM_CONTATO", firstContactAt: sentAt, stageChangedAt: sentAt } });
+  }
+  await prisma.conversation.update({ where: { id: conv.id }, data });
+  return { conversationId: conv.id, waId, sentAt: sentAt.toISOString() };
+}
+
+// DM que o ManyChat repassou: vira conversa no Atendimento com o canal "instagram"
+export async function ingestManychat(token: string, body: Record<string, unknown>): Promise<{ ok: boolean; reason?: string }> {
+  const acc = await prisma.manychatAccount.findUnique({ where: { inboundToken: token } });
+  if (!acc) return { ok: false, reason: "token inválido" };
+  const { parseManychatPayload } = await import("@/lib/manychat");
+  const p = parseManychatPayload(body);
+  if (!p.id || !p.text) return { ok: false, reason: "sem contato ou sem texto" };
+  const now = new Date();
+  // O ManyChat não manda o id da mensagem: o mesmo texto do mesmo contato em 2 minutos conta uma vez só
+  const repeated = await prisma.whatsappMessage.findFirst({
+    where: { clientId: acc.clientId, direction: "IN", body: p.text, sentAt: { gte: new Date(now.getTime() - 120_000) }, conversation: { jid: `ig:${p.id}` } },
+    select: { id: true },
+  });
+  if (repeated) return { ok: true, reason: "repetida" };
+  const waId = `ig-in-${p.id}-${crypto.createHash("sha1").update(`${p.text}|${Math.floor(now.getTime() / 60_000)}`).digest("hex").slice(0, 16)}`;
+  await ingestLive({ type: "message", clientId: acc.clientId, waId, jid: `ig:${p.id}`, phone: p.phone, name: p.name, fromMe: false, text: p.text, kind: "texto", sentAt: now.toISOString(), history: false, channel: "instagram" });
+  await prisma.manychatAccount.update({ where: { id: acc.id }, data: { lastEventAt: now } });
+  return { ok: true };
 }

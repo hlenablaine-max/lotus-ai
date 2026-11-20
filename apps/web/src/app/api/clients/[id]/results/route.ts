@@ -11,7 +11,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const owner = await requireOwner();
   if (owner instanceof Response) return owner;
   const { id } = await params;
-  return Response.json(await clientResults(id, request.nextUrl.searchParams.get("month") ?? undefined));
+  return Response.json(await clientResults(id, request.nextUrl.searchParams.get("month") ?? undefined, ["whatsapp", "instagram"].includes(request.nextUrl.searchParams.get("canal") ?? "") ? request.nextUrl.searchParams.get("canal") : null));
 }
 
 // Números do mês que só o cliente sabe: { month, patientBase, adSpend, revenue }

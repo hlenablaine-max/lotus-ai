@@ -9,6 +9,7 @@ import { Inbox } from "./inbox";
 import { AttendancePanel } from "./panel";
 import { TrackedLinks, type LinkItem } from "./links";
 import { Automations } from "./automations";
+import { InstagramConnect } from "./instagram-connect";
 import { Notice, btnGhost, btnPrimary, formatPhone } from "./ui";
 
 interface State {
@@ -127,6 +128,7 @@ export function Attendance({ clientId, clientName }: { clientId: string; clientN
         )}
       </div>
       {error && <Notice kind="error">{error}</Notice>}
+      <InstagramConnect clientId={clientId} />
 
       {/* Subabas */}
       <div className="flex gap-1 border-b border-border">
