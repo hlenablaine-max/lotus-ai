@@ -874,6 +874,7 @@ async function createAnalysisTasks(c: AnalysisContext): Promise<void> {
             "Escreva para o dono da clínica entender sem ajuda. Estrutura obrigatória:",
             "## Resumo em 5 linhas — a situação de hoje, o maior problema e a maior oportunidade.",
             "## Nota por área (0 a 10) — tabela com: Perfil e conteúdo, Copy, Vídeos, Tráfego pago, Site, Reputação no Google, Funil e atendimento, Operação, Regras de publicidade em saúde. Uma frase de justificativa por nota. Nota geral.",
+            "Se `tipoDeNegocio` disser que NÃO é saúde: troque a área 'Regras de publicidade em saúde' por 'Posicionamento e marca pessoal', fale em clientes (não pacientes) e não chame o negócio de clínica.",
             "## Os gargalos que travam o faturamento — os 5 a 7 principais, do maior impacto para o menor. Cada um com: O problema / A prova (dado real) / Por que custa dinheiro / O que fazer / Quanto pode melhorar.",
             "## Quanto a clínica pode ganhar — uma conta simples e honesta: cenário atual e cenário corrigido, com as premissas escritas (ex.: 'se chegam 100 contatos por mês e 20% agendam...'). Use faixas, não números exatos. Quando citar estatística de mercado (tempo de resposta, taxa de conversão, efeito de avaliações), use search_web para encontrar a referência e cite a fonte e o ano; se não achar, escreva 'estimativa da equipe'.",
             "## O que a LOTUS monta para vocês — as soluções (do catálogo e das entregas de produção desta missão) ligadas a cada gargalo.",
@@ -886,7 +887,7 @@ async function createAnalysisTasks(c: AnalysisContext): Promise<void> {
             "Não repita as análises inteiras: sintetize, priorize e ligue cada problema ao dinheiro. Salve com save_document usando type \"strategy\" e o título \"Diagnóstico 360 — " + c.businessName + "\".",
           ].join("\n"),
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          input: { negocio: c.businessName, instagram: `@${c.handle}`, indicadores: c.metrics, catalogoDeSolucoes: await catalog() } as any,
+          input: { negocio: c.businessName, instagram: `@${c.handle}`, tipoDeNegocio: c.isHealth ? "clínica / área da saúde" : "NÃO é clínica nem área da saúde", indicadores: c.metrics, catalogoDeSolucoes: await catalog() } as any,
           dependsOn: analysisIds,
           status: "QUEUED",
         },
