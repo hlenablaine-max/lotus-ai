@@ -54,6 +54,8 @@ function buildInstructions(ctx: { businessName: string; assets: Array<{ file: st
     "- Use as CORES DA MARCA do contexto (coresDaMarca/neutrasDaMarca) como base da paleta. Nada de roxo genérico.",
     "- Use o LOGO e as FOTOS REAIS listados em `arquivosDisponiveis` (caminhos relativos, ex.: assets/logo.png). As imagens anexadas são esses arquivos: veja quais servem para o topo, equipe, ambiente e tratamentos. Não use imagens da internet nem banco de imagens.",
     "- O tom dos textos segue a forma como a clínica já fala no Instagram, corrigindo os erros apontados no diagnóstico.",
+    "- Escolha das fotos: no topo e nos destaques só fotos que dão vontade de ir à clínica (pessoas sorrindo, equipe, ambiente, recepção). NUNCA use foto clínica de boca aberta, dentes com manchas, sangue, instrumentos ou procedimento no topo. Fotos com texto escrito por cima (posts) não servem de fundo. Se nenhuma foto servir para o topo, use um fundo com o gradiente da marca e o logo grande.",
+    "- Ícones: desenhe ícones simples em SVG embutido (traço fino, cor da marca). Nada de emoji como ícone.",
     "",
     "DESIGN: premium e futurista, mas limpo e legível: tipografia grande e elegante (Google Fonts permitido), muito respiro, gradientes suaves com as cores da marca, cartões com vidro fosco (glassmorphism) discreto, cantos arredondados, animações sutis ao rolar (IntersectionObserver), botão de WhatsApp fixo no celular. Contraste alto: texto sempre legível sobre o fundo.",
     "",
@@ -87,8 +89,9 @@ const REVIEW_INSTRUCTIONS = (businessName: string, url: string) =>
     "4. Texto: claro, sem erros, sem promessas proibidas em saúde, sem nada inventado?",
     "5. Técnica: use os dados de `verificacaoTecnica` (imagens quebradas, erros, tempo de carregamento).",
     "Seja específico nas correções: diga onde está o problema e como corrigir.",
+    "REPROVA AUTOMÁTICA (nota máxima 6) se houver: foto clínica de boca/dentes/procedimento no topo ou em destaque; imagem quebrada; texto ilegível; dado inventado; botão de agendar que não abre o WhatsApp da clínica.",
     `Aprove só se a nota for ${MIN_SCORE} ou mais.`,
-    "NO FINAL, um bloco ```json exatamente assim:",
+    "OBRIGATÓRIO: termine o documento com um bloco ```json exatamente assim (é ele que o sistema lê para aprovar ou refazer):",
     '{"veredito": "APROVADO" ou "REFAZER", "nota": 0, "pontosFortes": ["..."], "correcoes": ["..."]}',
     "Salve com save_document (type \"analysis\").",
   ].join("\n");
@@ -196,6 +199,15 @@ function extractJson(text: string): Json | null {
   return null;
 }
 
+function verdictFromText(text: string): Json {
+  const nota = Number(
+    (text.match(/(?:GERAL|nota geral|Nota final)[^0-9]{0,40}(\d{1,2}(?:[.,]\d)?)\s*\/\s*10/i)?.[1] ?? text.match(/(\d{1,2}(?:[.,]\d)?)\s*\/\s*10/)?.[1] ?? "0").replace(",", ".")
+  );
+  const reprovado = /\b(REFAZER|REPROVADO)\b/.test(text);
+  const aprovado = !reprovado && /\bAPROVADO\b/.test(text);
+  return { veredito: aprovado ? "APROVADO" : "REFAZER", nota, pontosFortes: [], correcoes: [] };
+}
+
 async function deployToVercel(dir: string): Promise<string> {
   // O nome da pasta vira o nome do projeto na Vercel (ex.: lotus-centraldosorrisofsa)
   const { stdout, stderr } = await execAsync(`vercel deploy "${dir}" --yes --prod`, { timeout: 300_000, maxBuffer: 5 * 1024 * 1024, windowsHide: true });
@@ -266,7 +278,8 @@ export async function runSiteStep(taskId: string): Promise<void> {
   if (input.systemStep === "site_decide") {
     const attempt = Number(input.attempt ?? 1);
     const reviewText = await latestDocument(String(input.reviewTaskId));
-    const verdict = extractJson(reviewText) ?? {};
+    // Sem o bloco de dados, lê o veredito e a nota geral do próprio texto da revisão
+    const verdict = extractJson(reviewText) ?? verdictFromText(reviewText);
     const score = Number(verdict.nota ?? 0);
     const approved = String(verdict.veredito ?? "").toUpperCase() === "APROVADO" && score >= MIN_SCORE;
     const mission = await prisma.mission.findUnique({ where: { id: task.missionId }, select: { context: true } });
