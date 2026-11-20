@@ -40,7 +40,7 @@ export function prepareSiteAssets(handle: string, brand: Json | null): { dir: st
     assets.push({ file, descricao, source });
   };
   copy(brand.logoSite, "logo", "Logo oficial (do site da clínica)");
-  copy(brand.logoInstagram, "logo-instagram", "Símbolo/foto do perfil do Instagram (quadrado)");
+  copy(brand.logoInstagram, "logo-instagram", "Foto de perfil do Instagram: PEQUENA (cerca de 150 px), use só como ícone ou avatar pequeno; esticada fica pixelada");
   ((brand.fotosSite as string[] | undefined) ?? []).slice(0, 6).forEach((f, i) => copy(f, `foto-site-${i + 1}`, "Foto usada no site atual da clínica"));
   ((brand.fotosInstagram as string[] | undefined) ?? []).slice(0, 6).forEach((f, i) => copy(f, `foto-instagram-${i + 1}`, "Imagem de um post do Instagram (pode ter texto por cima)"));
   return { dir, assets };
@@ -86,6 +86,7 @@ const REVIEW_INSTRUCTIONS = (businessName: string, url: string) =>
     `Revise o site novo da ${businessName}, publicado em ${url}. As imagens anexadas são prints do site no ar (3 partes no computador e o topo no celular).`,
     "Você é exigente: este site vai ser mostrado ao dono da clínica para vender o projeto. Avalie de 0 a 10:",
     "1. Visual: parece premium e moderno? Usa as cores e o logo da marca? As fotos são reais e bem usadas? Algo quebrado, cortado, sobreposto ou ilegível?",
+    "1b. Olhe de perto: alguma foto está PIXELADA ou borrada (imagem pequena esticada)? Algum botão ou texto tem pouco contraste (ex.: letra escura sobre fundo escuro)? Cada um desses é correção obrigatória.",
     "2. Celular: o topo funciona no celular, texto legível, botão de agendar visível?",
     "3. Conversão: fica claro em 5 segundos o que a clínica faz, para quem e como agendar? Os botões levam ao WhatsApp certo?",
     "4. Texto: claro, sem erros, sem promessas proibidas em saúde, sem nada inventado?",
