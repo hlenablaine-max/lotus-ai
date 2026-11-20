@@ -685,16 +685,21 @@ export class ResearchBrowser {
       const stamp = Date.now()
       const shots: string[] = []
       const height = await page.evaluate(() => document.body.scrollHeight)
-      for (const [i, y] of [0, 1100, 2200].entries()) {
-        if (y > 0 && y >= height) break
+      // Fotografa a tela como o visitante vê: rola até cada trecho e espera as animações de entrada
+      await page.setViewportSize({ width: 1280, height: 1000 })
+      const positions = [0, 0.33, 0.66].map((f) => Math.round(Math.max(0, height - 1000) * f)).filter((y, i, arr) => i === 0 || y > arr[i - 1] + 300)
+      for (const [i, y] of positions.entries()) {
+        await page.evaluate((top) => window.scrollTo(0, top), y)
+        await page.waitForTimeout(1300)
         const file = path.join(dir, `computador-${i + 1}-${stamp}.jpg`)
-        await page.screenshot({ path: file, type: 'jpeg', quality: 55, fullPage: true, clip: { x: 0, y, width: 1280, height: Math.min(1100, height - y) } }).catch(() => {})
+        await page.screenshot({ path: file, type: 'jpeg', quality: 55 }).catch(() => {})
         if (fs.existsSync(file)) shots.push(file)
       }
+      await page.evaluate(() => window.scrollTo(0, 0))
       await page.setViewportSize({ width: 390, height: 844 })
       await page.waitForTimeout(1200)
       const mobile = path.join(dir, `celular-${stamp}.jpg`)
-      await page.screenshot({ path: mobile, type: 'jpeg', quality: 55, fullPage: true, clip: { x: 0, y: 0, width: 390, height: 1700 } }).catch(() => {})
+      await page.screenshot({ path: mobile, type: 'jpeg', quality: 55 }).catch(() => {})
       if (fs.existsSync(mobile)) shots.push(mobile)
       this.log('success', `Prints de ${url}: ${shots.length} imagens, ${brokenImages} imagens quebradas`)
       return { url, ok: status > 0 && status < 400, status, loadMs, shots, brokenImages, consoleErrors: errors.slice(0, 5) }
