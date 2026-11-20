@@ -12,6 +12,8 @@ import { createRuntimeClient } from "@/lib/runtime-client";
 const TERMINAL = new Set(["COMPLETED", "CANCELLED", "SKIPPED"]);
 const STALE_MINUTES = 20;
 const MAX_CONCURRENT_TASKS = 2;
+// Uma tarefa de agente que passa disso travou (rede caiu no meio da chamada): é cancelada e tentada de novo
+const AGENT_TASK_TIMEOUT_MS = 15 * 60_000;
 const IMAGE_ROOT = path.join(os.homedir(), "LOTUS_Workspace");
 const AGENT_WEB_TOOLS = new Set(["search_web", "fetch_url"]);
 
@@ -132,13 +134,31 @@ async function executeAndAdvance(taskId: string, opts: { permissionMode?: Permis
   let failed = false;
   try {
     // Todos os agentes podem pesquisar na web e abrir páginas (import tardio evita ciclo de módulos)
+    // Etapas automáticas (publicar o site, decidir a revisão) não chamam a IA
+    const systemStep = (task.input as { systemStep?: string } | null)?.systemStep;
+    const { SITE_SYSTEM_STEPS, runSiteStep } = await import("@/lib/site-builder");
+    if (systemStep && SITE_SYSTEM_STEPS.has(systemStep)) {
+      try {
+        await runSiteStep(taskId);
+      } catch (err) {
+        const current = await prisma.task.findUnique({ where: { id: taskId }, select: { retryCount: true } });
+        await prisma.task.update({
+          where: { id: taskId },
+          data: { status: "FAILED", retryCount: { increment: 1 }, output: { error: err instanceof Error ? err.message : String(err), host: HOST } },
+        });
+        await prisma.activityLog.create({ data: { taskId, missionId: task.missionId, action: "TASK_FAILED", details: { error: String(err).slice(0, 300), attempt: (current?.retryCount ?? 0) + 1 }, level: "ERROR" } }).catch(() => {});
+        throw err;
+      }
+    } else {
     const { DB_TOOL_DEFS, createDbToolExecutor } = await import("@/lib/root-master-tools");
     await executeTask(taskId, executorDb(), {
       permissionMode: opts.permissionMode ?? loadSettings().agent.permissionMode,
       images: loadTaskImages(task.input),
       extraTools: DB_TOOL_DEFS.filter((t) => AGENT_WEB_TOOLS.has(t.name)),
       extraToolExecutor: createDbToolExecutor(),
+      signal: AbortSignal.timeout(AGENT_TASK_TIMEOUT_MS),
     });
+    }
   } catch {
     failed = true;
   } finally {
@@ -175,7 +195,8 @@ export async function advanceMission(missionId: string): Promise<void> {
 
   const completed = new Set(tasks.filter((t) => t.status === "COMPLETED").map((t) => t.id));
   for (const task of tasks) {
-    if (task.status !== "WAITING_DEPENDENCY" || !task.agentId) continue;
+    // Tarefas na fila com dependências também são destravadas aqui (a trava em executeAndAdvance evita rodar duas vezes)
+    if ((task.status !== "WAITING_DEPENDENCY" && !(task.status === "QUEUED" && dependencyIds(task.dependsOn).length > 0)) || !task.agentId || running.has(task.id)) continue;
     if (dependencyIds(task.dependsOn).every((id) => completed.has(id))) runTask(task.id);
   }
 
@@ -263,7 +284,7 @@ export async function resumePendingWork(): Promise<{ requeued: number; started: 
         runTask(task.id);
         result.requeued++;
         touched = true;
-      } else if (task.status === "QUEUED" && task.agentId && !systemStep) {
+      } else if (task.status === "QUEUED" && task.agentId && (!systemStep || systemStep.startsWith("site_"))) {
         // "PENDING" fica de fora: é tarefa criada sem execução automática, esperando o dono mandar rodar
         runTask(task.id);
         result.started++;

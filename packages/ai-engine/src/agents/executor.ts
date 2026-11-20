@@ -15,6 +15,8 @@ export interface ExecuteTaskOptions {
   // Ferramentas extras fornecidas pela aplicação (ex.: pesquisa na web)
   extraTools?: AITool[];
   extraToolExecutor?: ToolExecutor;
+  // Cancela a tarefa se passar do tempo (ex.: a chamada à IA travou numa queda de internet)
+  signal?: AbortSignal;
 }
 
 // Minimal interface for the DB operations executor needs
@@ -421,6 +423,7 @@ export async function executeTask(taskId: string, db: ExecutorDB, opts: ExecuteT
         // Entregas de produção (página em HTML, calendário de 30 dias) passam de 4 mil tokens
         maxTokens: 16000,
         maxIterations: 15,
+        signal: opts.signal,
         tools,
       },
       async (toolName, args) => {

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireOwner } from "@/lib/require-owner";
-import { diagnosisProgress, exportDeliverables, startDiagnosis, startProduction } from "@/lib/diagnosis-360";
+import { diagnosisProgress, exportDeliverables, startDiagnosis, startProduction, startSite } from "@/lib/diagnosis-360";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     city?: string;
     testWhatsApp?: boolean;
     produce?: boolean;
-    action?: "produce" | "export";
+    action?: "produce" | "export" | "site";
     missionId?: string;
   };
 
@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
     if (!body.missionId) return Response.json({ error: "Informe o diagnóstico." }, { status: 400 });
     try {
       if (body.action === "produce") return Response.json(await startProduction(body.missionId), { status: 202 });
+      if (body.action === "site") return Response.json(await startSite(body.missionId), { status: 202 });
       const exported = await exportDeliverables(body.missionId);
       if (!exported) return Response.json({ error: "Ainda não há entregáveis para gravar." }, { status: 400 });
       return Response.json(exported);

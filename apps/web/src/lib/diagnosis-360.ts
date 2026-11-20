@@ -9,6 +9,7 @@ import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createRuntimeClient, type RuntimeClient } from "@/lib/runtime-client";
 import { markRunning, runTask, unmarkRunning } from "@/lib/task-runner";
+import { createSiteChain } from "@/lib/site-builder";
 
 export interface DiagnosisInput {
   instagram: string;
@@ -552,7 +553,8 @@ async function createAnalysisTasks(c: AnalysisContext): Promise<void> {
       description: "Avaliar roteiro, gancho, retenção e chamada para ação dos vídeos.",
       instructions: [
         "Você recebeu a transcrição da fala e quadros (imagens anexadas) dos Reels mais recentes, além de curtidas e comentários.",
-        "Para cada vídeo: o gancho dos 3 primeiros segundos, a mensagem, se tem legenda/texto na tela, qualidade visual do que aparece nos quadros, e a chamada para ação.",
+        "Para CADA vídeo, uma ficha: (a) o gancho — as primeiras palavras da transcrição e o que aparece no primeiro quadro; nota de 0 a 10 e por quê (prende ou deixa a pessoa passar?); (b) a mensagem e para quem ela fala; (c) texto na tela e legenda; (d) qualidade visual (luz, enquadramento, rosto do profissional); (e) chamada para ação; (f) 3 ganchos reescritos para este mesmo vídeo, no tom da clínica.",
+        "Explique cada nota com o motivo e um exemplo concreto do que mudar (ex.: 'começar com a pergunta X em vez de Y').",
         "Depois: padrão geral (o que repetir, o que parar), 3 roteiros curtos (gancho, desenvolvimento, chamada) de vídeos que esta clínica deveria gravar.",
         "Se um vídeo não tem fala (só música) ou a transcrição falhou, diga isso e avalie só pelo que existe. Contagem de visualizações não é pública: não estime.",
         RULES,
@@ -780,7 +782,7 @@ async function createAnalysisTasks(c: AnalysisContext): Promise<void> {
   await prisma.mission.update({ where: { id: c.missionId }, data: { context: { ...((mission?.context ?? {}) as Json), brief } as any } });
 
   if (c.produce && synthesis) {
-    await createProductionTasks({ missionId: c.missionId, businessName: c.businessName, handle: c.handle, synthesisId: synthesis.id, brief });
+    await createProductionTasks({ missionId: c.missionId, businessName: c.businessName, handle: c.handle, synthesisId: synthesis.id, brief, brand: hasError(c.brand) ? null : c.brand });
   }
 
   const all = await prisma.task.findMany({ where: { missionId: c.missionId, status: "QUEUED" }, select: { id: true } });
@@ -809,6 +811,7 @@ interface ProductionContext {
   handle: string;
   synthesisId: string;
   brief: Json;
+  brand?: Json | null;
 }
 
 async function createProductionTasks(p: ProductionContext): Promise<string[]> {
@@ -927,23 +930,9 @@ async function createProductionTasks(p: ProductionContext): Promise<string[]> {
     })
   );
 
-  add(
-    await create({
-      agentId: "agent-web",
-      department: "web-dev",
-      title: "Produção: página de agendamento (código pronto)",
-      description: "Entregar a página de captação do cliente em HTML completo, pronta para publicar.",
-      instructions: [
-        "Escreva a página de agendamento deste negócio em UM arquivo HTML completo (CSS embutido, sem dependências externas, responsiva, rápida), dentro de um único bloco de código ```html.",
-        "O arquivo precisa terminar em </html>: mantenha o HTML enxuto (até uns 20 mil caracteres, CSS curto, sem ícones SVG longos) e salve tudo com save_document, código incluído.",
-        "Seções: topo com promessa clara e botão de WhatsApp, para quem é, serviços, como funciona a primeira consulta, prova (onde entram depoimentos reais: deixe o espaço marcado, não invente), equipe, localização e horário, perguntas frequentes, chamada final.",
-        "O botão de WhatsApp usa o número encontrado no contexto (formato https://wa.me/NUMERO?text=...). Se não houver número, deixe [PREENCHER COM O CLIENTE].",
-        "Inclua no código, como comentário, onde colar o Pixel da Meta e o Google Analytics.",
-        "Antes do bloco de código, explique em 5 linhas a lógica da página. Depois do bloco, o \"Como instalar\" (onde hospedar, como apontar o link da bio).",
-      ].join("\n"),
-      dependsOn: [p.synthesisId],
-    })
-  );
+  // Site novo com a identidade da clínica: construir → publicar na Vercel → revisar → aprovar ou refazer
+  const siteChain = await createSiteChain({ missionId: p.missionId, businessName: p.businessName, handle: p.handle, brief: p.brief, brand: p.brand ?? null, dependsOn: [p.synthesisId] });
+  if (siteChain) ids.push(siteChain.buildId);
 
   add(
     await create({
@@ -963,7 +952,8 @@ async function createProductionTasks(p: ProductionContext): Promise<string[]> {
     })
   );
 
-  const productionIds = [...ids];
+  // O pacote espera a decisão final sobre o site (não só a primeira versão)
+  const productionIds = ids.filter((id) => id !== siteChain?.buildId).concat(siteChain ? [siteChain.decideId] : []);
   add(
     await create({
       agentId: "agent-mc",
@@ -1006,12 +996,38 @@ export async function startProduction(missionId: string): Promise<{ created: num
     brief = { dadosColetados: collected?.content.slice(0, 9000) ?? "" };
   }
   const handle = String(context.handle ?? mission.client?.instagram ?? "");
-  const ids = await createProductionTasks({ missionId, businessName: mission.client?.name ?? `@${handle}`, handle, synthesisId: synthesis.id, brief });
+  const marcaFile = path.join(os.homedir(), "LOTUS_Workspace", "diagnosticos", handle.replace(/^@/, ""), "marca", "marca.json");
+  const brand = fs.existsSync(marcaFile) ? (JSON.parse(fs.readFileSync(marcaFile, "utf-8")) as Json) : null;
+  const ids = await createProductionTasks({ missionId, businessName: mission.client?.name ?? `@${handle}`, handle, synthesisId: synthesis.id, brief, brand });
   if (["COMPLETED", "IN_REVIEW"].includes(mission.status)) {
     await prisma.mission.update({ where: { id: missionId }, data: { status: "IN_PROGRESS", completedAt: null } });
   }
   for (const id of ids) runTask(id);
   return { created: ids.length };
+}
+
+// Cria (ou refaz do zero) o site novo de um diagnóstico que já existe: construir → publicar → revisar → decidir.
+export async function startSite(missionId: string): Promise<{ buildId: string }> {
+  const mission = await prisma.mission.findUnique({ where: { id: missionId }, select: { status: true, context: true, client: { select: { name: true, instagram: true } } } });
+  const context = (mission?.context ?? {}) as Json;
+  if (!mission || !context.diagnosis360) throw new Error("Diagnóstico não encontrado.");
+  const running = await prisma.task.count({ where: { missionId, title: { contains: "site" }, status: { in: ["QUEUED", "IN_PROGRESS", "WAITING_DEPENDENCY"] } } });
+  if (running > 0) throw new Error("O site deste diagnóstico já está sendo feito.");
+  const handle = String(context.handle ?? mission.client?.instagram ?? "").replace(/^@/, "");
+  let brief = context.brief as Json | undefined;
+  if (!brief) {
+    const collected = await prisma.document.findFirst({ where: { missionId, type: "RESEARCH_REPORT" }, orderBy: { createdAt: "asc" }, select: { content: true } });
+    brief = { dadosColetados: collected?.content.slice(0, 9000) ?? "" };
+  }
+  const marcaFile = path.join(os.homedir(), "LOTUS_Workspace", "diagnosticos", handle, "marca", "marca.json");
+  const brand = fs.existsSync(marcaFile) ? (JSON.parse(fs.readFileSync(marcaFile, "utf-8")) as Json) : null;
+  const chain = await createSiteChain({ missionId, businessName: mission.client?.name?.split("|")[0].trim() || `@${handle}`, handle, brief, brand, dependsOn: [] });
+  if (!chain) throw new Error("Faltam os agentes de web ou de qualidade.");
+  if (["COMPLETED", "IN_REVIEW"].includes(mission.status)) {
+    await prisma.mission.update({ where: { id: missionId }, data: { status: "IN_PROGRESS", completedAt: null } });
+  }
+  runTask(chain.buildId);
+  return { buildId: chain.buildId };
 }
 
 // Grava todos os entregáveis em uma pasta do computador, para o dono entregar ao cliente.
@@ -1108,6 +1124,11 @@ export async function diagnosisProgress(missionId: string) {
     mission: missionInfo,
     hasProduction: tasks.some((t) => phaseOf(t.input) === "producao"),
     exportDir: ((context ?? {}) as Json).exportDir ? String(((context ?? {}) as Json).exportDir) : null,
+    site: {
+      url: ((context ?? {}) as Json).siteUrl ? String(((context ?? {}) as Json).siteUrl) : null,
+      approved: typeof ((context ?? {}) as Json).siteApproved === "boolean" ? (((context ?? {}) as Json).siteApproved as boolean) : null,
+      score: typeof ((context ?? {}) as Json).siteScore === "number" ? (((context ?? {}) as Json).siteScore as number) : null,
+    },
     tasks: tasks.map((t) => ({
       id: t.id,
       title: t.title,

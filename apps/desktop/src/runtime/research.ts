@@ -655,6 +655,52 @@ export class ResearchBrowser {
     })
   }
 
+  // === Prints de uma página em partes (para a revisão visual de um site) ===
+
+  async pageShots(url: string, name: string): Promise<{ url: string; ok: boolean; status: number; loadMs: number | null; shots: string[]; brokenImages: number; consoleErrors: string[] }> {
+    const dir = path.join(this.outDir(name), 'revisao-site')
+    fs.mkdirSync(dir, { recursive: true })
+    return this.withPage(async (page) => {
+      const errors: string[] = []
+      page.on('pageerror', (e) => errors.push(String(e).slice(0, 200)))
+      const started = Date.now()
+      let status = 0
+      try {
+        const res = await page.goto(url, { waitUntil: 'load', timeout: 60_000 })
+        status = res?.status() ?? 0
+      } catch (err) {
+        return { url, ok: false, status, loadMs: null, shots: [], brokenImages: 0, consoleErrors: [String(err).slice(0, 200)] }
+      }
+      const loadMs = Date.now() - started
+      // Rola até o fim para disparar animações e imagens preguiçosas
+      await page.evaluate(async () => {
+        for (let y = 0; y < document.body.scrollHeight; y += 700) {
+          window.scrollTo(0, y)
+          await new Promise((r) => setTimeout(r, 120))
+        }
+        window.scrollTo(0, 0)
+      })
+      await page.waitForTimeout(1500)
+      const brokenImages = await page.evaluate(() => (Array.from(document.images) as HTMLImageElement[]).filter((i) => i.complete && i.naturalWidth === 0).length)
+      const stamp = Date.now()
+      const shots: string[] = []
+      const height = await page.evaluate(() => document.body.scrollHeight)
+      for (const [i, y] of [0, 1100, 2200].entries()) {
+        if (y > 0 && y >= height) break
+        const file = path.join(dir, `computador-${i + 1}-${stamp}.jpg`)
+        await page.screenshot({ path: file, type: 'jpeg', quality: 55, fullPage: true, clip: { x: 0, y, width: 1280, height: Math.min(1100, height - y) } }).catch(() => {})
+        if (fs.existsSync(file)) shots.push(file)
+      }
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.waitForTimeout(1200)
+      const mobile = path.join(dir, `celular-${stamp}.jpg`)
+      await page.screenshot({ path: mobile, type: 'jpeg', quality: 55, fullPage: true, clip: { x: 0, y: 0, width: 390, height: 1700 } }).catch(() => {})
+      if (fs.existsSync(mobile)) shots.push(mobile)
+      this.log('success', `Prints de ${url}: ${shots.length} imagens, ${brokenImages} imagens quebradas`)
+      return { url, ok: status > 0 && status < 400, status, loadMs, shots, brokenImages, consoleErrors: errors.slice(0, 5) }
+    })
+  }
+
   // === Kit da marca: logo, fotos e cores que o negócio realmente usa ===
 
   async brandKit(handleInput: string, siteUrl: string | null): Promise<Record<string, unknown>> {

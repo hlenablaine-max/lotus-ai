@@ -141,6 +141,8 @@ export class RuntimeHttpServer {
         return rt.research.metaAds(String(data.query ?? ''))
       case '/runtime/research/site':
         return rt.research.site(String(data.url ?? ''), String(data.name ?? 'negocio'))
+      case '/runtime/research/shots':
+        return rt.research.pageShots(String(data.url ?? ''), String(data.name ?? 'site'))
       case '/runtime/research/brand':
         return rt.research.brandKit(String(data.handle ?? ''), data.site ? String(data.site) : null)
       case '/runtime/research/place':

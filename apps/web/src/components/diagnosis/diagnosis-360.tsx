@@ -3,14 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  AlertCircle, CheckCircle2, Clock, FileText, FolderDown, Hammer, Instagram, Loader2, MessageCircle, MonitorOff, Radar, ShieldAlert, XCircle,
+  AlertCircle, CheckCircle2, Clock, FileText, FolderDown, Globe, Hammer, Instagram, Loader2, MessageCircle, MonitorOff, Radar, ShieldAlert, XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { RichText } from "@/components/ui/rich-text";
+import { ReportView } from "@/components/diagnosis/report-view";
 
 interface Progress {
   mission: { id: string; title: string; status: string; client: { id: string; name: string; instagram: string | null } };
   hasProduction: boolean;
+  site: { url: string | null; approved: boolean | null; score: number | null };
   exportDir: string | null;
   tasks: Array<{ id: string; title: string; phase: "diagnostico" | "producao"; status: string; agent: string; role: string; error: string | null }>;
   documents: Array<{ id: string; title: string; type: string; phase: "diagnostico" | "producao"; content: string }>;
@@ -52,7 +54,7 @@ const TASK_LABEL: Record<string, string> = {
 export function Diagnosis360() {
   const [instagram, setInstagram] = useState("");
   const [city, setCity] = useState("");
-  const [testWhatsApp, setTestWhatsApp] = useState(false);
+  const [testWhatsApp, setTestWhatsApp] = useState(true);
   const [produce, setProduce] = useState(true);
   const [actionMessage, setActionMessage] = useState("");
   const [acting, setActing] = useState(false);
@@ -163,7 +165,7 @@ export function Diagnosis360() {
   };
 
   // Produzir as soluções de um diagnóstico já feito, ou gravar o pacote de entrega em pasta
-  const missionAction = async (action: "produce" | "export") => {
+  const missionAction = async (action: "produce" | "export" | "site") => {
     if (!missionId || acting) return;
     setActing(true);
     setActionMessage("");
@@ -175,8 +177,14 @@ export function Diagnosis360() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Não foi possível concluir.");
-      setActionMessage(action === "produce" ? `Produção iniciada: ${data.created} entregas na fila da equipe.` : `${data.files} arquivos gravados em ${data.dir}`);
-      if (action === "produce" && !pollRef.current) pollRef.current = setInterval(() => refresh(missionId), 4000);
+      setActionMessage(
+        action === "produce"
+          ? `Produção iniciada: ${data.created} entregas na fila da equipe.`
+          : action === "site"
+            ? "Site em construção: a equipe constrói, publica, revisa e refaz se precisar. O link aparece aqui quando aprovado."
+            : `${data.files} arquivos gravados em ${data.dir}`
+      );
+      if (action !== "export" && !pollRef.current) pollRef.current = setInterval(() => refresh(missionId), 4000);
       refresh(missionId);
     } catch (err) {
       setActionMessage(err instanceof Error ? err.message : String(err));
@@ -250,7 +258,7 @@ export function Diagnosis360() {
         </label>
         <label className="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" checked={testWhatsApp} onChange={(e) => setTestWhatsApp(e.target.checked)} className="accent-pink-500" />
-          Testar o atendimento no WhatsApp do lead (envia uma mensagem de cliente interessado, sem pedir aprovação de novo)
+          Testar o atendimento no WhatsApp do lead (manda uma mensagem de paciente interessado pelo WhatsApp conectado neste computador e mede se e quando respondem)
         </label>
         {accounts?.desktop && (
           <span className="flex items-center gap-2 flex-wrap">
@@ -342,6 +350,11 @@ export function Diagnosis360() {
                 <FolderDown size={13} /> Gravar tudo em uma pasta deste computador
               </button>
             )}
+            {progress.report && (
+              <button onClick={() => missionAction("site")} disabled={acting} className="px-3 py-2 rounded-lg bg-white/5 border border-white/15 text-white/80 text-xs font-medium flex items-center gap-1.5 disabled:opacity-40">
+                <Globe size={13} /> {progress.site.url ? "Refazer o site do zero" : "Criar e publicar o site novo"}
+              </button>
+            )}
             {(actionMessage || progress.exportDir) && <span className="text-xs text-white/50 break-all">{actionMessage || `Pacote gravado em ${progress.exportDir}`}</span>}
           </div>
 
@@ -363,11 +376,9 @@ export function Diagnosis360() {
           ))}
 
           {progress.report && (
-            <div className="rounded-xl border border-emerald-400/20 bg-black/30 p-5">
-              <div className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-3">Relatório final</div>
-              <div className="text-white/85">
-                <RichText content={progress.report.content} />
-              </div>
+            <div className="rounded-2xl border border-emerald-400/20 bg-black/20 p-5">
+              <div className="text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-4">Playbook de Faturamento</div>
+              <ReportView content={progress.report.content} site={progress.site} />
             </div>
           )}
 
