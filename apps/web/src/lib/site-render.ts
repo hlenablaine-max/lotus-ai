@@ -105,6 +105,8 @@ const IG_ICON =
 const isStock = (a: SiteAsset | null | undefined) => !!a && /^assets\/banco-/.test(a.file);
 const isLarge = (a: SiteAsset | null | undefined) => !!a && (a.width ?? 0) >= 900 && (a.height ?? 0) >= 700;
 const isMedium = (a: SiteAsset | null | undefined) => !!a && (a.width ?? 0) >= 480 && (a.height ?? 0) >= 480;
+// Foto real vertical (story/post do Instagram) com resolução boa para a coluna do topo
+const isTallReal = (a: SiteAsset | null | undefined) => !!a && !isStock(a) && (a.width ?? 0) >= 600 && (a.height ?? 0) >= 900 && (a.height ?? 0) > (a.width ?? 0);
 const isGallery = (a: SiteAsset | null | undefined) => !!a && (a.width ?? 0) >= 500 && (a.height ?? 0) >= 340;
 
 // ------------------------------------------------------------------ render
@@ -166,7 +168,11 @@ export function renderSite(content: SiteContent, ctx: RenderContext): { html: st
 
   // ---------------- conteúdo
   const topo = content.topo ?? {};
-  const heroPhoto = pick(topo.foto, isLarge, "Foto do topo", true);
+  // Topo: nos estilos com foto ao lado do título (clínico, impacto) cabe a foto REAL vertical do Instagram
+  // (pessoa, equipe, paciente); nos de foto em tela cheia (aurora, editorial) só foto grande horizontal.
+  const sideHero = style === "clinico" || style === "impacto";
+  const heroOk = (a: SiteAsset) => isLarge(a) || (sideHero && isTallReal(a));
+  const heroPhoto = pick(topo.foto, heroOk, "Foto do topo", true);
   const sobre = content.sobre ?? {};
   const aboutPhoto = pick(sobre.foto, isMedium, "Foto do 'sobre'", false);
   const services = list(content.servicos, 8).filter((s) => has(s.titulo));

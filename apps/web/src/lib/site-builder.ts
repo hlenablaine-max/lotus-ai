@@ -84,6 +84,13 @@ export async function prepareSiteAssets(
   const assets: PreparedAsset[] = [];
   // Fotos criadas por IA (chave do ChatGPT) para o topo e os serviços; reaproveitadas nas tentativas seguintes
   const brandColor = ((brand?.paleta as Json | undefined)?.coresDaMarca as Array<{ hex?: string }> | undefined)?.[0]?.hex;
+  // O site tem que ter a cara da clínica: com 4+ fotos reais boas, nada de foto de IA; com 1 a 3, no máximo 2 para completar
+  const realGood = [...((brand?.fotosSite as string[] | undefined) ?? []), ...((brand?.fotosInstagram as string[] | undefined) ?? [])].filter((f) => {
+    if (typeof f !== "string" || !fs.existsSync(f)) return false;
+    const s = imageSize(f);
+    return !!s && s.width >= 600 && s.height >= 600;
+  }).length;
+  aiPrompts = realGood >= 4 ? [] : realGood >= 1 ? aiPrompts.slice(0, 2) : aiPrompts;
   const aiPhotos = aiPrompts.length ? await aiPhotosFor(handle, aiPrompts.map((p) => ({ ...p, prompt: p.prompt.replace(/\{cor\}/g, colorWord(brandColor)) }))) : [];
   aiPhotos.forEach((photo, i) => {
     const file = `assets/banco-ia-${i + 1}${path.extname(photo.file)}`;
@@ -122,8 +129,8 @@ export async function prepareSiteAssets(
   };
   copy(brand.logoSite, "logo", "Logo oficial (do site do negócio)");
   copy(brand.logoInstagram, "logo-instagram", "Foto de perfil do Instagram (use só como ícone)");
-  ((brand.fotosSite as string[] | undefined) ?? []).slice(0, 8).forEach((f, i) => copy(f, `foto-site-${i + 1}`, "Foto do site atual do negócio"));
-  ((brand.fotosInstagram as string[] | undefined) ?? []).slice(0, 9).forEach((f, i) => copy(f, `foto-instagram-${i + 1}`, "Foto de um post do Instagram (pode ter texto escrito por cima)"));
+  ((brand.fotosSite as string[] | undefined) ?? []).slice(0, 8).forEach((f, i) => copy(f, `foto-site-${i + 1}`, "FOTO REAL do site atual do negócio: PRIORIDADE no site"));
+  ((brand.fotosInstagram as string[] | undefined) ?? []).slice(0, 9).forEach((f, i) => copy(f, `foto-instagram-${i + 1}`, "FOTO REAL do cliente (post/story do Instagram): PRIORIDADE no site; só não use se tiver texto, logo ou arte por cima"));
   return { dir, assets };
 }
 
@@ -138,7 +145,7 @@ async function recentStyles(): Promise<string[]> {
   return missions.map((m) => String(((m.context ?? {}) as Json).siteStyle ?? "")).filter(Boolean);
 }
 
-function buildInstructions(ctx: { businessName: string; handle: string; assets: PreparedAsset[]; attempt: number; feedback?: string; recent: string[]; hasWhatsapp: boolean; isHealth: boolean; segment: SegmentPlaybook; hasStock: boolean; refs: AwwwardsRef[] }): string {
+function buildInstructions(ctx: { businessName: string; handle: string; assets: PreparedAsset[]; attempt: number; feedback?: string; recent: string[]; hasWhatsapp: boolean; isHealth: boolean; segment: SegmentPlaybook; hasStock: boolean; refs: AwwwardsRef[]; realPhotos: number }): string {
   const exemplo: SiteContent = {
     estilo: "aurora | clinico | editorial | impacto",
     fontes: "um dos pares de fontes da lista",
@@ -177,9 +184,10 @@ function buildInstructions(ctx: { businessName: string; handle: string; assets: 
     "",
     ...(ctx.refs.length
       ? [
-          `REFERÊNCIAS DE NÍVEL (AWWWARDS): as ÚLTIMAS ${ctx.refs.length} imagens anexadas são sites premiados no Awwwards, a premiação dos melhores sites do mundo, na categoria deste nicho (${awwwardsCategoryLabel(seg.id)}):`,
-          ...ctx.refs.map((r) => `- ${r.title}${r.award ? ` (${r.award})` : ""}: ${r.tags.slice(0, 5).join(", ")}`),
-          "Use como régua de acabamento, não como molde: repare na escala da tipografia, no respiro, em como a foto principal domina o topo, em poucas cores bem usadas e numa ideia visual forte por página. NÃO copie layout, textos, marca nem fotos deles (são sites reais de outras empresas). No plano de design, diga em 1 linha o que você tirou dessas referências para ESTE negócio.",
+          `REFERÊNCIAS DE NÍVEL (AWWWARDS): as ÚLTIMAS ${ctx.refs.length} imagens anexadas são sites premiados no Awwwards (a premiação dos melhores sites do mundo) na categoria deste nicho (${awwwardsCategoryLabel(seg.id)}). São INSPIRAÇÃO de acabamento, não molde:`,
+          ...ctx.refs.map((r) => `- ${r.title}${r.award ? ` (${r.award})` : ""}: ${r.tags.slice(0, 6).join(", ")}`),
+          "O que tirar delas: (1) a ESCALA e o caráter da tipografia; (2) o movimento (o site da LOTUS já tem título entrando palavra por palavra, seções em cascata, fotos em cortina e profundidade: escolha a direção de arte que mais combina com o clima da referência); (3) poucas cores bem usadas (normalmente 2 + neutros), sempre com as cores REAIS da marca do cliente; (4) UM elemento memorável por página.",
+          "PRIORIDADE ACIMA DAS REFERÊNCIAS: a cara REAL da clínica (fotos reais, nome, profissional, pacientes). Referência premiada nunca justifica trocar foto real por foto genérica. Não copie textos, marca, fotos ou layout deles. No plano de design, diga em 1 linha o que você tirou das referências para ESTE negócio.",
           "",
         ]
       : []),
@@ -192,11 +200,13 @@ function buildInstructions(ctx: { businessName: string; handle: string; assets: 
     "",
     "3) CORES: as cores reais da marca (coresDaMarca/neutrasDaMarca e o logo). primaria = cor principal; destaque = realce. O sistema calcula fundo e contraste.",
     "",
-    "4) FOTOS (olhe as imagens anexadas; `arquivosDisponiveis` diz tamanho e origem de cada uma):",
-    "- topo.foto: a imagem mais forte e característica do negócio, SÓ entre as marcadas como GRANDE. Pessoa real sorrindo, profissional atendendo, ambiente bonito. NUNCA boca aberta de perto, procedimento, sangue, instrumento, antes e depois.",
+    "4) FOTOS: O SITE TEM QUE TER A CARA DA CLÍNICA DE VERDADE (olhe as imagens anexadas; `arquivosDisponiveis` diz tamanho e origem de cada uma):",
+    `- REGRA Nº 1: o dono tem que abrir o site e reconhecer a clínica DELE: o rosto do dentista/médico, a equipe, os pacientes reais sorrindo, o lugar. Site só com foto genérica de IA é REPROVADO, mesmo bonito. ${ctx.realPhotos > 0 ? `Há ${ctx.realPhotos} foto(s) REAIS do cliente (assets/foto-...): use as melhores no topo, no 'sobre', nos serviços e na galeria.` : "Não há fotos reais boas do cliente: aí sim as fotos profissionais preenchem."}`,
+    "- topo.foto: de preferência uma foto REAL forte: o profissional responsável, um paciente real sorrindo, a equipe ou a clínica. Foto real VERTICAL (de story/post) funciona no topo dos estilos 'clinico' e 'impacto' (a foto fica numa coluna ao lado do título); nos estilos 'aurora' e 'editorial' o topo pede foto GRANDE horizontal. Se a melhor foto do cliente é vertical, escolha 'clinico' ou 'impacto'. NUNCA boca aberta de perto, procedimento, sangue, instrumento, antes e depois.",
     ctx.hasStock
-      ? "- Há fotos PROFISSIONAIS feitas para este site (assets/banco-..., criadas por IA ou de banco de imagens). Use a horizontal no topo e as verticais nas fotos dos serviços sempre que as fotos do cliente forem fracas: o visual profissional depende disso. Nunca em 'sobre' nem na galeria."
-      : "- Não há fotos de banco de imagens. Se as fotos do cliente forem fracas, use null: o sistema faz um topo tipográfico elegante.",
+      ? "- Fotos PROFISSIONAIS criadas por IA ou de banco (assets/banco-...) são só para TAPAR BURACO: use apenas onde não houver foto real boa, no máximo 2 no site inteiro, e nunca no 'sobre' nem na galeria (não são a clínica)."
+      : "- Não há fotos de banco de imagens. Onde não houver foto real boa, use null: o sistema faz um layout tipográfico elegante.",
+    "- galeria: quando houver 3 ou mais fotos reais boas (pacientes, equipe, clínica, evento da marca), monte a galeria com elas. É a prova de que a clínica existe e é querida.",
     "- servicos[].foto: dê foto a TODOS os serviços ou a nenhum (o layout muda: com fotos vira mosaico; sem fotos vira lista elegante). Foto PEQUENA nunca.",
     "- ARTE DE POST NÃO É FOTO: imagem com letras, título, logo grande, promoção, convite, banner ou capa de vídeo com texto NÃO entra em lugar nenhum.",
     "- sobre.foto e galeria: só fotos REAIS do cliente (profissional, equipe, lugar). Não repita a mesma foto em dois lugares.",
@@ -240,11 +250,12 @@ const REVIEW_INSTRUCTIONS = (businessName: string, url: string) =>
   [
     `Revise o site novo da ${businessName}, publicado em ${url}. As imagens anexadas são prints do site no ar (3 partes no computador e o topo no celular).`,
     "Você é exigente como um diretor de arte de agência: este site vai ser mostrado ao dono do negócio para vender um projeto de site de uns R$ 10 mil. O dono tem que olhar e achar o site incrível. Avalie de 0 a 10:",
-    "O acabamento (grid, espaçamento, contraste) vem do sistema; o agente escolhe direção de arte, par de fontes, cores, fotos e escreve o texto (`conteudoDoSite`). Suas correções dizem o que mudar NESSAS escolhas: trocar direção, fontes, foto (diga qual arquivo), cor ou texto. `avisosDoSistema` lista fotos que o sistema recusou.",
+    "O acabamento (grid, espaçamento, contraste) vem do sistema; o agente escolhe direção de arte, par de fontes, cores, fotos e escreve o texto (`conteudoDoSite`). Suas correções dizem o que mudar NESSAS escolhas: trocar direção, fontes, foto (diga qual arquivo), cor ou texto. `avisosDoSistema` lista fotos que o sistema recusou e quantas fotos REAIS do cliente existiam e foram usadas.",
     "Régua: os sites premiados do Awwwards (awwwards.com) na categoria deste nicho. O diretor de arte recebeu exemplos deles. Se este site ficar visivelmente abaixo desse nível em tipografia, respiro, força da foto principal ou ideia visual, diga exatamente o que falta.",
     "0. Impressiona? Tem cara própria deste negócio ou parece modelo pronto / feito por IA? Procure estes sinais de site gerado por IA (cada um é correção obrigatória):",
     ...AI_TELLS.map((t) => `   - ${t}`),
-    "0b. As fotos são profissionais e fortes? Foto fraca ou arte de post num lugar de destaque derruba a nota. Fotos profissionais (criadas por IA ou de banco) são bem-vindas no topo e nos serviços. No 'Sobre', foto REAL do dono, da equipe ou da clínica é um ponto forte, mesmo que seja de evento ou com outra pessoa ao lado, desde que esteja nítida e o profissional apareça bem: não peça para trocar só por isso.",
+    "0a. TEM A CARA DA CLÍNICA DE VERDADE? O dono precisa reconhecer o negócio dele (rosto do profissional, equipe, pacientes reais, o lugar). Se `avisosDoSistema` mostra fotos REAIS disponíveis e o site usa poucas ou nenhuma, ou usa mais foto de IA do que real: nota máxima 6 e correção obrigatória dizendo QUAIS arquivos reais colocar e onde (topo, sobre, galeria). Site genérico com cara de IA não vende para o dono.",
+    "0b. As fotos são fortes? Foto fraca ou arte de post num lugar de destaque derruba a nota. Fotos de IA ou de banco só são aceitáveis para tapar buraco onde não há foto real boa. No 'Sobre', foto REAL do dono, da equipe ou da clínica é um ponto forte, mesmo que seja de evento ou com outra pessoa ao lado, desde que esteja nítida e o profissional apareça bem: não peça para trocar só por isso.",
     "1. Visual: usa as cores e o logo da marca? As fotos são reais e bem usadas? Algo quebrado, cortado, sobreposto ou ilegível?",
     "1b. Olhe de perto: alguma foto está PIXELADA ou borrada (imagem pequena esticada)? Algum botão ou texto tem pouco contraste (ex.: letra escura sobre fundo escuro)? Cada um desses é correção obrigatória.",
     "2. Celular: o topo funciona no celular, texto legível, botão de agendar visível?",
@@ -279,10 +290,12 @@ export async function createSiteChain(opts: {
   const segment = segmentFor(`${opts.businessName} ${JSON.stringify(opts.brief.perfil ?? opts.brief).slice(0, 4000)}`);
   const { dir, assets } = await prepareSiteAssets(opts.handle, opts.brand, segment.bancoDeImagens, segment.fotosIA);
   const palette = (opts.brand?.paleta ?? null) as Json | null;
-  // O agente vê as fotos que podem ir para o site (as do cliente e as de banco, maiores primeiro) e o logo
+  // O agente vê primeiro as fotos REAIS do cliente (maiores primeiro), depois as de IA/banco, e o logo
+  const isStockFile = (a: PreparedAsset) => /^assets\/banco-/.test(a.file);
   const usable = assets
     .filter((a) => !/logo/.test(a.file) && (a.width ?? 0) >= 480)
-    .sort((a, b) => (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0));
+    .sort((a, b) => Number(isStockFile(a)) - Number(isStockFile(b)) || (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0));
+  const realPhotos = usable.filter((a) => !isStockFile(a)).length;
   const logo = assets.find((a) => /^assets\/logo\./.test(a.file));
   const imagePaths = [...(logo ? [logo] : []), ...usable].slice(0, 10).map((a) => path.join(dir, a.file));
   const suffix = attempt > 1 ? ` (tentativa ${attempt})` : "";
@@ -298,7 +311,7 @@ export async function createSiteChain(opts: {
       agentId: webId,
       title: `Produção: site novo${isHealth ? " da clínica" : ""}${suffix}`,
       description: "Conteúdo, fotos, cores e direção de arte do site; o sistema monta o site premium e publica.",
-      instructions: buildInstructions({ businessName: opts.businessName, handle: opts.handle, assets, attempt, feedback: opts.feedback, recent: await recentStyles(), hasWhatsapp, isHealth, segment, hasStock, refs }),
+      instructions: buildInstructions({ businessName: opts.businessName, handle: opts.handle, assets, attempt, feedback: opts.feedback, recent: await recentStyles(), hasWhatsapp, isHealth, segment, hasStock, refs, realPhotos }),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       input: {
         fase: "producao",
@@ -453,6 +466,11 @@ export async function runSiteStep(taskId: string): Promise<void> {
       html = rendered.html;
       style = rendered.style;
       renderWarnings = rendered.warnings;
+      // Quantas fotos REAIS do cliente existiam e quantas o site usou (a revisora reprova site sem cara da clínica)
+      const realFiles = all.filter((a) => /^assets\/foto-/.test(a.file) && (a.width ?? 0) >= 480).map((a) => a.file);
+      const usedReal = realFiles.filter((f) => rendered.html.includes(`src="${f}"`));
+      const usedStock = [...new Set([...rendered.html.matchAll(/src="(assets\/banco-[^"]+)"/g)].map((m) => m[1]))];
+      renderWarnings.push(`Fotos REAIS do cliente disponíveis: ${realFiles.length}; usadas no site: ${usedReal.length}${realFiles.length ? ` (${usedReal.join(", ") || "nenhuma"})` : ""}. Fotos de IA/banco usadas: ${usedStock.length}.`);
     } else {
       html = extractHtml(buildDoc);
     }

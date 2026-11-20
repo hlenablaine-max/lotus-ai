@@ -145,7 +145,9 @@ export async function runClaudeCode(opts: ClaudeCodeRunOptions): Promise<{ text:
       if (opts.signal?.aborted) return reject(new Error("Interrompido."));
       const out = (finalText ?? text).trim();
       if (!out && code !== 0) return reject(new Error(`O Claude Code falhou (código ${code}): ${stderr.slice(-500) || "sem detalhes"}`));
-      if (isError && /limit|usage|quota/i.test(out)) return reject(new Error(`Limite da assinatura do Claude atingido: ${out.slice(0, 300)}`));
+      // Recusa por política de uso não é falta de limite: o pedido precisa mudar, esperar não resolve
+      if (isError && /usage policy|violate|safeguard/i.test(out)) return reject(new Error(`O Claude recusou este pedido pela política de uso (o texto da tarefa precisa mudar): ${out.slice(0, 300)}`));
+      if (isError && /rate limit|usage limit|limit reached|quota|5-hour|weekly limit/i.test(out)) return reject(new Error(`Limite da assinatura do Claude atingido: ${out.slice(0, 300)}`));
       resolve({ text: out, sessionId, isError });
     });
     child.stdin.write(opts.prompt, "utf-8");
