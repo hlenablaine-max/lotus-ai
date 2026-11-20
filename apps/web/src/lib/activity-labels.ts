@@ -27,6 +27,8 @@ const ACTION_LABELS: Record<string, string> = {
   WHATSAPP_PROBE_RESULT: "Teste de atendimento no WhatsApp concluído",
   WHATSAPP_PROBE_SKIPPED: "Teste de WhatsApp pulado",
   LOCAL_TOOL: "Ação no computador",
+  AGENT_DELEGATED: "Agente passou um pedido para um colega",
+  AGENT_REQUEST: "Agente recebeu um pedido pelo escritório",
 };
 
 const ENGINE_NAMES: Record<string, string> = {

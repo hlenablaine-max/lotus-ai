@@ -57,6 +57,8 @@ export function normalizeDepartment(department: string | null | undefined): stri
 
 const ACTION_LABELS: Record<string, string> = {
   TASK_CREATED: 'Recebeu a tarefa',
+  AGENT_DELEGATED: 'Foi até um colega passar o recado',
+  AGENT_REQUEST: 'Recebeu um pedido do Ícaro',
   TASK_STARTED: 'Iniciou a tarefa',
   TASK_COMPLETED: 'Concluiu a tarefa',
   TASK_FAILED: 'Falhou na tarefa',

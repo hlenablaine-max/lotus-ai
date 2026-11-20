@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { X, MessageCircle, Building2, Layers, Eye, ChevronRight, Activity, BarChart2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AgentAvatar } from '@/components/ui/agent-avatar'
+import { AgentChat } from '@/components/hq/agent-chat'
 
 // ============================================================
 // TYPES
@@ -37,6 +38,16 @@ interface FeedItem {
   departmentId: string
   action: string
   time: string
+}
+
+// Um agente indo até a mesa de outro para passar um recado (pedido feito pelo chat do escritório)
+interface Visit {
+  fromAgentId: string
+  toAgentId: string
+  startedAt: number
+}
+interface VisitPlan {
+  steps: Array<{ pos: THREE.Vector3; until: number }>
 }
 
 const VALID_STATUSES: AgentStatus[] = ['idle', 'working', 'thinking', 'waiting_approval', 'offline']
@@ -114,6 +125,31 @@ interface AgentPlacement { pos: THREE.Vector3; seated: boolean }
 
 // Posição de cada agente calculada a partir da lista AO VIVO do seu departamento.
 // Quem tem cadeira senta; excedentes e quem está na fila/aguardando ficam em pé.
+// Trajeto: (elevador do andar dele → elevador do andar do colega) → ao lado do colega (conversa) → volta
+function buildVisitPlan(visit: Visit, from: Agent, to: Agent, agents: Agent[]): VisitPlan | null {
+  const fromDept = DEPTS.find(d => d.id === from.departmentId)
+  const toDept = DEPTS.find(d => d.id === to.departmentId)
+  const fromFloor = fromDept?.floor ?? 0
+  const toFloor = toDept?.floor ?? 0
+  const home = getAgentPlacement(from, agents).pos.clone()
+  home.y = getFloorY(fromFloor) + 0.1
+  const target = getAgentPlacement(to, agents).pos.clone()
+  const beside = new THREE.Vector3(target.x + 0.85, getFloorY(toFloor) + 0.1, target.z + 0.85)
+  const elevator = (floor: number) => new THREE.Vector3(-BW / 2 + 2.5, getFloorY(floor) + 0.1, -BD / 2 + 4.1)
+  const legs: Array<[THREE.Vector3, number]> = []
+  if (fromFloor !== toFloor) legs.push([elevator(fromFloor), 3200], [elevator(toFloor), 2600])
+  legs.push([beside, 3600 + 5200]) // chega e conversa
+  if (fromFloor !== toFloor) legs.push([elevator(toFloor), 3200], [elevator(fromFloor), 2600])
+  legs.push([home, 3200])
+  let t = visit.startedAt
+  return { steps: legs.map(([pos, ms]) => ({ pos, until: (t += ms) })) }
+}
+
+function visitGoal(plan: VisitPlan | null | undefined, now: number): THREE.Vector3 | null {
+  if (!plan) return null
+  return plan.steps.find(step => now < step.until)?.pos ?? null
+}
+
 function getAgentPlacement(agent: Agent, agents: Agent[]): AgentPlacement {
   const dept = DEPTS.find(d => d.id === agent.departmentId)
   const peers = agents
@@ -794,11 +830,12 @@ interface CharProps {
   agent: Agent
   targetPos: THREE.Vector3
   seated: boolean
+  visit?: VisitPlan | null
   onSelect: (a: Agent) => void
   selected: boolean
 }
 
-function Character3D({ agent, targetPos, seated, onSelect, selected }: CharProps) {
+function Character3D({ agent, targetPos: homePos, seated, visit, onSelect, selected }: CharProps) {
   const root = useRef<THREE.Group>(null!)
   const head = useRef<THREE.Mesh>(null!)
   const lArmGroup = useRef<THREE.Group>(null!)
@@ -806,7 +843,7 @@ function Character3D({ agent, targetPos, seated, onSelect, selected }: CharProps
   const lLegGroup = useRef<THREE.Group>(null!)
   const rLegGroup = useRef<THREE.Group>(null!)
 
-  const curPos = useRef(targetPos.clone())
+  const curPos = useRef(homePos.clone())
   const offsetY = useRef(0)
   const phase = useMemo(() => seededVal(agent.id, 9) * Math.PI * 2, [agent.id])
 
@@ -824,6 +861,8 @@ function Character3D({ agent, targetPos, seated, onSelect, selected }: CharProps
     if (!root.current) return
     const t = state.clock.elapsedTime + phase
 
+    // Durante uma visita a um colega, o destino muda ao longo do trajeto
+    const targetPos = visitGoal(visit, Date.now()) ?? homePos
     const prevPos = curPos.current.clone()
     curPos.current.lerp(targetPos, 0.025)
     const dist = curPos.current.distanceTo(targetPos)
@@ -887,7 +926,7 @@ function Character3D({ agent, targetPos, seated, onSelect, selected }: CharProps
   })
 
   return (
-    <group ref={root} position={targetPos} onClick={e => { e.stopPropagation(); onSelect(agent) }}>
+    <group ref={root} position={homePos} onClick={e => { e.stopPropagation(); onSelect(agent) }}>
       {/* Hitbox invisível — aumenta a área de clique do personagem */}
       <mesh visible={false}>
         <boxGeometry args={[1.2, 2.2, 1.2]} />
@@ -1038,11 +1077,12 @@ interface BuildingProps {
   viewMode: ViewMode
   activeFloor: number | null
   agents: Agent[]
+  visits?: Visit[]
   selectedAgent: Agent | null
   onSelectAgent: (a: Agent) => void
 }
 
-function Building({ viewMode, activeFloor, agents, selectedAgent, onSelectAgent }: BuildingProps) {
+function Building({ viewMode, activeFloor, agents, visits = [], selectedAgent, onSelectAgent }: BuildingProps) {
   const isDH = viewMode === 'dollhouse' || viewMode === 'interior'
   const glassOp = isDH ? 0.04 : 0.11
 
@@ -1144,12 +1184,18 @@ function Building({ viewMode, activeFloor, agents, selectedAgent, onSelectAgent 
         const show = activeFloor === null || activeFloor === floorLevel
         if (!show) return null
         const placement = getAgentPlacement(agent, agents)
+        // Visita em andamento: levanta da cadeira e faz o trajeto até o colega
+        const v = visits.find(x => x.fromAgentId === agent.id)
+        const to = v ? agents.find(a => a.id === v.toAgentId) : undefined
+        const plan = v && to ? buildVisitPlan(v, agent, to, agents) : null
+        const visiting = !!plan && Date.now() < plan.steps[plan.steps.length - 1].until
         return (
           <Character3D
             key={agent.id}
             agent={agent}
             targetPos={placement.pos}
-            seated={placement.seated}
+            seated={placement.seated && !visiting}
+            visit={visiting ? plan : null}
             onSelect={onSelectAgent}
             selected={selectedAgent?.id === agent.id}
           />
@@ -1316,11 +1362,13 @@ function AgentPanel({ agent, onClose }: { agent: Agent; onClose: () => void }) {
           </div>
         </div>
 
-        <div className="p-4 pt-0">
-          <Link href="/ceo" className="w-full py-2.5 rounded-lg text-sm font-semibold text-white transition-all hover:opacity-90 flex items-center justify-center gap-2"
-            style={{ background: c }}>
-            <MessageCircle size={15} />
-            Falar com {agent.name.split(' ')[0]}
+        <div className="p-4 pt-0 border-t border-white/5">
+          <p className="text-xs font-semibold text-white/60 mt-3 mb-2 flex items-center gap-1.5">
+            <MessageCircle size={13} /> Falar com {agent.name.split(' ')[0]}
+          </p>
+          <AgentChat agentId={agent.id} agentName={agent.name} color={c} />
+          <Link href="/ceo" className="block mt-3 text-center text-[11px] text-white/40 hover:text-white/70">
+            Abrir o chat geral da LOTUS
           </Link>
         </div>
       </div>
@@ -1583,6 +1631,14 @@ export function LotusHQ3D() {
   const [showFeed, setShowFeed] = useState(false)
   const [showEval, setShowEval] = useState(false)
   const [feedEvents, setFeedEvents] = useState<FeedItem[]>([])
+  const [visits, setVisits] = useState<Visit[]>([])
+  // Enquanto há visita em andamento, redesenha a cada segundo (troca de etapa do trajeto)
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (visits.length === 0) return
+    const timer = setInterval(() => setTick(t => t + 1), 1000)
+    return () => clearInterval(timer)
+  }, [visits])
   const snapshotRef = useRef('')
 
   // Estado REAL: agentes e atividade vêm do banco via /api/hq/agents (poll a cada 5s).
@@ -1601,6 +1657,7 @@ export function LotusHQ3D() {
         const data = await res.json() as {
           agents?: Array<Omit<Agent, 'status'> & { status: string }>
           feed?: FeedItem[]
+          visits?: Visit[]
         }
         if (cancelled) return
         if (!Array.isArray(data.agents)) throw new Error('Resposta inválida')
@@ -1618,6 +1675,8 @@ export function LotusHQ3D() {
           lastActivity: Array.isArray(a.lastActivity) ? a.lastActivity : [],
         }))
         const feed = Array.isArray(data.feed) ? data.feed : []
+        const liveVisits = Array.isArray(data.visits) ? data.visits : []
+        setVisits(prev => (JSON.stringify(prev) === JSON.stringify(liveVisits) ? prev : liveVisits))
 
         // Só atualiza o estado (e re-renderiza a cena) quando algo mudou de fato
         const snapshot = JSON.stringify([live, feed])
@@ -1672,6 +1731,7 @@ export function LotusHQ3D() {
             viewMode={viewMode}
             activeFloor={activeFloor}
             agents={agents}
+            visits={visits}
             selectedAgent={selected}
             onSelectAgent={handleSelect}
           />
