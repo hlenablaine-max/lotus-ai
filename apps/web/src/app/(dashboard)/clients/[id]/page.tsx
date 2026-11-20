@@ -9,6 +9,7 @@ import {
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { ClientAvatar } from "@/components/ui/client-avatar";
+import { ClientCrm } from "@/components/crm/client-crm";
 
 interface Client {
   id: string;
@@ -76,7 +77,11 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
   const [client, setClient] = useState<Client | null>(null);
   const [missions, setMissions] = useState<Mission[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"overview" | "missions" | "chat">("overview");
+  const [tab, setTab] = useState<"overview" | "crm" | "missions" | "chat">("overview");
+  // Link direto para a aba do CRM (ex.: /clients/ID?aba=crm)
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("aba") === "crm") setTab("crm");
+  }, []);
   const [portalPath, setPortalPath] = useState<string | null>(null);
   const [portalCopied, setPortalCopied] = useState(false);
 
@@ -231,15 +236,17 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
       {/* Tabs */}
       <div className="flex items-center gap-1 p-1 rounded-lg bg-muted/50 border border-border w-fit">
-        {(["overview", "missions", "chat"] as const).map((t) => (
+        {(["overview", "crm", "missions", "chat"] as const).map((t) => (
           <button key={t} onClick={() => setTab(t)}
             className={cn("px-4 py-1.5 rounded-md text-sm font-medium transition-all",
               tab === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
             )}>
-            {t === "overview" ? "Visão Geral" : t === "missions" ? "Missões" : "Chat com CEO"}
+            {t === "overview" ? "Visão Geral" : t === "crm" ? "CRM e resultados" : t === "missions" ? "Missões" : "Chat com CEO"}
           </button>
         ))}
       </div>
+
+      {tab === "crm" && <ClientCrm clientId={client.id} clientName={client.name} />}
 
       {/* Tab content */}
       {tab === "overview" && (

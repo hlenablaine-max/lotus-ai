@@ -105,8 +105,79 @@ model Client {
   clientSolutions  ClientSolution[]
   assessments      ClientAssessment[]
   salesCalls       SalesCall[]
+  leads            Lead[]
+  monthlyNumbers   ClientMonthlyNumbers[]
 
   @@map("clients")
+}
+
+// ============================================================
+// CRM DO CLIENTE — leads, funil e resultados
+// ============================================================
+model Lead {
+  id             String     @id @default(cuid())
+  clientId       String
+  name           String
+  phone          String?
+  email          String?
+  source         LeadSource @default(OUTRO)
+  campaign       String?    // campanha/anúncio de origem
+  interest       String?    // serviço/tratamento de interesse
+  stage          LeadStage  @default(NOVO)
+  value          Float?     // valor fechado (R$)
+  lostReason     String?
+  notes          String?
+  viaLotus       Boolean    @default(true) // veio por ação da LOTUS (anúncio, site, campanha)?
+  firstContactAt DateTime?
+  stageChangedAt DateTime   @default(now())
+  closedAt       DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+  @@index([clientId, stage])
+  @@map("leads")
+}
+
+enum LeadSource {
+  META_ADS
+  GOOGLE_ADS
+  SITE
+  INSTAGRAM
+  WHATSAPP
+  INDICACAO
+  REATIVACAO
+  GOOGLE_MAPS
+  OUTRO
+}
+
+enum LeadStage {
+  NOVO
+  EM_CONTATO
+  AGENDADO
+  COMPARECEU
+  FECHADO
+  PERDIDO
+}
+
+// Números do mês que só o cliente sabe (base de pacientes, investimento, faturamento total)
+model ClientMonthlyNumbers {
+  id           String   @id @default(cuid())
+  clientId     String
+  month        String   // AAAA-MM
+  patientBase  Int?     // pacientes/clientes na base
+  adSpend      Float?   // investimento em anúncios no mês (R$)
+  revenue      Float?   // faturamento total do mês (R$)
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, month])
+  @@map("client_monthly_numbers")
 }
 
 model ClientContact {

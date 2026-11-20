@@ -29,7 +29,8 @@ const MAX_CONCURRENT_TASKS = 2;
 // Uma tarefa de agente que passa disso travou (rede caiu no meio da chamada): é cancelada e tentada de novo
 const AGENT_TASK_TIMEOUT_MS = 15 * 60_000;
 const IMAGE_ROOT = path.join(os.homedir(), "LOTUS_Workspace");
-const AGENT_WEB_TOOLS = new Set(["search_web", "fetch_url"]);
+// Agentes podem pesquisar na web e consultar os resultados (CRM) do cliente
+const AGENT_WEB_TOOLS = new Set(["search_web", "fetch_url", "get_client_results"]);
 
 // Fila simples: no máximo N agentes chamando a IA ao mesmo tempo (evita estourar o limite do provedor)
 const globalRef = globalThis as unknown as {

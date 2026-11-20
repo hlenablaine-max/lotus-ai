@@ -36,6 +36,24 @@ interface AuditDomain {
 // ============================================================
 const AUDIT_DOMAINS: AuditDomain[] = [
   {
+    id: "roteiro",
+    name: "Roteiro: agência de ponta que faz a clínica faturar",
+    description: "O que uma agência de primeiro nível entrega e o quanto a LOTUS já faz (revisado em 20/11/2026)",
+    items: [
+      { id: "rt-1", name: "CRM e funil de cada cliente", description: "Leads por origem, contato, agendamento, comparecimento, fechamento, faturamento, custo por lead e retorno", tag: "IMPLEMENTED", level: "B", evidence: "Aba 'CRM e resultados' em cada cliente e página CRM com todos; leads lançados à mão ou por planilha; agentes e o Root Master leem os números", impact: "critical" },
+      { id: "rt-2", name: "Leads entrando sozinhos no CRM", description: "Formulário do site, anúncios de cadastro da Meta e WhatsApp caindo direto no CRM, com a origem certa", tag: "MISSING", level: "D", evidence: "Hoje o lead é lançado à mão ou por planilha. Precisa de um endereço público para receber os leads (o app roda no PC)", impact: "critical" },
+      { id: "rt-3", name: "Atendimento por IA no WhatsApp 24 h", description: "Responde em segundos, tira dúvida, agenda e passa para a recepção", tag: "PARTIAL", level: "C", evidence: "A LOTUS entrega o roteiro e a configuração prontos; ainda não roda sozinha respondendo os pacientes", impact: "critical" },
+      { id: "rt-4", name: "Anúncios publicados e otimizados toda semana", description: "Subir campanhas, ler custo por lead e ajustar sozinho", tag: "MISSING", level: "D", evidence: "Campanhas saem prontas como plano; falta conectar a conta de anúncios da Meta/Google", impact: "critical" },
+      { id: "rt-5", name: "Lembrete de consulta e redução de faltas", description: "Confirmação no WhatsApp 1 dia antes e 2 horas antes", tag: "MISSING", level: "D", evidence: "Ainda não existe", impact: "high" },
+      { id: "rt-6", name: "Reativação da base de pacientes", description: "Campanhas para quem não volta há 6+ meses (manutenção, retorno, indicação)", tag: "MISSING", level: "D", evidence: "O diagnóstico aponta a oportunidade; falta a campanha rodando", impact: "high" },
+      { id: "rt-7", name: "Reputação no Google", description: "Pedido de avaliação automático depois da consulta e resposta às avaliações", tag: "MISSING", level: "D", evidence: "Ainda não existe", impact: "high" },
+      { id: "rt-8", name: "Relatório mensal de resultados para o cliente", description: "PDF com leads, agendamentos, fechamentos, faturamento e próximos passos", tag: "PARTIAL", level: "C", evidence: "Existe o PDF do diagnóstico; falta o relatório mensal com os números do CRM", impact: "high" },
+      { id: "rt-9", name: "Otimização semanal pelos agentes", description: "Agente lê o funil toda semana, aponta onde vaza e cria as tarefas de correção", tag: "MISSING", level: "D", evidence: "Os agentes já leem o CRM sob demanda; falta a rotina semanal automática", impact: "high" },
+      { id: "rt-10", name: "Prospecção da própria LOTUS", description: "Achar clínicas por cidade, rodar um diagnóstico rápido e montar a lista de quem abordar", tag: "MISSING", level: "D", evidence: "Hoje o diagnóstico começa pelo @ que o Ícaro manda", impact: "medium" },
+      { id: "rt-11", name: "Comparação entre clientes (benchmark)", description: "Taxa média de agendamento e fechamento por segmento, para saber o que é bom", tag: "PARTIAL", level: "C", evidence: "A página CRM mostra os clientes lado a lado; falta a média por segmento", impact: "medium" },
+    ],
+  },
+  {
     id: "d360",
     name: "Diagnóstico 360 e entregas",
     description: "Do @ do Instagram ao Playbook, site publicado e pacote pronto",
@@ -159,7 +177,7 @@ function overallScore(domains: AuditDomain[]): number {
 }
 
 export default function GovernancePage() {
-  const [expandedDomain, setExpandedDomain] = useState<string | null>("d360");
+  const [expandedDomain, setExpandedDomain] = useState<string | null>("roteiro");
   const [selectedTag, setSelectedTag] = useState<AuditTag | null>(null);
 
   const overall = overallScore(AUDIT_DOMAINS);

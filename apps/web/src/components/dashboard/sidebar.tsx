@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import {
   MessageSquare,
   Target,
+  TrendingUp,
   Users,
   Building2,
   LayoutDashboard,
@@ -20,7 +21,6 @@ import {
   Cpu,
   Shield,
   Bell,
-  TrendingUp,
 } from "lucide-react";
 
 function LotusIcon({ size = 18, className = "" }: { size?: number; className?: string }) {
@@ -113,6 +113,12 @@ const navItems: Array<{
     href: "/clients",
     icon: Users,
     description: "Empresas atendidas",
+  },
+  {
+    label: "CRM e resultados",
+    href: "/crm",
+    icon: TrendingUp,
+    description: "Leads, fechamentos e faturamento",
   },
   {
     label: "Soluções",

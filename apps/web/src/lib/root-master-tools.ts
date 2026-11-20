@@ -176,6 +176,33 @@ export const DB_TOOL_DEFS: AITool[] = [
     },
   },
   {
+    name: "get_client_results",
+    description: "CRM do cliente: leads do mês por origem, funil (contato, agendamento, comparecimento, fechamento), faturamento gerado, custo por lead, retorno dos anúncios, base de pacientes e leads esperando resposta. Use para avaliar se a LOTUS está fazendo o cliente crescer e onde o funil vaza.",
+    parameters: {
+      properties: {
+        clientId: { type: "string", description: "ID do cliente" },
+        month: { type: "string", description: "Mês AAAA-MM (opcional, padrão: mês atual)" },
+      },
+      required: ["clientId"],
+    },
+  },
+  {
+    name: "add_lead",
+    description: "Registra um lead no CRM do cliente (ex.: o dono contou que chegou um paciente novo pelo anúncio).",
+    parameters: {
+      properties: {
+        clientId: { type: "string" },
+        name: { type: "string" },
+        phone: { type: "string" },
+        source: { type: "string", description: "META_ADS, GOOGLE_ADS, SITE, INSTAGRAM, WHATSAPP, INDICACAO, REATIVACAO, GOOGLE_MAPS ou OUTRO" },
+        interest: { type: "string", description: "Serviço de interesse" },
+        stage: { type: "string", description: "NOVO, EM_CONTATO, AGENDADO, COMPARECEU, FECHADO ou PERDIDO" },
+        value: { type: "number", description: "Valor fechado em R$ (se fechou)" },
+      },
+      required: ["clientId", "name"],
+    },
+  },
+  {
     name: "get_diagnosis",
     description: "Consulta o andamento e o resultado de um Diagnóstico 360 (tarefas dos agentes, relatório final, aprovações pendentes).",
     parameters: {
@@ -816,6 +843,39 @@ export function createDbToolExecutor(): ToolExecutor {
           });
         }
 
+        case "get_client_results": {
+          const { clientResults, resultsSummary } = await import("@/lib/crm");
+          const a = args as { clientId: string; month?: string };
+          const client = await prisma.client.findUnique({ where: { id: String(a.clientId) }, select: { name: true } });
+          if (!client) return JSON.stringify({ error: "Cliente não encontrado" });
+          const results = await clientResults(String(a.clientId), a.month);
+          return JSON.stringify({ resumo: resultsSummary(client.name, results), dados: results, ondeVer: `/clients/${a.clientId}?aba=crm` });
+        }
+        case "add_lead": {
+          const a = args as Record<string, unknown>;
+          const client = await prisma.client.findUnique({ where: { id: String(a.clientId) }, select: { id: true } });
+          if (!client) return JSON.stringify({ error: "Cliente não encontrado" });
+          const { SOURCES, STAGES } = await import("@/lib/crm");
+          const source = (SOURCES as readonly string[]).includes(String(a.source)) ? String(a.source) : "OUTRO";
+          const stage = (STAGES as readonly string[]).includes(String(a.stage)) ? String(a.stage) : "NOVO";
+          const lead = await prisma.lead.create({
+            data: {
+              clientId: client.id,
+              name: String(a.name ?? "Sem nome").slice(0, 120),
+              phone: a.phone ? String(a.phone) : null,
+              interest: a.interest ? String(a.interest) : null,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              source: source as any,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              stage: stage as any,
+              value: typeof a.value === "number" ? a.value : null,
+              firstContactAt: stage !== "NOVO" ? new Date() : null,
+              closedAt: stage === "FECHADO" ? new Date() : null,
+            },
+            select: { id: true },
+          });
+          return JSON.stringify({ ok: true, leadId: lead.id });
+        }
         case "get_diagnosis": {
           const { diagnosisProgress } = await import("@/lib/diagnosis-360");
           const progress = await diagnosisProgress(String((args as { missionId: string }).missionId));
