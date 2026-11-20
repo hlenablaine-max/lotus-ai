@@ -7,6 +7,7 @@ import * as os from "os";
 import * as path from "path";
 import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { saveClientAvatar } from "@/lib/client-avatar";
 import { createRuntimeClient, type RuntimeClient } from "@/lib/runtime-client";
 import { markRunning, runTask, unmarkRunning } from "@/lib/task-runner";
 import { createSiteChain, extractHtml } from "@/lib/site-builder";
@@ -399,6 +400,7 @@ async function collectAndAnalyze(ctx: {
   // 4c) Kit da marca: logo, fotos e cores reais (base do site novo e da análise visual)
   const brandSite = ownSites.map((s) => (!s.isLinkAggregator && !s.redirectsToWhatsApp && s.finalUrl ? String(s.finalUrl) : "")).find(Boolean) || null;
   const brand = await safeCollect("Marca", () => runtime.call("/runtime/research/brand", { handle, site: brandSite }, 200_000) as Promise<Json>);
+  if (!hasError(brand) && typeof brand.logoInstagram === "string") saveClientAvatar(clientId, brand.logoInstagram);
 
   // 4d) Pessoas ligadas ao negócio (dono, sócios, dentistas): perfis citados na bio, no site e nas legendas
   const people = await collectPeople(runtime, handle, profile, ownSites);
@@ -922,6 +924,7 @@ async function createAnalysisTasks(c: AnalysisContext): Promise<void> {
     perfil: profileSlim,
     indicadores: c.metrics,
     whatsappEncontrado: c.whatsapp,
+    negocioDeSaude: c.isHealth,
     linkDaBio: c.candidateSite,
     site: stripShots(c.mainSite ?? c.site),
     anunciosAtivosDoProprioNegocio: ((c.ads.anunciosDoProprioNegocio as unknown[] | undefined) ?? []).slice(0, 5),

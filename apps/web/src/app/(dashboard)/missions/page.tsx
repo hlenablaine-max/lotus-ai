@@ -9,6 +9,8 @@ import {
 import { cn } from "@/lib/utils";
 import { RichText } from "@/components/ui/rich-text";
 import { ReportDownloadButton } from "@/components/reports/report-download";
+import { ClientAvatar } from "@/components/ui/client-avatar";
+import { AgentAvatar } from "@/components/ui/agent-avatar";
 
 interface Mission {
   id: string;
@@ -425,12 +427,7 @@ export default function MissionsPage() {
                   )}
                 >
                   <div className="flex items-start gap-4">
-                    <div className={cn(
-                      "w-10 h-10 rounded-lg border flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors",
-                      isSelected ? "bg-primary/20 border-primary/40" : "bg-primary/10 border-primary/20"
-                    )}>
-                      <Target className="w-5 h-5 text-primary" />
-                    </div>
+                    <ClientAvatar clientId={mission.client.id} name={mission.client.name} size={40} className={cn("mt-0.5 rounded-lg", isSelected && "ring-2 ring-primary/50")} />
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start gap-3 flex-wrap">
@@ -693,8 +690,8 @@ function TaskCard({ task, onRun, isRunning }: { task: Task; onRun: (t: Task) => 
           <div className="flex items-center gap-3 mt-1 flex-wrap">
             <span className={cn("text-xs font-medium", statusCfg.color)}>{statusCfg.label}</span>
             {task.agent && (
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                <User className="w-3 h-3" /> {task.agent.name}
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <AgentAvatar slug={task.agent.id} name={task.agent.name} size={18} /> {task.agent.name}
               </span>
             )}
             <span className="text-xs text-muted-foreground">{formatRelative(task.updatedAt)}</span>

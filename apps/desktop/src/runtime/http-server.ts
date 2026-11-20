@@ -154,6 +154,8 @@ export class RuntimeHttpServer {
         return rt.research.whatsappQr()
       case '/runtime/research/whatsapp-qr-stop':
         return rt.research.whatsappQrStop()
+      case '/runtime/research/avatar':
+        return rt.research.instagramAvatar(String(data.handle ?? ''), String(data.outFile ?? ''))
       case '/runtime/pdf':
         return htmlFileToPdf(String(data.htmlPath ?? ''), String(data.outPath ?? ''))
       case '/runtime/research/whatsapp-send':

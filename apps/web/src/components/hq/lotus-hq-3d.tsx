@@ -8,6 +8,7 @@ import * as THREE from 'three'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, MessageCircle, Building2, Layers, Eye, ChevronRight, Activity, BarChart2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { AgentAvatar } from '@/components/ui/agent-avatar'
 
 // ============================================================
 // TYPES
@@ -1481,7 +1482,7 @@ function ActivityFeed({ events, onClose }: { events: FeedItem[]; onClose: () => 
           )}
           <AnimatePresence initial={false}>
             {events.map(ev => {
-              const color = getDeptColor(ev.departmentId)
+
               return (
                 <motion.div
                   key={ev.id}
@@ -1490,12 +1491,7 @@ function ActivityFeed({ events, onClose }: { events: FeedItem[]; onClose: () => 
                   transition={{ duration: 0.2 }}
                   className="flex gap-2 p-2 rounded-lg bg-white/4 border border-white/5"
                 >
-                  <div
-                    className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5"
-                    style={{ background: `${color}25`, color }}
-                  >
-                    {ev.agentName.charAt(0)}
-                  </div>
+                  <AgentAvatar name={ev.agentName} size={26} className="mt-0.5" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-1">
                       <span className="text-[11px] font-semibold text-white/75 truncate">{ev.agentName.split(' ')[0]}</span>

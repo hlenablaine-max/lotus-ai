@@ -5,6 +5,7 @@ import {
   Building2, Zap, CheckCircle2, AlertCircle, RefreshCw, Users
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AgentAvatar } from "@/components/ui/agent-avatar";
 
 type AgentStatus = 'idle' | 'working' | 'thinking' | 'waiting_approval' | 'offline';
 
@@ -223,9 +224,7 @@ export default function WorkforcePage() {
               >
                 {/* Avatar + name */}
                 <div className="flex items-start gap-4 mb-4">
-                  <div className={cn("w-12 h-12 rounded-xl bg-gradient-to-br flex items-center justify-center text-white font-bold text-sm flex-shrink-0", agentColor(agent.id))}>
-                    {agentInitials(agent.name)}
-                  </div>
+                  <AgentAvatar slug={agent.id} name={agent.name} size={56} />
                   <div className="min-w-0 flex-1">
                     <h3 className="font-semibold text-foreground truncate">{agent.name}</h3>
                     <p className="text-xs text-muted-foreground truncate mt-0.5">{agent.role}</p>

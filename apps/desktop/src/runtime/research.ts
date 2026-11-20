@@ -715,6 +715,62 @@ export class ResearchBrowser {
 
   // === Kit da marca: logo, fotos e cores que o negócio realmente usa ===
 
+  // Lê do Instagram (com a sessão do navegador de pesquisa) a foto de perfil em alta e as fotos originais
+  // dos posts, primeiro as imagens (posts de foto e carrosséis), depois capas de vídeo.
+  private async instagramMedia(page: Page, handle: string): Promise<{ avatarHd: string | null; photos: string[] }> {
+    try {
+      const data = await page.evaluate(async (username: string) => {
+        const res = await fetch(`/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`, {
+          headers: { 'x-ig-app-id': '936619743392459' },
+          credentials: 'include',
+        })
+        if (!res.ok) return null
+        return res.json()
+      }, handle)
+      const user = (data as { data?: { user?: Record<string, unknown> } } | null)?.data?.user
+      if (!user) return { avatarHd: null, photos: [] }
+      const edges = ((user.edge_owner_to_timeline_media as { edges?: Array<{ node: Record<string, unknown> }> } | undefined)?.edges ?? []).map((e) => e.node)
+      const images: string[] = []
+      const covers: string[] = []
+      for (const node of edges) {
+        const children = ((node.edge_sidecar_to_children as { edges?: Array<{ node: Record<string, unknown> }> } | undefined)?.edges ?? []).map((e) => e.node)
+        const items = children.length ? children : [node]
+        for (const item of items) {
+          const url = typeof item.display_url === 'string' ? item.display_url : null
+          if (!url) continue
+          if (item.is_video) covers.push(url)
+          else images.push(url)
+        }
+      }
+      return {
+        avatarHd: typeof user.profile_pic_url_hd === 'string' ? user.profile_pic_url_hd : null,
+        photos: [...new Set([...images, ...covers])].slice(0, 12),
+      }
+    } catch {
+      return { avatarHd: null, photos: [] }
+    }
+  }
+
+  // Foto de perfil do Instagram em alta, salva no caminho pedido (usada como foto do cliente no app)
+  async instagramAvatar(handleInput: string, outFile: string): Promise<{ file: string | null }> {
+    const handle = handleInput.replace(/^@/, '').trim()
+    if (!handle || !outFile) return { file: null }
+    return this.withPage(async (page, ctx) => {
+      await page.goto(`https://www.instagram.com/${handle}/`, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+      await page.waitForTimeout(2500)
+      const api = await this.instagramMedia(page, handle)
+      const url = api.avatarHd ?? (await page.evaluate(() => (document.querySelector('header img') as HTMLImageElement | null)?.src ?? null))
+      if (!url) return { file: null }
+      const res = await ctx.request.get(url, { timeout: 30_000 })
+      if (!res.ok()) return { file: null }
+      const body = await res.body()
+      if (body.length < 1_000) return { file: null }
+      fs.mkdirSync(path.dirname(outFile), { recursive: true })
+      fs.writeFileSync(outFile, body)
+      return { file: outFile }
+    })
+  }
+
   async brandKit(handleInput: string, siteUrl: string | null): Promise<Record<string, unknown>> {
     const handle = handleInput.replace(/^@/, '').trim()
     const dir = path.join(this.outDir(handle), 'marca')
@@ -751,16 +807,29 @@ export class ResearchBrowser {
       try {
         await page.goto(`https://www.instagram.com/${handle}/`, { waitUntil: 'domcontentloaded', timeout: 45_000 })
         await page.waitForTimeout(4500)
-        const imgs = await page.evaluate(() => {
+        // 1º: dados do próprio Instagram com as fotos ORIGINAIS (1080 px) e a foto de perfil em alta.
+        // As imagens do grid da página são miniaturas (~360 px) e ficam pixeladas num site.
+        const api = await this.instagramMedia(page, handle)
+        const scraped = await page.evaluate(() => {
           const header = document.querySelector('header')
           const avatar = (header?.querySelector('img') as HTMLImageElement | null)?.src ?? ''
-          const grid = (Array.from(document.querySelectorAll('a[href*="/p/"] img, a[href*="/reel/"] img')) as HTMLImageElement[])
-            .map((i) => i.currentSrc || i.src)
-            .filter(Boolean)
+          // Do srcset pega a maior versão de cada imagem
+          const best = (img: HTMLImageElement) => {
+            const set = (img.getAttribute('srcset') ?? '')
+              .split(',')
+              .map((s) => s.trim().split(/\s+/))
+              .map(([u, w]) => ({ u, w: parseInt(w ?? '0', 10) || 0 }))
+              .filter((x) => x.u)
+              .sort((a, b) => b.w - a.w)
+            return set[0]?.u || img.currentSrc || img.src
+          }
+          const grid = (Array.from(document.querySelectorAll('a[href*="/p/"] img, a[href*="/reel/"] img')) as HTMLImageElement[]).map(best).filter(Boolean)
           return { avatar, grid: [...new Set(grid)].slice(0, 9) }
         })
-        if (imgs.avatar) files.logoInstagram = await saveImage(ctx, imgs.avatar, 'logo-instagram')
-        for (const [i, src] of imgs.grid.entries()) {
+        const avatarUrl = api.avatarHd || scraped.avatar
+        if (avatarUrl) files.logoInstagram = await saveImage(ctx, avatarUrl, 'logo-instagram')
+        const photos = api.photos.length >= 3 ? api.photos : scraped.grid
+        for (const [i, src] of photos.slice(0, 9).entries()) {
           const f = await saveImage(ctx, src, `foto-instagram-${i + 1}`)
           if (f) files.fotosInstagram.push(f)
         }

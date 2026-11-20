@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { ClientAvatar } from "@/components/ui/client-avatar";
 
 interface Client {
   id: string;
@@ -160,9 +161,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
 
       {/* Client header */}
       <div className="flex items-start gap-6 p-6 rounded-2xl bg-card border border-border">
-        <div className="w-16 h-16 rounded-2xl bg-primary/15 border border-primary/20 flex items-center justify-center flex-shrink-0">
-          <Building2 className="w-8 h-8 text-primary" />
-        </div>
+        <ClientAvatar clientId={client.id} name={client.name} size={72} className="rounded-2xl flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div>

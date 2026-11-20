@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { RichText } from "@/components/ui/rich-text";
 import { ReportView } from "@/components/diagnosis/report-view";
 import { ReportDownloadButton } from "@/components/reports/report-download";
+import { AgentAvatar } from "@/components/ui/agent-avatar";
 
 interface Progress {
   mission: { id: string; title: string; status: string; client: { id: string; name: string; instagram: string | null } };
@@ -354,7 +355,10 @@ export function Diagnosis360() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   {phaseTasks.map((task) => (
                     <div key={task.id} className="flex items-start gap-2.5 p-3 rounded-xl border border-white/8 bg-white/3">
-                      <div className="mt-0.5">{TASK_ICON[task.status] ?? <Clock className="w-4 h-4 text-white/30" />}</div>
+                      <div className="relative flex-shrink-0">
+                        <AgentAvatar name={task.agent} size={34} />
+                        <div className="absolute -bottom-1 -right-1 rounded-full bg-[#0b0b14] p-[1px]">{TASK_ICON[task.status] ?? <Clock className="w-4 h-4 text-white/30" />}</div>
+                      </div>
                       <div className="min-w-0">
                         <div className="text-sm text-white/90 leading-snug">{task.title.replace(/^Produção: /, "")}</div>
                         <div className="text-[11px] text-white/40">

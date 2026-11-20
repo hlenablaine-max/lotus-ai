@@ -9,6 +9,8 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { prisma } from "@/lib/prisma";
 import { createRuntimeClient } from "@/lib/runtime-client";
+import { imageSize } from "@/lib/image-size";
+import { ICON_NAMES, SITE_STYLES, STYLE_GUIDE, renderSite, type SiteContent } from "@/lib/site-render";
 
 const execAsync = promisify(exec);
 type Json = Record<string, unknown>;
@@ -17,6 +19,8 @@ export const SITE_SYSTEM_STEPS = new Set(["site_publish", "site_decide"]);
 const MAX_ATTEMPTS = 3;
 const MIN_SCORE = 8;
 const SITES_DIR = path.join(os.homedir(), "LOTUS_Workspace", "sites");
+
+const HEALTH_HINT = /odonto|dent[ai]|cl[ií]nica|m[eé]dic|est[eé]tica|sa[uú]de|harmoniza|fisioter|nutri|psic[oó]|dermat|implante|ortodon/i;
 
 const slug = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "clinica";
 
@@ -27,65 +31,132 @@ async function agentFor(id: string, department: string): Promise<string | null> 
 }
 
 // Copia logo e fotos do kit da marca para a pasta do site, com nomes simples que o HTML usa.
-export function prepareSiteAssets(handle: string, brand: Json | null): { dir: string; assets: Array<{ file: string; descricao: string; source: string }> } {
+export interface PreparedAsset {
+  file: string;
+  descricao: string;
+  source: string;
+  width: number | null;
+  height: number | null;
+}
+
+// Classifica pelo tamanho real: só foto grande vai para o topo; foto pequena nunca é esticada
+function sizeLabel(w: number | null, h: number | null): string {
+  if (!w || !h) return "tamanho desconhecido: evite usar em destaque";
+  if (w >= 900 && h >= 700) return `GRANDE (${w}x${h}): serve para o topo, "sobre" ou galeria`;
+  if (w >= 480 && h >= 480) return `MÉDIA (${w}x${h}): serve para "sobre" ou galeria, NÃO para o topo`;
+  if (w >= 500 && h >= 340) return `MÉDIA-PEQUENA (${w}x${h}): só galeria`;
+  return `PEQUENA (${w}x${h}): não use (ficaria pixelada)`;
+}
+
+export function prepareSiteAssets(handle: string, brand: Json | null): { dir: string; assets: PreparedAsset[] } {
   const dir = path.join(SITES_DIR, `lotus-${slug(handle)}`);
   const assetsDir = path.join(dir, "assets");
+  // Pasta limpa a cada site: sobra de tentativa antiga não entra no site novo
+  fs.rmSync(assetsDir, { recursive: true, force: true });
   fs.mkdirSync(assetsDir, { recursive: true });
-  const assets: Array<{ file: string; descricao: string; source: string }> = [];
+  const assets: PreparedAsset[] = [];
   if (!brand) return { dir, assets };
   const copy = (source: unknown, name: string, descricao: string) => {
     if (typeof source !== "string" || !fs.existsSync(source)) return;
     const file = `assets/${name}${path.extname(source).toLowerCase()}`;
     fs.copyFileSync(source, path.join(dir, file));
-    assets.push({ file, descricao, source });
+    const size = imageSize(source);
+    assets.push({ file, descricao: `${descricao}. ${sizeLabel(size?.width ?? null, size?.height ?? null)}`, source, width: size?.width ?? null, height: size?.height ?? null });
   };
-  copy(brand.logoSite, "logo", "Logo oficial (do site da clínica)");
-  copy(brand.logoInstagram, "logo-instagram", "Foto de perfil do Instagram: PEQUENA (cerca de 150 px), use só como ícone ou avatar pequeno; esticada fica pixelada");
-  ((brand.fotosSite as string[] | undefined) ?? []).slice(0, 6).forEach((f, i) => copy(f, `foto-site-${i + 1}`, "Foto usada no site atual da clínica"));
-  ((brand.fotosInstagram as string[] | undefined) ?? []).slice(0, 6).forEach((f, i) => copy(f, `foto-instagram-${i + 1}`, "Imagem de um post do Instagram (pode ter texto por cima)"));
+  copy(brand.logoSite, "logo", "Logo oficial (do site do negócio)");
+  copy(brand.logoInstagram, "logo-instagram", "Foto de perfil do Instagram (use só como ícone)");
+  ((brand.fotosSite as string[] | undefined) ?? []).slice(0, 8).forEach((f, i) => copy(f, `foto-site-${i + 1}`, "Foto do site atual do negócio"));
+  ((brand.fotosInstagram as string[] | undefined) ?? []).slice(0, 9).forEach((f, i) => copy(f, `foto-instagram-${i + 1}`, "Foto de um post do Instagram (pode ter texto escrito por cima)"));
   return { dir, assets };
 }
 
-function buildInstructions(ctx: { businessName: string; handle: string; assets: Array<{ file: string; descricao: string }>; attempt: number; feedback?: string }): string {
+// Estilos usados nos últimos sites (para não sair tudo igual)
+async function recentStyles(): Promise<string[]> {
+  const missions = await prisma.mission.findMany({
+    where: { context: { path: ["siteStyle"], not: "null" } },
+    orderBy: { updatedAt: "desc" },
+    select: { context: true },
+    take: 4,
+  });
+  return missions.map((m) => String(((m.context ?? {}) as Json).siteStyle ?? "")).filter(Boolean);
+}
+
+function buildInstructions(ctx: { businessName: string; handle: string; assets: PreparedAsset[]; attempt: number; feedback?: string; recent: string[]; hasWhatsapp: boolean; isHealth: boolean }): string {
+  const exemplo: SiteContent = {
+    estilo: "aurora | clinico | editorial | impacto",
+    cores: { primaria: "#hex da marca", secundaria: "#hex", destaque: "#hex (cor de realce, pode ser a mesma da primária)" },
+    topo: { selo: "Segmento · cidade", titulo: "Promessa curta (até 7 palavras)", tituloDestaque: "trecho exato do título que ganha cor", subtitulo: "1 ou 2 frases: o que faz, para quem, por que confiar", botao: "Agendar avaliação", botaoSecundario: "Ver tratamentos", foto: "assets/... (só foto GRANDE) ou null" },
+    numeros: [{ valor: "5,0", rotulo: "nota no Google" }],
+    faixa: ["4 a 8 palavras-chave curtas (serviços ou valores) para a faixa animada"],
+    servicos: [{ titulo: "Serviço real", descricao: "benefício em 1 frase", icone: "um dos ícones da lista", mensagem: "mensagem pronta para o WhatsApp sobre este serviço" }],
+    passos: [{ titulo: "Etapa", descricao: "1 frase" }],
+    diferenciais: [{ titulo: "Diferencial", descricao: "1 frase", icone: "ícone" }],
+    sobre: { titulo: "Título", texto: "2 parágrafos curtos separados por quebra de linha", foto: "assets/... (GRANDE ou MÉDIA) ou null", nome: "nome real do responsável ou omita", cargo: "cargo ou omita" },
+    galeria: ["assets/... (3 a 6 fotos boas, sem texto por cima)"],
+    depoimentos: [{ texto: "[Depoimento real do cliente]", autor: "[Nome]" }],
+    faq: [{ pergunta: "Dúvida real de quem procura este serviço", resposta: "Resposta curta e honesta" }],
+    local: { endereco: "só se estiver nos dados", horario: "só se estiver nos dados, senão [horário de atendimento]", mapa: "termo de busca no Google Maps (nome + cidade)" },
+    chamadaFinal: { titulo: "Chamada final forte", texto: "1 frase", botao: "Texto do botão" },
+    rodape: { cnpj: "só se existir nos dados", responsavelTecnico: "só se existir nos dados" },
+    secoes: { servicos: { kicker: "Tratamentos", titulo: "título da seção", texto: "1 frase" } },
+  };
   return [
-    `Construa o SITE NOVO da ${ctx.businessName}: o site que a LOTUS vai mostrar ao dono como proposta. Ele precisa fazer o dono pensar "eu quero isso".`,
+    `Crie o SITE NOVO da ${ctx.businessName} (@${ctx.handle}). É a proposta que a LOTUS vai mostrar ao dono: ele tem que pensar "eu quero isso" e aceitar pagar caro por ele.`,
     "",
-    "IDENTIDADE (obrigatório):",
-    "- Use as CORES DA MARCA do contexto (coresDaMarca/neutrasDaMarca) como base da paleta. Nada de roxo genérico.",
-    "- Use o LOGO e as FOTOS REAIS listados em `arquivosDisponiveis` (caminhos relativos, ex.: assets/logo.png). As imagens anexadas são esses arquivos: veja quais servem para o topo, equipe, ambiente e tratamentos. Não use imagens da internet nem banco de imagens.",
-    "- O tom dos textos segue a forma como a clínica já fala no Instagram, corrigindo os erros apontados no diagnóstico.",
-    "- Escolha das fotos: no topo e nos destaques só fotos que dão vontade de ir à clínica (pessoas sorrindo, equipe, ambiente, recepção). NUNCA use foto clínica de boca aberta, dentes com manchas, sangue, instrumentos ou procedimento no topo. Fotos com texto escrito por cima (posts) não servem de fundo. Se nenhuma foto servir para o topo, use um fundo com o gradiente da marca e o logo grande.",
-    "- Ícones: desenhe ícones simples em SVG embutido (traço fino, cor da marca). Nada de emoji como ícone.",
+    "COMO FUNCIONA: você NÃO escreve HTML. Você escolhe a direção de arte, as cores, as fotos e escreve todo o conteúdo; o sistema monta o site com um design premium já pronto (tipografia, animações, celular, contraste). Sua entrega é um bloco ```json com o conteúdo.",
     "",
-    "DESIGN: premium e futurista, mas limpo e legível: tipografia grande e elegante (Google Fonts permitido), muito respiro, gradientes suaves com as cores da marca, cartões com vidro fosco (glassmorphism) discreto, cantos arredondados, animações sutis ao rolar (IntersectionObserver), botão de WhatsApp fixo no celular. Contraste alto: texto sempre legível sobre o fundo.",
+    "1) DIREÇÃO DE ARTE (campo estilo). Escolha a que mais combina com o segmento e o posicionamento do negócio:",
+    ...SITE_STYLES.map((s) => `- ${STYLE_GUIDE[s]}`),
+    ctx.recent.length ? `Os últimos sites da LOTUS usaram: ${ctx.recent.join(", ")}. Se mais de uma direção servir bem para este negócio, prefira uma diferente dessas, para cada cliente ter um site com cara própria.` : "",
     "",
-    "ESTRUTURA: topo com promessa clara + botão de agendar; para quem é; tratamentos (cartões, cada um com botão que abre o WhatsApp com mensagem do tratamento); como funciona a primeira consulta; diferenciais; equipe/profissional responsável; prova social (só o que é real: nota e número de avaliações do Google, se houver; depoimentos reais ficam como [DEPOIMENTO REAL DO CLIENTE]); localização e horário com mapa (iframe do Google Maps pela busca do endereço); perguntas frequentes; chamada final; rodapé com nome, endereço, CNPJ e responsável técnico se existirem nos dados.",
+    "2) CORES: use as cores reais da marca (coresDaMarca/neutrasDaMarca do contexto e o logo). primaria = cor principal da marca; destaque = a cor de realce. Nada de azul ou roxo genérico se a marca não usa.",
     "",
-    "REGRAS:",
-    "- Contato: se houver WhatsApp do próprio negócio no contexto (whatsappEncontrado), use https://wa.me/NUMERO?text=... Se NÃO houver, todos os botões de contato levam ao direct do Instagram: https://ig.me/m/" + ctx.handle + " (link real, que funciona). NUNCA invente número de telefone.",
-    "- Nada inventado: nem depoimento, nem preço, nem nome de profissional, nem número de pacientes, nem endereço que não esteja nos dados. Se o endereço aparece diferente em duas fontes, use o da bio do Instagram.",
-    "- Nada de anotação interna visível no site: nada de 'HIPÓTESE', 'CONFIRMAR NA REUNIÃO', 'TODO' ou explicações para a equipe. O que só o cliente sabe vira um marcador curto e discreto entre colchetes (ex.: [horário de atendimento]) ou a seção simplesmente fica sem aquele dado.",
-    "- Se o negócio não for clínica (ver tipoDeNegocio), adapte as seções: troque 'tratamentos' por serviços/produtos, 'pacientes' por clientes, e não inclua responsável técnico nem regras de saúde.",
-    "- Regras de publicidade em saúde: sem promessa de resultado, sem superlativos (melhor, único, garantido), sem antes e depois.",
-    '- No <head>: <meta name="robots" content="noindex"> (é uma prévia). No fim do rodapé, discreto: "Prévia de proposta criada pela LOTUS".',
-    "- UM único arquivo HTML completo (CSS e JS embutidos), terminando em </html>, de até uns 35 mil caracteres. Sem frameworks pesados.",
+    "3) FOTOS (veja as imagens anexadas; a lista `arquivosDisponiveis` diz o tamanho de cada uma):",
+    "- topo.foto: SÓ foto marcada como GRANDE, e só se der vontade de ir ao lugar: pessoa sorrindo, equipe, profissional, ambiente bonito, recepção. NUNCA boca aberta, dentes de perto, procedimento, sangue, instrumentos, antes e depois, nem imagem com texto escrito por cima. Se nenhuma servir, use null: o sistema faz um topo sem foto, elegante (não é defeito).",
+    "- sobre.foto: o profissional ou a equipe (GRANDE ou MÉDIA). galeria: 3 a 6 fotos de ambiente/equipe/resultado discreto, sem texto por cima. Foto PEQUENA nunca.",
+    "- Não repita a mesma foto em dois lugares.",
+    "- ARTE DE POST NÃO É FOTO: imagem com letras, título, logo grande, promoção, convite, banner, carrossel informativo ou capa de vídeo com texto NÃO entra em lugar nenhum do site (nem topo, nem galeria). Olhe cada imagem anexada antes de escolher. Muitos perfis só têm artes: nesse caso use null nas fotos; o site sem foto continua bonito.",
     "",
-    "ENTREGA: um parágrafo curto explicando as escolhas de design, depois o código num único bloco ```html. Salve com save_document (type \"other\"), código incluído.",
+    "4) TEXTO (o que mais vende):",
+    "- Título do topo com no máximo 7 palavras, específico para este negócio (nada de frase genérica que serviria para qualquer clínica). Use o diferencial real que apareceu no diagnóstico.",
+    "- Fale com o cliente final, na forma como o negócio já fala no Instagram, corrigindo os erros apontados no diagnóstico.",
+    "- servicos: os serviços REAIS que o negócio oferece (dos destaques, bio, posts e site). 3 a 6 itens.",
+    "- numeros: só dados reais e verificáveis do contexto (nota e quantidade de avaliações do Google, anos de mercado, pacientes atendidos se o próprio negócio divulga). Se não houver, deixe a lista vazia.",
+    "- faq: 4 a 6 dúvidas reais de quem procura esse serviço.",
+    `- ícones disponíveis: ${ICON_NAMES.join(", ")}.`,
+    ctx.isHealth
+      ? "- Saúde: sem promessa de resultado, sem superlativos (melhor, único, garantido), sem antes e depois, sem preço."
+      : "- Este negócio NÃO é da área da saúde: use 'clientes', 'serviços' e o tom do segmento; nada de regras de saúde nem 'responsável técnico'.",
+    "",
+    "5) NADA INVENTADO: nem depoimento, preço, nome de profissional, endereço, telefone, prêmio ou número. O que só o cliente sabe vira marcador curto entre colchetes, ex.: [horário de atendimento], [Depoimento real do cliente]. Nada de anotação interna (HIPÓTESE, CONFIRMAR, TODO).",
+    ctx.hasWhatsapp
+      ? "Os botões vão para o WhatsApp do próprio negócio (o sistema monta o link); escreva em cada serviço a `mensagem` que o cliente vai mandar."
+      : "Este negócio não tem WhatsApp próprio nos dados: o sistema liga os botões ao direct do Instagram. Não invente número.",
+    "",
+    "FORMATO DA ENTREGA: um parágrafo curto explicando a direção de arte escolhida e por quê, depois UM bloco ```json exatamente com esta estrutura (campos sem dado podem ser omitidos):",
+    "```json",
+    JSON.stringify(exemplo, null, 2),
+    "```",
+    'Salve com save_document (type "other"), com o bloco json incluído.',
     ...(ctx.feedback
       ? [
           "",
-          `ESTA É A TENTATIVA ${ctx.attempt}. A revisora de qualidade reprovou a versão anterior. Corrija TODOS os pontos abaixo, mantendo o que estava bom:`,
+          `ESTA É A TENTATIVA ${ctx.attempt}. A revisora reprovou a versão anterior. Corrija TODOS os pontos abaixo no novo JSON (pode trocar estilo, fotos, cores e textos), mantendo o que estava bom:`,
           ctx.feedback,
         ]
       : []),
-  ].join("\n");
+  ]
+    .filter((l) => l !== "")
+    .join("\n");
 }
 
 const REVIEW_INSTRUCTIONS = (businessName: string, url: string) =>
   [
     `Revise o site novo da ${businessName}, publicado em ${url}. As imagens anexadas são prints do site no ar (3 partes no computador e o topo no celular).`,
-    "Você é exigente: este site vai ser mostrado ao dono da clínica para vender o projeto. Avalie de 0 a 10:",
-    "1. Visual: parece premium e moderno? Usa as cores e o logo da marca? As fotos são reais e bem usadas? Algo quebrado, cortado, sobreposto ou ilegível?",
+    "Você é exigente: este site vai ser mostrado ao dono do negócio para vender um projeto de site profissional (algo que se cobra de R$ 3 a 8 mil). Avalie de 0 a 10:",
+    "O design (tipografia, espaçamento, animações) vem de uma direção de arte pronta do sistema (`direcaoDeArte`); o agente escolhe a direção, as cores, as fotos e escreve o texto (`conteudoDoSite`). Suas correções devem dizer o que mudar NESSAS escolhas: trocar a direção de arte, trocar ou remover uma foto (diga qual arquivo), ajustar cor, reescrever um texto. `avisosDoSistema` lista fotos que o sistema recusou por serem pequenas.",
+    "0. Impressiona? Parece site de agência premium, com cara própria deste negócio, ou parece genérico? A direção de arte combina com o segmento e o público?",
+    "1. Visual: usa as cores e o logo da marca? As fotos são reais e bem usadas? Algo quebrado, cortado, sobreposto ou ilegível?",
     "1b. Olhe de perto: alguma foto está PIXELADA ou borrada (imagem pequena esticada)? Algum botão ou texto tem pouco contraste (ex.: letra escura sobre fundo escuro)? Cada um desses é correção obrigatória.",
     "2. Celular: o topo funciona no celular, texto legível, botão de agendar visível?",
     "3. Conversão: fica claro em 5 segundos o que a clínica faz, para quem e como agendar? Os botões levam ao WhatsApp certo?",
@@ -117,16 +188,23 @@ export async function createSiteChain(opts: {
   if (!webId || !qaId) return null;
   const { dir, assets } = prepareSiteAssets(opts.handle, opts.brand);
   const palette = (opts.brand?.paleta ?? null) as Json | null;
-  const imagePaths = assets.filter((a) => /logo\.|foto-site-1|foto-site-2|foto-instagram-1/.test(a.file)).map((a) => path.join(dir, a.file)).slice(0, 4);
+  // O agente vê as fotos que podem ir para o site (as maiores primeiro) e o logo
+  const usable = assets
+    .filter((a) => !/logo-instagram/.test(a.file) && (a.width ?? 0) >= 480)
+    .sort((a, b) => (b.width ?? 0) * (b.height ?? 0) - (a.width ?? 0) * (a.height ?? 0));
+  const logo = assets.find((a) => /^assets\/logo\./.test(a.file));
+  const imagePaths = [...(logo ? [logo] : []), ...usable].slice(0, 8).map((a) => path.join(dir, a.file));
   const suffix = attempt > 1 ? ` (tentativa ${attempt})` : "";
+  const hasWhatsapp = Array.isArray(opts.brief.whatsappEncontrado) && (opts.brief.whatsappEncontrado as unknown[]).length > 0;
+  const isHealth = typeof opts.brief.negocioDeSaude === "boolean" ? (opts.brief.negocioDeSaude as boolean) : HEALTH_HINT.test(JSON.stringify(opts.brief.perfil ?? opts.brief).slice(0, 4000));
 
   const build = await prisma.task.create({
     data: {
       missionId: opts.missionId,
       agentId: webId,
-      title: `Produção: site novo da clínica${suffix}`,
-      description: "Site completo com a identidade da clínica (logo, fotos e cores reais), pronto para publicar.",
-      instructions: buildInstructions({ businessName: opts.businessName, handle: opts.handle, assets, attempt, feedback: opts.feedback }),
+      title: `Produção: site novo${isHealth ? " da clínica" : ""}${suffix}`,
+      description: "Conteúdo, fotos, cores e direção de arte do site; o sistema monta o site premium e publica.",
+      instructions: buildInstructions({ businessName: opts.businessName, handle: opts.handle, assets, attempt, feedback: opts.feedback, recent: await recentStyles(), hasWhatsapp, isHealth }),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       input: {
         fase: "producao",
@@ -135,7 +213,8 @@ export async function createSiteChain(opts: {
         ...opts.brief,
         coresDaMarca: palette?.coresDaMarca ?? null,
         neutrasDaMarca: palette?.neutrasDaMarca ?? null,
-        arquivosDisponiveis: assets.map(({ file, descricao }) => ({ file, descricao })),
+        arquivosDisponiveis: assets.filter((a) => !/logo/.test(a.file)).map(({ file, descricao }) => ({ file, descricao })),
+        logoDisponivel: logo ? logo.descricao : "sem logo em arquivo: o sistema usa a inicial do nome",
         imagePaths,
       } as any,
       dependsOn: opts.dependsOn,
@@ -247,7 +326,40 @@ export async function runSiteStep(taskId: string): Promise<void> {
   const input = (task.input ?? {}) as Json;
 
   if (input.systemStep === "site_publish") {
-    const html = extractHtml(await latestDocument(String(input.buildTaskId)));
+    const buildDoc = await latestDocument(String(input.buildTaskId));
+    // Formato novo: o agente entrega o conteúdo em JSON e o sistema monta o site premium.
+    // Formato antigo (HTML pronto) continua aceito.
+    const content = extractJson(buildDoc) as SiteContent | null;
+    let html: string | null = null;
+    let style: string | null = null;
+    let renderWarnings: string[] = [];
+    if (content && (content.topo || content.servicos)) {
+      const build = await prisma.task.findUnique({ where: { id: String(input.buildTaskId) }, select: { input: true } });
+      const buildInput = (build?.input ?? {}) as Json;
+      const dir = String(input.siteDir);
+      const files = fs.existsSync(path.join(dir, "assets")) ? fs.readdirSync(path.join(dir, "assets")) : [];
+      const all = files.map((f) => {
+        const size = imageSize(path.join(dir, "assets", f));
+        return { file: `assets/${f}`, width: size?.width ?? null, height: size?.height ?? null };
+      });
+      // Sem logo no site, a foto de perfil do Instagram (quase sempre o logo) vira o ícone do topo
+      const logoAsset = all.find((a) => /^assets\/logo\./.test(a.file)) ?? all.find((a) => /^assets\/logo-instagram\./.test(a.file)) ?? null;
+      const whatsapp = ((buildInput.whatsappEncontrado as string[] | undefined) ?? []).map((n) => String(n).replace(/\D/g, "")).find((n) => n.length >= 10) ?? null;
+      const isHealth = typeof buildInput.negocioDeSaude === "boolean" ? (buildInput.negocioDeSaude as boolean) : HEALTH_HINT.test(JSON.stringify(buildInput.perfil ?? {}).slice(0, 4000));
+      const rendered = renderSite(content, {
+        businessName: String(buildInput.negocio ?? input.handle),
+        handle: String(input.handle),
+        whatsapp,
+        logo: logoAsset,
+        assets: all.filter((a) => !/logo/.test(a.file)),
+        isHealth,
+      });
+      html = rendered.html;
+      style = rendered.style;
+      renderWarnings = rendered.warnings;
+    } else {
+      html = extractHtml(buildDoc);
+    }
     if (!html) {
       // Código cortado: em vez de publicar de novo o mesmo arquivo, devolve ao agente de web para refazer
       const redos = Number(input.htmlRedos ?? 0);
@@ -261,7 +373,7 @@ export async function runSiteStep(taskId: string): Promise<void> {
           status: "QUEUED",
           completedAt: null,
           output: {},
-          instructions: `${build?.instructions ?? ""}\n\nA versão anterior veio CORTADA (o código não chegou até </html>). Refaça mais enxuto: no máximo 30 mil caracteres, CSS curto, sem repetições. Salve o código completo dentro de um bloco de código html.`,
+          instructions: `${build?.instructions ?? ""}\n\nA entrega anterior veio SEM o bloco json do conteúdo (ou cortada no meio). Entregue de novo: um parágrafo curto e o bloco \`\`\`json COMPLETO, fechado, com a estrutura pedida. Textos enxutos.`,
         },
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -292,7 +404,9 @@ export async function runSiteStep(taskId: string): Promise<void> {
             ...((reviewTask.input ?? {}) as Json),
             siteUrl: url,
             verificacaoTecnica: { status: check.status, carregouEmMs: check.loadMs, imagensQuebradas: check.brokenImages, errosNaPagina: check.consoleErrors, erroAoAbrir: check.erro ?? null },
-            codigoHtml: html.slice(0, 30_000),
+            ...(content && style
+              ? { direcaoDeArte: style, conteudoDoSite: content, avisosDoSistema: renderWarnings }
+              : { codigoHtml: html.slice(0, 30_000) }),
             imagePaths: ((check.shots as string[] | undefined) ?? []).slice(0, 4),
           } as any,
         },
@@ -300,7 +414,7 @@ export async function runSiteStep(taskId: string): Promise<void> {
     }
     const mission = await prisma.mission.findUnique({ where: { id: task.missionId }, select: { context: true } });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await prisma.mission.update({ where: { id: task.missionId }, data: { context: { ...((mission?.context ?? {}) as Json), siteUrl: url, sitePublishedAt: new Date().toISOString() } as any } });
+    await prisma.mission.update({ where: { id: task.missionId }, data: { context: { ...((mission?.context ?? {}) as Json), siteUrl: url, sitePublishedAt: new Date().toISOString(), ...(style ? { siteStyle: style } : {}) } as any } });
     await prisma.activityLog.create({ data: { missionId: task.missionId, taskId, action: "SITE_PUBLISHED", details: { url, attempt: Number(input.attempt ?? 1) }, level: "INFO" } });
     await complete(taskId, { text: `Site publicado em ${url}`, url, prints: check.shots ?? [], verificacao: { status: check.status, loadMs: check.loadMs, brokenImages: check.brokenImages } });
     return;

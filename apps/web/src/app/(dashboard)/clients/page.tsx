@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
+import { ClientAvatar } from "@/components/ui/client-avatar";
 
 interface Client {
   id: string;
@@ -172,7 +173,6 @@ export default function ClientsPage() {
         <div className="space-y-3">
           {filtered.map((client) => {
             const statusCls = STATUS_COLOR[client.status] ?? STATUS_COLOR.ACTIVE;
-            const initials = client.name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
             return (
               <div
                 key={client.id}
@@ -184,9 +184,7 @@ export default function ClientsPage() {
               >
                 <div className="flex items-center gap-4">
                   {/* Avatar */}
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/30 to-primary/10 border border-primary/20 flex items-center justify-center text-primary font-bold text-sm flex-shrink-0">
-                    {initials}
-                  </div>
+                  <ClientAvatar clientId={client.id} name={client.name} size={48} className="flex-shrink-0" />
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
