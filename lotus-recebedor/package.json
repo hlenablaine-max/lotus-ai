@@ -1,0 +1,12 @@
+{
+  "name": "lotus-recebedor",
+  "private": true,
+  "type": "module",
+  "description": "Recebedor público da LOTUS: guarda o que chega pela internet (DMs do ManyChat) para o app processar quando estiver aberto.",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "1.2.1"
+  }
+}

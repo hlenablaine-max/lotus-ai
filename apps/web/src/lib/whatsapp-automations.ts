@@ -4,7 +4,7 @@
 // Tudo começa desligado: cada automação é ligada pelo Ícaro na aba Atendimento > Automações.
 import { prisma } from "@/lib/prisma";
 import { createRuntimeClient } from "@/lib/runtime-client";
-import { fillTemplate, getSettings, normalizePhone, referralLink, sendNow, type AutomationSettings } from "@/lib/whatsapp";
+import { fillTemplate, getSettings, normalizePhone, processInboundEvents, referralLink, sendNow, type AutomationSettings } from "@/lib/whatsapp";
 import { planWeeklyReports, runAiQueue } from "@/lib/whatsapp-ai-queue";
 import { prospectSent } from "@/lib/prospecting";
 
@@ -225,6 +225,8 @@ export function scheduleWhatsappAutomations() {
   g.__lotusWaTimer = setInterval(() => void runWhatsappAutomations().catch(() => undefined), 60_000);
   // IA atendente: olha a fila a cada 15 s (responder rápido é o que mais converte)
   setInterval(() => void runAiQueue().catch(() => undefined), 15_000);
+  // Mensagens que chegaram pelo recebedor na internet (DMs do Instagram pelo ManyChat)
+  setInterval(() => void processInboundEvents().catch(() => undefined), 10_000);
 }
 
 // Campanha de reativação disparada pelo Ícaro na aba Pacientes: entra na fila e sai aos poucos

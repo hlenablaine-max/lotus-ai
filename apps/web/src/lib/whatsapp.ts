@@ -791,3 +791,30 @@ export async function ingestManychat(token: string, body: Record<string, unknown
   await prisma.manychatAccount.update({ where: { id: acc.id }, data: { lastEventAt: now } });
   return { ok: true };
 }
+
+// O que chegou pelo recebedor na internet (Vercel) enquanto o app estava fechado ou ocupado: vira conversa aqui
+let inboundRunning = false;
+export async function processInboundEvents(): Promise<number> {
+  if (inboundRunning) return 0;
+  inboundRunning = true;
+  let done = 0;
+  try {
+    const events = await prisma.inboundEvent.findMany({ where: { processedAt: null }, orderBy: { createdAt: "asc" }, take: 50 });
+    for (const ev of events) {
+      let error: string | null = null;
+      try {
+        if (ev.source === "manychat") {
+          const r = await ingestManychat(ev.token, (ev.payload ?? {}) as Record<string, unknown>);
+          if (!r.ok) error = r.reason ?? "não processada";
+        } else error = "origem desconhecida";
+      } catch (err) {
+        error = err instanceof Error ? err.message.slice(0, 300) : String(err);
+      }
+      await prisma.inboundEvent.update({ where: { id: ev.id }, data: { processedAt: new Date(), error } });
+      done += 1;
+    }
+  } finally {
+    inboundRunning = false;
+  }
+  return done;
+}
