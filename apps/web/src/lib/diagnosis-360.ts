@@ -1176,6 +1176,21 @@ export async function startSite(missionId: string): Promise<{ buildId: string }>
   if (["COMPLETED", "IN_REVIEW"].includes(mission.status)) {
     await prisma.mission.update({ where: { id: missionId }, data: { status: "IN_PROGRESS", completedAt: null } });
   }
+  // Quem esperava um site anterior (ex.: o pacote de entrega) passa a esperar este
+  const oldDecisions = await prisma.task.findMany({
+    where: { missionId, title: { startsWith: "Decisão sobre o site" }, status: { in: ["CANCELLED", "FAILED"] } },
+    select: { id: true },
+  });
+  const oldIds = new Set(oldDecisions.map((t) => t.id));
+  if (oldIds.size > 0) {
+    const waiting = await prisma.task.findMany({ where: { missionId, status: { in: ["WAITING_DEPENDENCY", "QUEUED"] } }, select: { id: true, dependsOn: true } });
+    for (const t of waiting) {
+      const deps = Array.isArray(t.dependsOn) ? (t.dependsOn as string[]) : [];
+      if (deps.some((d) => oldIds.has(d))) {
+        await prisma.task.update({ where: { id: t.id }, data: { dependsOn: [...deps.filter((d) => !oldIds.has(d)), chain.decideId] } });
+      }
+    }
+  }
   runTask(chain.buildId);
   return { buildId: chain.buildId };
 }

@@ -46,7 +46,7 @@ export function prepareSiteAssets(handle: string, brand: Json | null): { dir: st
   return { dir, assets };
 }
 
-function buildInstructions(ctx: { businessName: string; assets: Array<{ file: string; descricao: string }>; attempt: number; feedback?: string }): string {
+function buildInstructions(ctx: { businessName: string; handle: string; assets: Array<{ file: string; descricao: string }>; attempt: number; feedback?: string }): string {
   return [
     `Construa o SITE NOVO da ${ctx.businessName}: o site que a LOTUS vai mostrar ao dono como proposta. Ele precisa fazer o dono pensar "eu quero isso".`,
     "",
@@ -62,8 +62,10 @@ function buildInstructions(ctx: { businessName: string; assets: Array<{ file: st
     "ESTRUTURA: topo com promessa clara + botão de agendar; para quem é; tratamentos (cartões, cada um com botão que abre o WhatsApp com mensagem do tratamento); como funciona a primeira consulta; diferenciais; equipe/profissional responsável; prova social (só o que é real: nota e número de avaliações do Google, se houver; depoimentos reais ficam como [DEPOIMENTO REAL DO CLIENTE]); localização e horário com mapa (iframe do Google Maps pela busca do endereço); perguntas frequentes; chamada final; rodapé com nome, endereço, CNPJ e responsável técnico se existirem nos dados.",
     "",
     "REGRAS:",
-    "- WhatsApp: links https://wa.me/NUMERO?text=... com o número real do contexto. Se não houver número, use [WHATSAPP DA CLÍNICA].",
-    "- Nada inventado: nem depoimento, nem preço, nem nome de profissional, nem número de pacientes que não esteja nos dados.",
+    "- Contato: se houver WhatsApp do próprio negócio no contexto (whatsappEncontrado), use https://wa.me/NUMERO?text=... Se NÃO houver, todos os botões de contato levam ao direct do Instagram: https://ig.me/m/" + ctx.handle + " (link real, que funciona). NUNCA invente número de telefone.",
+    "- Nada inventado: nem depoimento, nem preço, nem nome de profissional, nem número de pacientes, nem endereço que não esteja nos dados. Se o endereço aparece diferente em duas fontes, use o da bio do Instagram.",
+    "- Nada de anotação interna visível no site: nada de 'HIPÓTESE', 'CONFIRMAR NA REUNIÃO', 'TODO' ou explicações para a equipe. O que só o cliente sabe vira um marcador curto e discreto entre colchetes (ex.: [horário de atendimento]) ou a seção simplesmente fica sem aquele dado.",
+    "- Se o negócio não for clínica (ver tipoDeNegocio), adapte as seções: troque 'tratamentos' por serviços/produtos, 'pacientes' por clientes, e não inclua responsável técnico nem regras de saúde.",
     "- Regras de publicidade em saúde: sem promessa de resultado, sem superlativos (melhor, único, garantido), sem antes e depois.",
     '- No <head>: <meta name="robots" content="noindex"> (é uma prévia). No fim do rodapé, discreto: "Prévia de proposta criada pela LOTUS".',
     "- UM único arquivo HTML completo (CSS e JS embutidos), terminando em </html>, de até uns 35 mil caracteres. Sem frameworks pesados.",
@@ -89,7 +91,8 @@ const REVIEW_INSTRUCTIONS = (businessName: string, url: string) =>
     "4. Texto: claro, sem erros, sem promessas proibidas em saúde, sem nada inventado?",
     "5. Técnica: use os dados de `verificacaoTecnica` (imagens quebradas, erros, tempo de carregamento).",
     "Seja específico nas correções: diga onde está o problema e como corrigir.",
-    "REPROVA AUTOMÁTICA (nota máxima 6) se houver: foto clínica de boca/dentes/procedimento no topo ou em destaque; imagem quebrada; texto ilegível; dado inventado; botão de agendar que não abre o WhatsApp da clínica.",
+    "REPROVA AUTOMÁTICA (nota máxima 6) se houver: foto clínica de boca/dentes/procedimento no topo ou em destaque; imagem quebrada; texto ilegível; dado inventado (inclusive número de telefone); botão de contato que não abre nada; anotação interna visível (ex.: 'HIPÓTESE', 'CONFIRMAR NA REUNIÃO').",
+    "O QUE É ESPERADO E NÃO TIRA PONTO: marcadores curtos entre colchetes para dados que só o cliente tem (CRO, horário, depoimentos reais); a frase 'Prévia de proposta criada pela LOTUS' no rodapé; botões levando ao direct do Instagram (ig.me) quando o negócio não tem WhatsApp próprio. Nunca peça para inventar número, depoimento ou dado.",
     `Aprove só se a nota for ${MIN_SCORE} ou mais.`,
     "OBRIGATÓRIO: termine o documento com um bloco ```json exatamente assim (é ele que o sistema lê para aprovar ou refazer):",
     '{"veredito": "APROVADO" ou "REFAZER", "nota": 0, "pontosFortes": ["..."], "correcoes": ["..."]}',
@@ -122,7 +125,7 @@ export async function createSiteChain(opts: {
       agentId: webId,
       title: `Produção: site novo da clínica${suffix}`,
       description: "Site completo com a identidade da clínica (logo, fotos e cores reais), pronto para publicar.",
-      instructions: buildInstructions({ businessName: opts.businessName, assets, attempt, feedback: opts.feedback }),
+      instructions: buildInstructions({ businessName: opts.businessName, handle: opts.handle, assets, attempt, feedback: opts.feedback }),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       input: {
         fase: "producao",
