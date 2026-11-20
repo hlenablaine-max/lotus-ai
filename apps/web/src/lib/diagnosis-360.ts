@@ -9,7 +9,7 @@ import { after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createRuntimeClient, type RuntimeClient } from "@/lib/runtime-client";
 import { markRunning, runTask, unmarkRunning } from "@/lib/task-runner";
-import { createSiteChain } from "@/lib/site-builder";
+import { createSiteChain, extractHtml } from "@/lib/site-builder";
 
 export interface DiagnosisInput {
   instagram: string;
@@ -1197,7 +1197,7 @@ export async function exportDeliverables(missionId: string): Promise<{ dir: stri
     fs.writeFileSync(path.join(dir, `${name}.md`), `# ${doc.title}\n\n${doc.content}\n`, "utf-8");
     files++;
     // A página de agendamento também sai como arquivo .html, pronto para abrir no navegador
-    const html = doc.content.match(/```html\s*\n([\s\S]*?)```/i)?.[1];
+    const html = extractHtml(doc.content);
     if (html && /<html[\s>]/i.test(html)) {
       fs.writeFileSync(path.join(dir, `${name}.html`), html, "utf-8");
       files++;

@@ -182,9 +182,14 @@ export async function createSiteChain(opts: {
   return { buildId: build.id, decideId: decide.id };
 }
 
-function extractHtml(text: string): string | null {
-  const html = text.match(/```html\s*\n([\s\S]*?)```/i)?.[1]?.trim();
-  return html && /<\/html>\s*$/i.test(html) ? html : null;
+// Aceita o HTML dentro de um bloco ```html ou solto no texto (há agente que salva o código puro)
+export function extractHtml(text: string): string | null {
+  const fenced = text.match(/```html\s*\n([\s\S]*?)```/i)?.[1]?.trim();
+  if (fenced && /<\/html>\s*$/i.test(fenced)) return fenced;
+  const start = text.search(/<!doctype html|<html[\s>]/i);
+  const end = text.toLowerCase().lastIndexOf("</html>");
+  if (start >= 0 && end > start) return text.slice(start, end + "</html>".length).trim();
+  return null;
 }
 
 function extractJson(text: string): Json | null {
@@ -239,7 +244,29 @@ export async function runSiteStep(taskId: string): Promise<void> {
 
   if (input.systemStep === "site_publish") {
     const html = extractHtml(await latestDocument(String(input.buildTaskId)));
-    if (!html) throw new Error("O agente não entregou um HTML completo (terminando em </html>).");
+    if (!html) {
+      // Código cortado: em vez de publicar de novo o mesmo arquivo, devolve ao agente de web para refazer
+      const redos = Number(input.htmlRedos ?? 0);
+      if (redos >= 2) throw new Error("O agente entregou o HTML cortado três vezes seguidas (sem </html>).");
+      const buildId = String(input.buildTaskId);
+      const build = await prisma.task.findUnique({ where: { id: buildId }, select: { instructions: true } });
+      await prisma.document.deleteMany({ where: { taskId: buildId } });
+      await prisma.task.update({
+        where: { id: buildId },
+        data: {
+          status: "QUEUED",
+          completedAt: null,
+          output: {},
+          instructions: `${build?.instructions ?? ""}\n\nA versão anterior veio CORTADA (o código não chegou até </html>). Refaça mais enxuto: no máximo 30 mil caracteres, CSS curto, sem repetições. Salve o código completo dentro de um bloco de código html.`,
+        },
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await prisma.task.update({ where: { id: taskId }, data: { status: "WAITING_DEPENDENCY", startedAt: null, input: { ...input, htmlRedos: redos + 1 } as any } });
+      await prisma.activityLog.create({ data: { missionId: task.missionId, taskId, action: "SITE_HTML_REDO", details: { redos: redos + 1 }, level: "WARN" } });
+      const { runTask } = await import("@/lib/task-runner");
+      runTask(buildId);
+      return;
+    }
     const dir = String(input.siteDir);
     let page = html;
     if (!/name=["']robots["']/i.test(page)) page = page.replace(/<head([^>]*)>/i, '<head$1>\n<meta name="robots" content="noindex">');
