@@ -82,6 +82,8 @@ export async function decideReply(conversationId: string, opts: { role: "clinica
   // Privacidade: a IA só lê a conversa a partir do começo do assunto (mensagem de prospecção ou chegada do lead),
   // nunca o histórico pessoal anterior do número
   const since = prospect ? new Date((prospect.sentAt ?? prospect.createdAt).getTime() - 60_000) : conv.leadId ? new Date(conv.firstMessageAt.getTime() - 60_000) : new Date(Date.now() - 2 * 86_400_000);
+  const last8 = (v: string | null | undefined) => (v ?? "").replace(/\D/g, "").slice(-8);
+  const isOwner = !!prospect?.ownerPhone && !!conv.phone && last8(prospect.ownerPhone) === last8(conv.phone);
   const msgs = await prisma.whatsappMessage.findMany({ where: { conversationId, sentAt: { gte: since } }, orderBy: { sentAt: "desc" }, take: 30 });
   if (!msgs.length) return null;
   const lead = conv.leadId ? await prisma.lead.findUnique({ where: { id: conv.leadId } }) : null;
@@ -114,7 +116,7 @@ Como conduzir (persuasão honesta, nunca mentir):
 - Se perguntarem preço, contrato ou algo que só o Ícaro responde ao vivo: diga que na conversa de 15 minutos ele explica tudo; se insistirem, acao "humano".
 - Se a última mensagem não pedir resposta, use acao "aguardar".`;
 
-  const user = `${opts.role === "clinica" ? `O que a clínica ensinou:\n${opts.settings.conhecimento.trim() || "(nada cadastrado: não informe valores nem detalhes; foque em marcar a avaliação)"}\n${conv.client.description ? `Sobre a clínica: ${conv.client.description.slice(0, 500)}\n` : ""}` : `Clínica prospectada: ${prospect?.name ?? conv.name ?? "clínica"}\nGargalos encontrados: ${JSON.stringify(prospect?.gargalos ?? [])}\n`}
+  const user = `${opts.role === "clinica" ? `O que a clínica ensinou:\n${opts.settings.conhecimento.trim() || "(nada cadastrado: não informe valores nem detalhes; foque em marcar a avaliação)"}\n${conv.client.description ? `Sobre a clínica: ${conv.client.description.slice(0, 500)}\n` : ""}` : `Clínica prospectada: ${prospect?.name ?? conv.name ?? "clínica"}\nGargalos encontrados: ${JSON.stringify(prospect?.gargalos ?? [])}\n${isOwner ? "QUEM ESTÁ FALANDO AGORA É O DONO/RESPONSÁVEL (contato passado pela recepção). Não peça mais contato: vá direto para a conversa de 15 minutos. Fale do dinheiro que fica na mesa como ESTIMATIVA (nunca número exato) e diga que mostra a conta na call.\n" : ""}${prospect?.siteUrl ? `Site grátis já pronto para mostrar na call: ${prospect.siteUrl}\n` : ""}`}
 ${lead ? `Etapa atual: ${lead.stage}${lead.appointmentAt ? `, já marcado para ${fmt.format(lead.appointmentAt)}` : ""}\n` : ""}HORÁRIOS LIVRES (use exatamente estes):
 ${slotLines || "(sem horários livres cadastrados: ofereça confirmar o melhor horário com a equipe)"}
 

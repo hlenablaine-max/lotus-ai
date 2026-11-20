@@ -340,3 +340,59 @@ export async function prospectSent(prospectId: string, ok: boolean, error?: stri
   }
 }
 
+
+// ===== SDR: chamar o dono direto com o contato que a recepção passou =====
+
+// Primeira mensagem para o dono: indicado pela recepção, gargalos em linguagem de dinheiro (estimativa honesta),
+// site grátis (só se existir) e convite para 15 minutos
+export async function writeOwnerOpener(p: { name: string; ownerName: string | null; referredBy: string | null; gargalos: Gargalo[]; siteUrl: string | null }): Promise<string> {
+  const res = await registry.getDefault().complete({
+    messages: [
+      {
+        role: "system",
+        content: `Você escreve a mensagem de WhatsApp do Ícaro (fundador da LOTUS, que ajuda clínicas a ter mais pacientes) para o DONO/RESPONSÁVEL de uma clínica, cujo contato a recepção passou. Objetivo: o dono aceitar uma conversa de 15 minutos.
+Como escrever (persuasão forte e HONESTA):
+- 4 a 6 frases curtas, tom de gente, educado, confiante, sem textão e sem cara de vendedor. No máximo 1 emoji. Sem link. Sem preço.
+- Abra pelo nome dele(a) se souber, diga quem é e que ${p.referredBy ? `${p.referredBy}, da recepção,` : "a recepção"} passou o contato.
+- Diga que analisou a clínica e encontrou gargalos concretos (cite 1 ou 2 da lista, os mais fortes) e explique em linguagem de dinheiro: paciente que procura e fecha com o concorrente.
+- Use ESTIMATIVA, nunca número como fato: algo como "pelo que vi, dá para estimar que vocês estão deixando pacientes (e dinheiro) na mesa toda semana — te mostro a conta". Nunca diga um número exato de pacientes ou reais.
+${p.siteUrl ? "- Conte que, para mostrar na prática, você JÁ fez um site profissional novo para a clínica, de presente e sem compromisso (isso é verdade: o site existe), e que quer entregar e mostrar numa conversa rápida." : "- Ofereça mostrar o diagnóstico completo, sem custo, numa conversa rápida."}
+- Termine pedindo 15 minutos e oferecendo escolher o melhor dia (hoje/amanhã), de forma leve.
+- Nunca invente cliente, resultado, prazo ou número. O Ícaro é homem: "obrigado". Responda só com a mensagem.`,
+      },
+      { role: "user", content: `Clínica: ${p.name}\nNome do responsável: ${p.ownerName ?? "não sabemos"}\nGargalos:\n${[...p.gargalos].sort((a, b) => b.peso - a.peso).map((g) => `- ${g.texto}`).join("\n") || "- presença digital fraca (pouca visibilidade para quem pesquisa)"}` },
+    ],
+    maxTokens: 400,
+    temperature: 0.8,
+    signal: AbortSignal.timeout(60_000),
+  });
+  return res.content.trim().replace(/^["']|["']$/g, "").slice(0, 900);
+}
+
+// Guarda o telefone do dono e agenda a mensagem para ele (sai alguns minutos depois, pelo escudo anti-ban)
+export async function followUpOwner(prospectId: string, contato: string, referredBy: string | null): Promise<boolean> {
+  const digitsOnly = contato.replace(/\D/g, "");
+  const m = digitsOnly.match(/(55)?(\d{2})(9?\d{8})$/);
+  const phone = m ? normalizePhone(`${m[2]}${m[3]}`) : null;
+  if (!phone) return false;
+  const p = await prisma.prospect.findUnique({ where: { id: prospectId } });
+  if (!p || p.ownerPhone === phone) return false;
+  if (phoneKey(phone) === phoneKey(p.phone)) return false; // é o mesmo número da clínica
+  const ownerName = contato.replace(/[+\d()\-\s]{8,}.*/, "").replace(/[-–:|,]+\s*$/, "").trim() || null;
+  const message = await writeOwnerOpener({ name: p.name.replace(/\s*\(TESTE\)\s*/i, ""), ownerName: ownerName && ownerName.length > 2 ? ownerName : null, referredBy: referredBy && !/^\+?\d/.test(referredBy) ? referredBy.split(" ")[0] : null, gargalos: (p.gargalos ?? []) as unknown as Gargalo[], siteUrl: p.siteUrl });
+  const lotus = await ensureLotusClient();
+  await prisma.prospect.update({ where: { id: p.id }, data: { ownerPhone: phone } });
+  await prisma.outboundMessage.create({ data: { clientId: lotus.id, kind: "prospeccao_dono", refId: p.id, phone, body: message, scheduledFor: new Date(Date.now() + 2 * 60_000) } }).catch(() => undefined);
+  await notify({ kind: "prospect", title: `IA vai chamar o responsável da ${p.name}`, body: `Em ~2 min, no ${phone.replace(/^55/, "")}: "${message.slice(0, 160)}…"`, href: "/prospeccao" });
+  return true;
+}
+
+// Mensagem para o dono saiu: liga a conversa nova ao prospect (para a IA saber que é o dono)
+export async function ownerMessageSent(prospectId: string) {
+  const p = await prisma.prospect.findUnique({ where: { id: prospectId } });
+  if (!p?.ownerPhone) return;
+  const key = phoneKey(p.ownerPhone);
+  const convs = await prisma.conversation.findMany({ where: { phone: { endsWith: key?.slice(-8) ?? "x" } }, orderBy: { lastMessageAt: "desc" }, take: 3 });
+  const conv = convs.find((c) => phoneKey(c.phone) === key);
+  if (conv) await prisma.conversation.update({ where: { id: conv.id }, data: { prospectId, aiPausedUntil: null } });
+}

@@ -94,6 +94,13 @@ model Client {
   instagram   String?
   description String?
   status      ClientStatus @default(ACTIVE)
+  // Contrato com a LOTUS (CRM da agência)
+  package         String?   // pacote contratado
+  monthlyFee      Float?    // mensalidade (R$)
+  setupFee        Float?    // implantação (R$)
+  contractStart   DateTime?
+  onboardingStage String?   // KICKOFF | ACESSOS | SITE | CAMPANHAS | RODANDO
+  churnedAt       DateTime?
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
@@ -352,6 +359,14 @@ model Prospect {
   siteUrl        String?   // site grátis que a LOTUS preparou para a clínica
   siteMissionId  String?   // missão que está montando o site grátis
   ownerContact   String?   // contato do dono/responsável conseguido na conversa
+  ownerPhone     String?   // telefone do dono (só dígitos com 55): a IA chama ele direto
+  callAt         DateTime? // call marcada com o dono
+  dealPackage    String?   // pacote fechado
+  dealMonthly    Float?    // mensalidade fechada (R$)
+  dealSetup      Float?    // implantação (R$)
+  closedAt       DateTime? // quando fechou
+  lostReason     String?
+  clientId       String?   // cliente criado quando fechou
   address        String?
   rating         Float?
   reviews        Int?

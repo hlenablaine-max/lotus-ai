@@ -10,6 +10,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { ClientAvatar } from "@/components/ui/client-avatar";
 import { ClientCrm } from "@/components/crm/client-crm";
+import { AgencyCrm } from "@/components/crm/agency-crm";
 import { Attendance } from "@/components/whatsapp/attendance";
 import { Patients } from "@/components/patients/patients";
 
@@ -254,7 +255,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
         ))}
       </div>
 
-      {tab === "crm" && <ClientCrm clientId={client.id} clientName={client.name} />}
+      {tab === "crm" && (client.slug === "lotus-interno" ? <AgencyCrm /> : <ClientCrm clientId={client.id} clientName={client.name} />)}
       {tab === "attendance" && <Attendance clientId={client.id} clientName={client.name} isLotus={client.slug === "lotus-interno"} />}
       {tab === "patients" && <Patients clientId={client.id} clientName={client.name} />}
 

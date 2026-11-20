@@ -59,7 +59,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       if (action.startsWith("agendar:")) {
         const when = action.slice(8);
         if (conv.leadId) await applyLeadUpdate(conv.leadId, { appointmentAt: when });
-        if (conv.prospectId) await prisma.prospect.update({ where: { id: conv.prospectId }, data: { status: "CALL_MARCADA", notes: `Call: ${when}` } });
+        if (conv.prospectId) await prisma.prospect.update({ where: { id: conv.prospectId }, data: { status: "CALL_MARCADA", callAt: new Date(when), notes: `Call: ${when}` } });
       } else if (action.startsWith("humano:")) {
         await prisma.conversation.update({ where: { id }, data: { aiPausedUntil: new Date(Date.now() + 24 * 3_600_000) } });
       }

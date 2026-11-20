@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { decideReply } from "@/lib/ai-attendant";
 import { applyLeadUpdate } from "@/lib/lead-update";
 import { notify } from "@/lib/notify";
+import { followUpOwner } from "@/lib/prospecting";
 import { LOTUS_SLUG, ensureLotusClient, getSettings, normalizePhone, sendNow, whatsappMetrics, type AutomationSettings } from "@/lib/whatsapp";
 
 const TZ = "America/Sao_Paulo";
@@ -57,6 +58,8 @@ export async function runAiQueue(): Promise<void> {
         if (role === "lotus" && conv.prospectId && d.contatoDono && String(d.contatoDono).trim() && String(d.contatoDono) !== "null") {
           await prisma.prospect.update({ where: { id: conv.prospectId }, data: { ownerContact: String(d.contatoDono).slice(0, 200) } });
           await notify({ kind: "prospect", title: `Contato do responsável: ${who}`, body: String(d.contatoDono).slice(0, 200), href: "/prospeccao", clientId: job.clientId });
+          // Com telefone: a IA chama o dono direto (depois que a resposta para a recepção sair)
+          await followUpOwner(conv.prospectId, String(d.contatoDono), conv.name ?? null).catch((err) => console.error("[sdr] contato do dono:", err instanceof Error ? err.message : err));
         }
         const href = role === "lotus" ? "/prospeccao" : `/clients/${job.clientId}?aba=atendimento`;
         // Modo rascunho: a IA escreve, você aprova com 1 clique na conversa
@@ -71,7 +74,7 @@ export async function runAiQueue(): Promise<void> {
         await done({ status: "ENVIADO", body: d.resposta, sentAt: new Date(), error: null });
         if (d.acao === "agendar" && d.horario) {
           if (conv.leadId) await applyLeadUpdate(conv.leadId, { appointmentAt: d.horario });
-          if (conv.prospectId) await prisma.prospect.update({ where: { id: conv.prospectId }, data: { status: "CALL_MARCADA", notes: `Call: ${d.horario}` } });
+          if (conv.prospectId) await prisma.prospect.update({ where: { id: conv.prospectId }, data: { status: "CALL_MARCADA", callAt: new Date(d.horario), notes: `Call: ${d.horario}` } });
           const when = new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: TZ }).format(new Date(d.horario));
           await notify({ kind: "agendou", title: role === "lotus" ? `Call marcada com ${who}` : `IA agendou ${who} na ${conv.client.name}`, body: `Para ${when}.`, href, clientId: job.clientId });
         }

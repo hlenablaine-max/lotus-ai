@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { createRuntimeClient } from "@/lib/runtime-client";
 import { fillTemplate, getSettings, normalizePhone, processInboundEvents, referralLink, sendNow, type AutomationSettings } from "@/lib/whatsapp";
 import { planWeeklyReports, runAiQueue } from "@/lib/whatsapp-ai-queue";
-import { prospectSent } from "@/lib/prospecting";
+import { ownerMessageSent, prospectSent } from "@/lib/prospecting";
 
 const TZ = "America/Sao_Paulo";
 const HOUR = 3_600_000;
@@ -177,6 +177,7 @@ async function sendDue(clientId: string, s: AutomationSettings) {
       await sendNow(clientId, { jid: job.jid, phone: job.phone }, job.body, job.kind === "manual" ? "lotus" : "automacao", 20_000);
       await prisma.outboundMessage.update({ where: { id: job.id }, data: { status: "ENVIADO", sentAt: new Date(), error: null } });
       if (job.kind === "prospeccao" && job.refId) await prospectSent(job.refId, true).catch(() => undefined);
+      if (job.kind === "prospeccao_dono" && job.refId) await ownerMessageSent(job.refId).catch(() => undefined);
       sentThisTick += 1;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
