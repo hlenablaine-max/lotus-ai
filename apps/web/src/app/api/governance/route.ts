@@ -57,9 +57,9 @@ export async function GET() {
   const freeGb = os.freemem() / 1024 ** 3;
   const totalGb = os.totalmem() / 1024 ** 3;
   add({
-    id: "ram", area: "Sistema", label: "Memória livre do computador",
+    id: "ram", area: "Sistema", label: "Memória RAM livre (não é o espaço do disco)",
     status: freeGb < 0.5 ? "fail" : freeGb < 1.2 ? "warn" : "ok",
-    detail: `${freeGb.toFixed(1)} GB livres de ${totalGb.toFixed(1)} GB.${freeGb < 1.2 ? " Feche outros programas antes de rodar diagnósticos (o navegador de pesquisa e a transcrição de vídeos usam bastante)." : ""}`,
+    detail: `RAM: ${freeGb.toFixed(1)} GB livres de ${totalGb.toFixed(1)} GB (é a memória dos programas abertos agora; o espaço livre do disco é outra coisa).${freeGb < 1.2 ? " Feche outros programas (navegador com muitas abas, ChatGPT, Ubuntu/WSL) antes de rodar diagnósticos: a pesquisa e a transcrição de vídeos usam bastante RAM." : ""}`,
   });
 
   // IA
