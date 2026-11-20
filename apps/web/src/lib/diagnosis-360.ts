@@ -636,6 +636,7 @@ async function createAnalysisTasks(c: AnalysisContext): Promise<void> {
       description: "Avaliar Google Maps, avaliações e como o negócio se compara aos concorrentes próximos.",
       instructions: [
         "1. Ficha do Google (fichaDoGoogle): nota, número de avaliações, se está completa (horário, site, telefone, fotos). Se não foi encontrada, isso é um achado: paciente que procura no Google não encontra.",
+        "1a. Se `totalDeAvaliacoes` vier nulo (o Google escondeu sem login), NÃO afirme quantas avaliações a clínica tem no Google e NÃO use número de sites terceiros (DentMap, listas, diretórios) como se fosse o do Google: diga que o número não pôde ser visto e que é preciso conectar a conta Google em Integrações. Número citado pelo próprio site da clínica também não vale como prova.",
         "1b. Leia o TEXTO das avaliações (avaliacoesLidas): do que os pacientes mais elogiam e do que reclamam (atendimento, espera, preço, resultado, recepção). Cite trechos curtos. Diga se o dono responde às avaliações. Se o texto não pôde ser lido, diga isso e como resolver.",
         "2. Compare com os outros resultados da mesma busca (são concorrentes locais): notas e como se apresentam.",
         "3. Use search_web para procurar o negócio no Google (nome + cidade), Reclame Aqui e Doctoralia, e fetch_url para abrir o que achar relevante. Relate só o que encontrar.",
