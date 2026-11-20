@@ -263,7 +263,7 @@ export function Inbox({ clientId, connected, initialFilter = "todas" }: { client
           )}
           {!loadingList && rows.length === 0 && (
             <div className="p-6 text-center text-sm text-muted-foreground">
-              {connected ? "Nenhuma conversa aqui ainda. Assim que alguém mandar mensagem para a clínica, ela aparece na hora." : "Conecte o WhatsApp da clínica para as conversas aparecerem aqui."}
+              {connected ? "Nenhuma conversa aqui ainda. Assim que alguém mandar mensagem, ela aparece na hora." : "Conecte o WhatsApp (acima) para as conversas aparecerem aqui."}
             </div>
           )}
           {rows.map((r) => (

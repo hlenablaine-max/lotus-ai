@@ -726,6 +726,7 @@ async function afterLiveMessage(ev: MessageEvent, conversationId: string) {
 
   // Clínica prospectada respondeu
   const client = await prisma.client.findUnique({ where: { id: ev.clientId }, select: { slug: true, name: true } });
+  let isProspect = !!conv.prospectId;
   if (client?.slug === LOTUS_SLUG) {
     const key = phoneKey(conv.phone);
     const prospect = conv.prospectId
@@ -734,6 +735,7 @@ async function afterLiveMessage(ev: MessageEvent, conversationId: string) {
         ? (await prisma.prospect.findMany({ where: { phone: { endsWith: key.slice(-8) }, status: { in: ["ENVIADO", "RESPONDEU", "CONVERSANDO"] } }, take: 3 })).find((p) => phoneKey(p.phone) === key) ?? null
         : null;
     if (prospect) {
+      isProspect = true;
       if (!conv.prospectId) await prisma.conversation.update({ where: { id: conv.id }, data: { prospectId: prospect.id } });
       const first = prospect.status === "ENVIADO";
       await prisma.prospect.update({ where: { id: prospect.id }, data: { status: first ? "RESPONDEU" : prospect.status === "RESPONDEU" ? "CONVERSANDO" : prospect.status, repliedAt: prospect.repliedAt ?? new Date() } });
@@ -743,6 +745,8 @@ async function afterLiveMessage(ev: MessageEvent, conversationId: string) {
 
   // IA atendente: espera uns segundos para juntar as mensagens que a pessoa manda em sequência
   if (!settings.ia.on) return;
+  // No número da LOTUS a IA só conversa com clínicas da prospecção (nunca conversa pessoal nem teste de atendimento)
+  if (client?.slug === LOTUS_SLUG && !isProspect) return;
   if (conv.aiPausedUntil && conv.aiPausedUntil.getTime() > now) return;
   if (conv.fromHistory && !conv.leadId && !conv.prospectId) return;
   await prisma.outboundMessage.updateMany({ where: { clientId: ev.clientId, kind: "ia", status: "PENDENTE", refId: { startsWith: `${conv.id}:` } }, data: { status: "CANCELADO", error: "Chegou mensagem nova: a IA responde tudo junto" } });

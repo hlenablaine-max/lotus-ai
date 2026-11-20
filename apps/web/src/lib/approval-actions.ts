@@ -4,6 +4,7 @@
 import type { Approval } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createRuntimeClient } from "@/lib/runtime-client";
+import { lotusRepliesSince, lotusSend, lotusWhatsappReady } from "@/lib/lotus-whatsapp";
 import { advanceMission, runTask } from "@/lib/task-runner";
 
 type Payload = Record<string, unknown> & {
@@ -31,6 +32,15 @@ async function saveResult(approval: Approval, payload: Payload, title: string, c
 }
 
 async function sendWhatsApp(phone: string, message: string): Promise<{ sent: boolean; detail: string }> {
+  // Preferência: o WhatsApp da LOTUS conectado pelo QR (ouve a resposta e passa pelo escudo anti-ban)
+  if (await lotusWhatsappReady().catch(() => null)) {
+    try {
+      await lotusSend(phone, message);
+      return { sent: true, detail: "Mensagem enviada pelo WhatsApp da LOTUS. A resposta aparece em Clientes > LOTUS (interno) > Atendimento." };
+    } catch (err) {
+      return { sent: false, detail: `Não foi possível enviar pelo WhatsApp da LOTUS: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  }
   const integration = await prisma.integration.findFirst({ where: { type: "WHATSAPP", status: "CONNECTED" } });
   const config = (integration?.config ?? null) as { apiUrl?: string; instance?: string; apiKey?: string } | null;
   if (!config?.apiUrl || !config.instance) {
@@ -52,6 +62,7 @@ async function sendWhatsApp(phone: string, message: string): Promise<{ sent: boo
 
 // Teste de atendimento: envia a mensagem pelo WhatsApp Web do app e mede a resposta por até 10 minutos.
 async function runWhatsAppProbe(approval: Approval, payload: Payload): Promise<string> {
+  if (await lotusWhatsappReady().catch(() => null)) return runProbeViaLotus(approval, payload);
   const runtime = createRuntimeClient();
   if (!(await runtime.available())) return "Aprovado, mas o aplicativo desktop não está aberto: teste não realizado.";
   const phone = String(payload.phone ?? "");
@@ -107,6 +118,49 @@ async function runWhatsAppProbe(approval: Approval, payload: Payload): Promise<s
   }
   setTimeout(() => check(0, baseline), checksAtMinutes[0] * 60_000);
   return "Mensagem de teste enviada. O resultado (se respondeu e em quanto tempo) entra nos entregáveis da missão em até 10 minutos.";
+}
+
+// Teste de atendimento pelo WhatsApp da LOTUS que ouve: a resposta da clínica é registrada na hora em que chega
+async function runProbeViaLotus(approval: Approval, payload: Payload): Promise<string> {
+  const phone = String(payload.phone ?? "");
+  let sent: { conversationId: string; sentAt: Date };
+  try {
+    sent = await lotusSend(phone, String(payload.message ?? ""));
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    await saveResult(approval, payload, `Teste de atendimento no WhatsApp — não realizado`, `**Número:** ${phone}\n\nO teste não foi feito: ${reason}`);
+    return `Teste não realizado: ${reason}`;
+  }
+  // Teste é "cliente oculto": a IA nunca responde a clínica nessa conversa
+  await prisma.conversation.update({ where: { id: sent.conversationId }, data: { aiPausedUntil: new Date(Date.now() + 365 * 86_400_000) } }).catch(() => undefined);
+  const checksAtMinutes = [1, 3, 6, 10];
+  const check = async (index: number) => {
+    const minutes = checksAtMinutes[index];
+    try {
+      const replies = await lotusRepliesSince(sent.conversationId, sent.sentAt);
+      if (replies.length > 0 || index === checksAtMinutes.length - 1) {
+        const firstMin = replies.length ? Math.max(0, (replies[0].sentAt.getTime() - sent.sentAt.getTime()) / 60_000) : null;
+        const content = [
+          `**Número testado:** ${phone}`,
+          `**Mensagem enviada às** ${sent.sentAt.toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo" })}: "${payload.message}"`,
+          ``,
+          replies.length > 0
+            ? `**Primeira resposta em ${firstMin! < 1 ? "menos de 1 minuto" : `${Math.round(firstMin!)} minuto(s)`}** (medido pelo horário exato da mensagem).\n\n${replies.map((r) => `> ${r.body}`).join("\n")}\n\n${firstMin! < 1 ? "Resposta em menos de 1 minuto costuma indicar mensagem automática — confira o texto acima." : ""}`
+            : `**Nenhuma resposta em ${minutes} minutos.** Um lead vindo de anúncio que espera mais de 5 minutos tem chance muito menor de agendar — aqui está um gargalo de atendimento.`,
+          ``,
+          `_Teste único, feito em horário ${new Date(sent.sentAt).getHours() >= 8 && new Date(sent.sentAt).getHours() < 18 ? "comercial" : "fora do comercial"}. Repita em outro horário antes de concluir._`,
+        ].join("\n");
+        await saveResult(approval, payload, `Teste de atendimento no WhatsApp — ${replies.length > 0 ? "respondeu" : "sem resposta"}`, content);
+        await prisma.activityLog.create({ data: { missionId: approval.missionId, action: "WHATSAPP_PROBE_RESULT", details: { phone, replied: replies.length > 0, minutes: firstMin }, level: "INFO" } });
+        return;
+      }
+    } catch (err) {
+      console.error("[whatsapp-probe]", err);
+    }
+    if (index < checksAtMinutes.length - 1) setTimeout(() => void check(index + 1), (checksAtMinutes[index + 1] - minutes) * 60_000);
+  };
+  setTimeout(() => void check(0), checksAtMinutes[0] * 60_000);
+  return "Mensagem de teste enviada pelo WhatsApp da LOTUS. O resultado (se respondeu e em quanto tempo, ao minuto) entra nos entregáveis da missão em até 10 minutos.";
 }
 
 async function executeApproved(approval: Approval, payload: Payload): Promise<string> {

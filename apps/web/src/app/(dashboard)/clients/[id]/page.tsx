@@ -255,7 +255,7 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
       </div>
 
       {tab === "crm" && <ClientCrm clientId={client.id} clientName={client.name} />}
-      {tab === "attendance" && <Attendance clientId={client.id} clientName={client.name} />}
+      {tab === "attendance" && <Attendance clientId={client.id} clientName={client.name} isLotus={client.slug === "lotus-interno"} />}
       {tab === "patients" && <Patients clientId={client.id} clientName={client.name} />}
 
       {/* Tab content */}

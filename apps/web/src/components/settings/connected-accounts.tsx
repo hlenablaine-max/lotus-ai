@@ -13,6 +13,9 @@ interface Accounts {
   instagram?: boolean;
   google?: boolean;
   whatsapp?: boolean;
+  whatsappPhone?: string | null;
+  whatsappBrowserOnly?: boolean;
+  lotusClientId?: string;
   vercel?: string | null;
   visible?: boolean;
   error?: string;
@@ -23,10 +26,10 @@ type Service = "whatsapp" | "google" | "instagram";
 const CARDS: Array<{ service: Service; title: string; icon: React.ReactNode; why: string; how: string }> = [
   {
     service: "whatsapp",
-    title: "WhatsApp",
+    title: "WhatsApp da LOTUS",
     icon: <MessageCircle className="w-5 h-5 text-emerald-400" />,
-    why: "Os agentes mandam uma mensagem de paciente interessado para a clínica e medem se e quando ela responde.",
-    how: "Clique em Gerar QR code e, no celular: WhatsApp > Configurações > Aparelhos conectados > Conectar aparelho.",
+    why: "O seu número, usado pela LOTUS: prospecção de clínicas (a IA conversa com quem responde), aviso do diagnóstico para o cliente, teste de tempo de resposta das clínicas e relatório semanal para os donos. Fica ouvindo as respostas e passa pelo escudo anti-ban.",
+    how: "Clique em Gerar QR code e, no celular: WhatsApp > Configurações > Aparelhos conectados > Conectar aparelho. O celular continua funcionando normal.",
   },
   {
     service: "google",
@@ -39,13 +42,17 @@ const CARDS: Array<{ service: Service; title: string; icon: React.ReactNode; why
     service: "instagram",
     title: "Instagram",
     icon: <Instagram className="w-5 h-5 text-pink-400" />,
-    why: "Opcional. Com login, a leitura de perfis e Reels fica mais completa e o Instagram bloqueia menos.",
+    why: "Instagram da LOTUS: usado para achar o @ das clínicas na prospecção e ler perfis e Reels no diagnóstico (só lê: não curte, não segue, não manda DM). Com login, a leitura fica mais completa e o Instagram bloqueia menos.",
     how: "Prefira uma conta secundária, não a principal da agência.",
   },
 ];
 
 export function ConnectedAccounts() {
   const [accounts, setAccounts] = useState<Accounts | null>(null);
+  const accountsRef = useRef<Accounts | null>(null);
+  useEffect(() => {
+    accountsRef.current = accounts;
+  }, [accounts]);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [qr, setQr] = useState<{ open: boolean; image: string | null; state: string; error: string }>({ open: false, image: null, state: "", error: "" });
@@ -91,9 +98,13 @@ export function ConnectedAccounts() {
   // QR code do WhatsApp dentro da própria tela: pergunta a cada 3 s até o celular ler
   const pollQr = useCallback(async () => {
     try {
-      const res = await fetch("/api/research/whatsapp-qr");
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Não foi possível gerar o QR code.");
+      const id = accountsRef.current?.lotusClientId;
+      if (!id) throw new Error("Abra o aplicativo LOTUS neste computador.");
+      const res = await fetch(`/api/clients/${id}/whatsapp`);
+      const raw = await res.json();
+      if (!res.ok) throw new Error(raw.error ?? "Não foi possível gerar o QR code.");
+      const data = { state: raw.status?.state === "conectado" ? "connected" : raw.status?.state, image: raw.status?.qrImage ?? null, error: raw.status?.lastError };
+      if (data.state === "desconectado" && data.error) throw new Error(data.error);
       if (data.state === "connected") {
         setQr({ open: false, image: null, state: "connected", error: "" });
         setMessage("WhatsApp conectado neste computador.");
@@ -107,17 +118,19 @@ export function ConnectedAccounts() {
     qrTimer.current = setTimeout(pollQr, 3000);
   }, [load]);
 
-  const openQr = () => {
+  const openQr = async () => {
     setMessage("");
     setQr({ open: true, image: null, state: "loading", error: "" });
     if (qrTimer.current) clearTimeout(qrTimer.current);
+    const id = accountsRef.current?.lotusClientId;
+    if (id) await fetch(`/api/clients/${id}/whatsapp`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "connect" }) }).catch(() => undefined);
     pollQr();
   };
 
   const closeQr = () => {
     if (qrTimer.current) clearTimeout(qrTimer.current);
     setQr({ open: false, image: null, state: "", error: "" });
-    fetch("/api/research/whatsapp-qr", { method: "DELETE" }).catch(() => {});
+
   };
 
   useEffect(() => () => {
@@ -166,6 +179,8 @@ export function ConnectedAccounts() {
                 )}
               </div>
               <p className="text-sm text-muted-foreground mt-1">{card.why}</p>
+              {card.service === "whatsapp" && accounts?.whatsapp && accounts.whatsappPhone && <p className="text-xs text-emerald-300 mt-1">Número conectado: +{accounts.whatsappPhone}</p>}
+              {card.service === "whatsapp" && accounts?.whatsappBrowserOnly && <p className="text-xs text-amber-300 mt-1">Hoje ele está ligado só pelo navegador (manda, mas não ouve as respostas). Gere o QR code abaixo uma vez para a LOTUS ouvir e a prospecção funcionar.</p>}
               <p className="text-xs text-muted-foreground/70 mt-1">{card.how}</p>
             </div>
             <button

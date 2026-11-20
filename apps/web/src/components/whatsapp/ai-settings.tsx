@@ -11,7 +11,7 @@ type Report = { on: boolean; telefone: string; dia: number; hora: number };
 
 const DAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
-export function AiBlock({ value, onChange }: { value: Ai; onChange: (v: Ai) => void }) {
+export function AiBlock({ value, onChange, lotus = false }: { value: Ai; onChange: (v: Ai) => void; lotus?: boolean }) {
   const set = (patch: Partial<Ai>) => onChange({ ...value, ...patch });
   const setAg = (patch: Partial<Ai["agenda"]>) => onChange({ ...value, agenda: { ...value.agenda, ...patch } });
   return (
@@ -23,8 +23,8 @@ export function AiBlock({ value, onChange }: { value: Ai; onChange: (v: Ai) => v
         <div className="flex-1 min-w-0 space-y-4">
           <div className="flex items-center gap-3">
             <div>
-              <h4 className="text-sm font-semibold text-foreground">Atendente com IA (responde e agenda sozinha)</h4>
-              <p className="text-xs text-muted-foreground mt-0.5">Responde cada lead em segundos, tira dúvidas com o que você ensinar, oferece horários livres e marca a consulta. Passa para a equipe quando precisa.</p>
+              <h4 className="text-sm font-semibold text-foreground">{lotus ? "IA da prospecção (conversa com as clínicas e marca a call)" : "Atendente com IA (responde e agenda sozinha)"}</h4>
+              <p className="text-xs text-muted-foreground mt-0.5">{lotus ? "Só responde clínicas da Prospecção (nunca as suas conversas pessoais nem o teste de atendimento). Contorna a recepção, pede o contato de quem decide e oferece 2 horários da sua agenda para a call." : "Responde cada lead em segundos, tira dúvidas com o que você ensinar, oferece horários livres e marca a consulta. Passa para a equipe quando precisa."}</p>
             </div>
             <div className="ml-auto flex items-center gap-2">
               <span className={cn("text-[11px]", value.on ? "text-violet-300" : "text-muted-foreground")}>{value.on ? "Ligada" : "Desligada"}</span>
@@ -46,14 +46,14 @@ export function AiBlock({ value, onChange }: { value: Ai; onChange: (v: Ai) => v
             ))}
           </div>
 
-          <label className="block">
+          {!lotus && <label className="block">
             <span className="text-xs font-medium text-foreground">O que a IA pode dizer</span>
             <span className="block text-[11px] text-muted-foreground mb-1">Serviços, valores que podem ser ditos, formas de pagamento, convênios, endereço, estacionamento, diferenciais. O que não estiver aqui, ela não inventa.</span>
             <textarea className={cn(field, "text-xs resize-y")} rows={5} value={value.conhecimento} placeholder={"Ex.: Avaliação gratuita, 30 min.\nImplante a partir de R$ 2.500 (falar só se perguntarem).\nAceitamos cartão em até 12x. Não atendemos convênio.\nRua X, 123, Centro. Estacionamento na frente."} onChange={(e) => set({ conhecimento: e.target.value })} />
-          </label>
+          </label>}
 
           <div>
-            <span className="text-xs font-medium text-foreground">Agenda para a IA oferecer horários</span>
+            <span className="text-xs font-medium text-foreground">{lotus ? "Sua agenda para as calls" : "Agenda para a IA oferecer horários"}</span>
             <div className="flex flex-wrap items-center gap-2 mt-2">
               {DAYS.map((d, i) => (
                 <button key={d} type="button" onClick={() => setAg({ dias: value.agenda.dias.includes(i) ? value.agenda.dias.filter((x) => x !== i) : [...value.agenda.dias, i].sort() })} className={cn("w-11 py-1 rounded-md text-[11px] border", value.agenda.dias.includes(i) ? "bg-violet-500/20 border-violet-400/50 text-violet-200" : "border-border text-muted-foreground")}>

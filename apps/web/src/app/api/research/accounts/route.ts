@@ -2,6 +2,8 @@ import { NextRequest } from "next/server";
 import { requireOwner } from "@/lib/require-owner";
 import { createRuntimeClient } from "@/lib/runtime-client";
 import { vercelUser, whatsappSessionSaved } from "@/lib/local-accounts";
+import { prisma } from "@/lib/prisma";
+import { ensureLotusClient } from "@/lib/whatsapp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +13,10 @@ export async function GET() {
   const owner = await requireOwner();
   if (owner instanceof Response) return owner;
   const client = createRuntimeClient();
-  const extra = { whatsapp: whatsappSessionSaved(), vercel: await vercelUser() };
+  // WhatsApp da LOTUS: a conexão que ouve as respostas (prospecção, diagnóstico, teste de atendimento, relatórios)
+  const lotus = await ensureLotusClient();
+  const ch = await prisma.whatsappChannel.findUnique({ where: { clientId: lotus.id }, select: { status: true, phone: true } });
+  const extra = { whatsapp: ch?.status === "conectado", whatsappPhone: ch?.phone ?? null, whatsappBrowserOnly: !ch || ch.status !== "conectado" ? whatsappSessionSaved() : false, lotusClientId: lotus.id, vercel: await vercelUser() };
   if (!(await client.available())) return Response.json({ desktop: false, ...extra });
   try {
     const status = (await client.call("/runtime/research/status", {}, 60_000)) as Record<string, unknown>;

@@ -9,7 +9,7 @@ import { Inbox } from "./inbox";
 import { AttendancePanel } from "./panel";
 import { TrackedLinks, type LinkItem } from "./links";
 import { Automations } from "./automations";
-import { InstagramConnect } from "./instagram-connect";
+import { InstagramConnect, LotusInstagram } from "./instagram-connect";
 import { Notice, btnGhost, btnPrimary, formatPhone } from "./ui";
 
 interface State {
@@ -28,7 +28,7 @@ const SUBTABS = [
 ] as const;
 type Sub = (typeof SUBTABS)[number]["id"];
 
-export function Attendance({ clientId, clientName }: { clientId: string; clientName: string }) {
+export function Attendance({ clientId, clientName, isLotus = false }: { clientId: string; clientName: string; isLotus?: boolean }) {
   const [state, setState] = useState<State | null>(null);
   const [sub, setSub] = useState<Sub>("conversas");
   const [busy, setBusy] = useState(false);
@@ -90,15 +90,31 @@ export function Attendance({ clientId, clientName }: { clientId: string; clientN
           <div className="flex items-center gap-2">
             <span className={cn("w-2 h-2 rounded-full", connected ? "bg-emerald-400 animate-pulse" : st === "qr" || st === "conectando" ? "bg-amber-400 animate-pulse" : "bg-zinc-500")} />
             <span className="text-sm font-semibold text-foreground">
-              {connected ? `WhatsApp de ${clientName} conectado` : st === "qr" ? "Leia o QR code com o celular da clínica" : st === "conectando" ? "Conectando…" : "WhatsApp da clínica não conectado"}
+              {isLotus
+                ? connected
+                  ? "WhatsApp da LOTUS (o seu) conectado"
+                  : st === "qr"
+                    ? "Leia o QR code com o SEU celular"
+                    : st === "conectando"
+                      ? "Conectando…"
+                      : "WhatsApp da LOTUS (o seu) não está ouvindo"
+                : connected
+                  ? `WhatsApp de ${clientName} conectado`
+                  : st === "qr"
+                    ? "Leia o QR code com o celular da clínica"
+                    : st === "conectando"
+                      ? "Conectando…"
+                      : "WhatsApp da clínica não conectado"}
             </span>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
             {connected
-              ? `${formatPhone(phone)}${state.status.name ? ` · ${state.status.name}` : ""}. Tudo que chega e sai aparece aqui em tempo real. O celular continua funcionando normal.`
+              ? `${formatPhone(phone)}${state.status.name ? ` · ${state.status.name}` : ""}. ${isLotus ? "Usado na prospecção, no aviso do diagnóstico, no teste de tempo de resposta e nos relatórios. As respostas chegam aqui na hora." : "Tudo que chega e sai aparece aqui em tempo real."} O celular continua funcionando normal.`
               : !state.runtimeOnline
                 ? "Abra o aplicativo LOTUS neste computador para conectar."
-                : "Conecte uma vez: a LOTUS vira um \"aparelho conectado\" do WhatsApp da clínica (igual WhatsApp Web) e passa a registrar cada lead, de onde veio e se fechou."}
+                : isLotus
+                  ? "É o mesmo número de Integrações. Leia o QR code uma vez para a LOTUS ouvir as respostas: assim a prospecção conversa com as clínicas e o teste de atendimento mede a resposta na hora."
+                  : "Conecte uma vez: a LOTUS vira um \"aparelho conectado\" do WhatsApp da clínica (igual WhatsApp Web) e passa a registrar cada lead, de onde veio e se fechou."}
           </p>
           {state.status.lastError && !connected && <p className="text-xs text-amber-300 mt-1">{state.status.lastError}</p>}
         </div>
@@ -128,11 +144,11 @@ export function Attendance({ clientId, clientName }: { clientId: string; clientN
         )}
       </div>
       {error && <Notice kind="error">{error}</Notice>}
-      <InstagramConnect clientId={clientId} />
+      {isLotus ? <LotusInstagram /> : <InstagramConnect clientId={clientId} />}
 
       {/* Subabas */}
       <div className="flex gap-1 border-b border-border">
-        {SUBTABS.map((t) => (
+        {SUBTABS.filter((t) => !isLotus || t.id !== "links").map((t) => (
           <button key={t.id} onClick={() => setSub(t.id)} className={cn("flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors", sub === t.id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>
             <t.icon className="w-4 h-4" /> {t.label}
           </button>
@@ -151,7 +167,7 @@ export function Attendance({ clientId, clientName }: { clientId: string; clientN
         />
       )}
       {sub === "links" && <TrackedLinks clientId={clientId} links={state.links} phone={phone} onSaved={() => void load()} />}
-      {sub === "automacoes" && <Automations clientId={clientId} initial={state.settings} connected={connected} />}
+      {sub === "automacoes" && <Automations clientId={clientId} initial={state.settings} connected={connected} isLotus={isLotus} />}
     </div>
   );
 }

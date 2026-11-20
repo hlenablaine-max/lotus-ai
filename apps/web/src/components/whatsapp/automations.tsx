@@ -61,7 +61,7 @@ const Num = ({ value, onChange, suffix, min = 1, max = 99 }: { value: number; on
   </label>
 );
 
-export function Automations({ clientId, initial, connected }: { clientId: string; initial: Settings; connected: boolean }) {
+export function Automations({ clientId, initial, connected, isLotus = false }: { clientId: string; initial: Settings; connected: boolean; isLotus?: boolean }) {
   const [s, setS] = useState<Settings>(initial);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
@@ -115,7 +115,8 @@ export function Automations({ clientId, initial, connected }: { clientId: string
           </div>
         </Card>
 
-        <AiBlock value={s.ia} onChange={(ia) => setS({ ...s, ia })} />
+        <AiBlock value={s.ia} onChange={(ia) => setS({ ...s, ia })} lotus={isLotus} />
+        {!isLotus && (<>
         <ReportBlock clientId={clientId} value={s.relatorio} onChange={(relatorio) => setS({ ...s, relatorio })} />
 
         <Block icon={<Hand className="w-4 h-4" />} title="Boas-vindas na hora" why="Responde em segundos quando um lead novo chama (inclusive de madrugada). Quem responde primeiro agenda mais." on={s.boasVindas.on} onToggle={(v) => set("boasVindas", { on: v })}>
@@ -159,6 +160,7 @@ export function Automations({ clientId, initial, connected }: { clientId: string
           <p className="text-[10px] text-muted-foreground">Também: {"{link_indicacao}"} (link com o código do paciente).</p>
         </Block>
 
+        </>)}
         {msg && <Notice kind={msg.kind}>{msg.text}</Notice>}
         <button onClick={() => void save()} disabled={saving} className={btnPrimary}>
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Salvar automações

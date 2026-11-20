@@ -6,6 +6,7 @@ import { registry } from "@lotus/ai-engine";
 import { prisma } from "@/lib/prisma";
 import { createRuntimeClient } from "@/lib/runtime-client";
 import { notify } from "@/lib/notify";
+import { asJob } from "@/lib/background-jobs";
 import { ensureLotusClient, normalizePhone, phoneKey } from "@/lib/whatsapp";
 
 export interface Gargalo {
@@ -148,7 +149,7 @@ export async function startSearch(input: { niche: string; city: string; max: num
   const rt = createRuntimeClient();
   if (!(await rt.available())) return { started: false, campaign, reason: "Abra o aplicativo LOTUS neste computador para buscar clínicas." };
   state.__lotusProspecting = { campaign, startedAt: Date.now(), found: 0, total: input.max, log: [] };
-  void runSearch(input, campaign).finally(() => {
+  void asJob("busca-clinicas", () => runSearch(input, campaign)).finally(() => {
     state.__lotusProspecting = null;
   });
   return { started: true, campaign };
@@ -249,7 +250,7 @@ export async function prepareFreeSite(prospectId: string): Promise<{ started: bo
   // Marca já como "preparando" para um segundo clique não montar outro site
   await prisma.prospect.update({ where: { id: p.id }, data: { siteMissionId: "preparando" } });
   try {
-    return await buildFreeSite(p, handle);
+    return await asJob("site-gratis", () => buildFreeSite(p, handle));
   } catch (err) {
     await prisma.prospect.update({ where: { id: p.id }, data: { siteMissionId: null } });
     throw err;
@@ -287,6 +288,8 @@ async function buildFreeSite(p: NonNullable<Awaited<ReturnType<typeof prisma.pro
 
 // Confere se algum site grátis ficou pronto: guarda o link e reescreve a mensagem (agora pode falar do site)
 export async function syncFreeSites(): Promise<void> {
+  // Site grátis que morreu no meio (PC desligado, servidor reiniciado): libera o botão de novo depois de 30 min
+  await prisma.prospect.updateMany({ where: { siteMissionId: "preparando", updatedAt: { lt: new Date(Date.now() - 30 * 60_000) } }, data: { siteMissionId: null } });
   const pending = await prisma.prospect.findMany({ where: { siteMissionId: { not: null }, NOT: { siteMissionId: "preparando" }, siteUrl: null } });
   for (const p of pending) {
     const decision = await prisma.task.findFirst({ where: { missionId: p.siteMissionId!, title: { startsWith: "Decisão sobre o site" }, status: "COMPLETED" }, orderBy: { completedAt: "desc" }, select: { output: true } });

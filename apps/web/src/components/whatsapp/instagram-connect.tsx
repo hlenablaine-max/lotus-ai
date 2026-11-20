@@ -119,3 +119,32 @@ export function InstagramConnect({ clientId }: { clientId: string }) {
     </div>
   );
 }
+
+// Na página da LOTUS (interno): o Instagram é o da própria LOTUS, já conectado em Integrações (navegador de pesquisa)
+export function LotusInstagram() {
+  const [on, setOn] = useState<boolean | null>(null);
+  useEffect(() => {
+    fetch("/api/research/accounts")
+      .then((r) => r.json())
+      .then((d: { instagram?: boolean }) => setOn(!!d.instagram))
+      .catch(() => setOn(false));
+  }, []);
+  return (
+    <div className={cn("rounded-xl border p-4 flex flex-wrap items-center gap-3", on ? "border-pink-500/30 bg-pink-500/[0.05]" : "border-border bg-card")}>
+      <div className={cn("w-11 h-11 rounded-xl flex items-center justify-center", on ? "bg-gradient-to-br from-pink-500/30 to-amber-500/30 text-pink-200" : "bg-muted/60 text-muted-foreground")}>
+        <Instagram className="w-5 h-5" />
+      </div>
+      <div className="flex-1 min-w-[220px]">
+        <div className="text-sm font-semibold text-foreground">{on === null ? "Instagram da LOTUS…" : on ? "Instagram da LOTUS conectado" : "Instagram da LOTUS não conectado"}</div>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          É o Instagram de Integrações. A LOTUS usa para achar o @ das clínicas na prospecção e ler os perfis no diagnóstico (só lê: não curte, não segue, não manda DM). O ManyChat é só para o Instagram de cada clínica, depois de fechar.
+        </p>
+      </div>
+      {!on && on !== null && (
+        <a href="/integrations" className={cn(btnGhost, "text-xs")}>
+          Conectar em Integrações
+        </a>
+      )}
+    </div>
+  );
+}
