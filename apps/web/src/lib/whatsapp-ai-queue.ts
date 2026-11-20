@@ -18,9 +18,12 @@ const localWeekday = (d: Date) => WEEKDAYS.indexOf(new Intl.DateTimeFormat("en-U
 const SHIELD_WAIT = /Escudo anti-ban:.*Tenta de novo em (\d+) s/;
 
 let aiRunning = false;
+let aiStartedAt = 0;
 export async function runAiQueue(): Promise<void> {
-  if (aiRunning) return;
+  // Uma rodada por vez; se uma ficar presa mais de 3 min, a próxima segue mesmo assim
+  if (aiRunning && Date.now() - aiStartedAt < 180_000) return;
   aiRunning = true;
+  aiStartedAt = Date.now();
   try {
     const due = await prisma.outboundMessage.findMany({ where: { kind: "ia", status: "PENDENTE", scheduledFor: { lte: new Date() } }, orderBy: { scheduledFor: "asc" }, take: 4 });
     for (const job of due) {

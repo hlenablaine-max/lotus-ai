@@ -214,8 +214,10 @@ async function findConversation(clientId: string, jid: string, phone: string | n
 
 // Uma mensagem em tempo real (chegou agora ou a clínica acabou de responder)
 async function ingestLive(ev: MessageEvent) {
-  const clientExists = await prisma.client.findUnique({ where: { id: ev.clientId }, select: { id: true } });
+  const clientExists = await prisma.client.findUnique({ where: { id: ev.clientId }, select: { id: true, slug: true } });
   if (!clientExists) return;
+  // Número da LOTUS é o celular pessoal do Ícaro: só guarda o que é da LOTUS (conversa que ela começou ou clínica prospectada)
+  if (clientExists.slug === LOTUS_SLUG && !(await isLotusBusiness(ev))) return;
   const dup = await prisma.whatsappMessage.findUnique({ where: { clientId_waId: { clientId: ev.clientId, waId: ev.waId } }, select: { id: true } });
   if (dup) return;
   const sentAt = new Date(ev.sentAt);
@@ -355,7 +357,10 @@ export async function ingestEvents(events: WaEvent[]): Promise<{ processed: numb
         const exists = await prisma.client.findUnique({ where: { id: ev.clientId }, select: { id: true } });
         if (exists) await touchChannel(ev.clientId, { status: ev.state === "conectado" ? "conectado" : "desconectado", phone: ev.phone, displayName: ev.name });
       } else if (ev.type === "message") {
-        if (ev.history) history.set(ev.clientId, [...(history.get(ev.clientId) ?? []), ev]);
+        // Histórico do celular do número da LOTUS (conversas pessoais) nunca entra
+        if (ev.history) {
+          if (!(await isLotusClient(ev.clientId))) history.set(ev.clientId, [...(history.get(ev.clientId) ?? []), ev]);
+        }
         else await ingestLive(ev);
       }
       processed += 1;
@@ -821,4 +826,25 @@ export async function processInboundEvents(): Promise<number> {
     inboundRunning = false;
   }
   return done;
+}
+
+
+// Número da LOTUS: só entra conversa que a LOTUS já tem (começou ela mesma) ou de clínica prospectada
+const lotusIds = new Map<string, boolean>();
+async function isLotusClient(clientId: string): Promise<boolean> {
+  if (!lotusIds.has(clientId)) {
+    const c = await prisma.client.findUnique({ where: { id: clientId }, select: { slug: true } });
+    lotusIds.set(clientId, c?.slug === LOTUS_SLUG);
+  }
+  return lotusIds.get(clientId)!;
+}
+async function isLotusBusiness(ev: MessageEvent): Promise<boolean> {
+  const existing = await prisma.conversation.findUnique({ where: { clientId_jid: { clientId: ev.clientId, jid: ev.jid } }, select: { id: true } });
+  if (existing) return true;
+  const key = phoneKey(ev.phone);
+  if (!key) return false;
+  const known = await prisma.conversation.findFirst({ where: { clientId: ev.clientId, phone: { endsWith: key.slice(-8) } }, select: { id: true } });
+  if (known) return true;
+  const prospects = await prisma.prospect.findMany({ where: { phone: { endsWith: key.slice(-8) } }, select: { phone: true }, take: 3 });
+  return prospects.some((p) => phoneKey(p.phone) === key);
 }

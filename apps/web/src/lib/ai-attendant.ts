@@ -78,7 +78,11 @@ export interface AiDecision {
 export async function decideReply(conversationId: string, opts: { role: "clinica" | "lotus"; settings: AiSettings }): Promise<AiDecision | null> {
   const conv = await prisma.conversation.findUnique({ where: { id: conversationId }, include: { client: { select: { id: true, name: true, segment: true, description: true } } } });
   if (!conv) return null;
-  const msgs = await prisma.whatsappMessage.findMany({ where: { conversationId }, orderBy: { sentAt: "desc" }, take: 30 });
+  const prospect = conv.prospectId ? await prisma.prospect.findUnique({ where: { id: conv.prospectId } }) : null;
+  // Privacidade: a IA só lê a conversa a partir do começo do assunto (mensagem de prospecção ou chegada do lead),
+  // nunca o histórico pessoal anterior do número
+  const since = prospect ? new Date((prospect.sentAt ?? prospect.createdAt).getTime() - 60_000) : conv.leadId ? new Date(conv.firstMessageAt.getTime() - 60_000) : new Date(Date.now() - 2 * 86_400_000);
+  const msgs = await prisma.whatsappMessage.findMany({ where: { conversationId, sentAt: { gte: since } }, orderBy: { sentAt: "desc" }, take: 30 });
   if (!msgs.length) return null;
   const lead = conv.leadId ? await prisma.lead.findUnique({ where: { id: conv.leadId } }) : null;
   const fmt = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: TZ });
@@ -89,7 +93,6 @@ export async function decideReply(conversationId: string, opts: { role: "clinica
     .slice(-8000);
   const slots = opts.role === "clinica" ? await freeSlots(conv.clientId, opts.settings.agenda) : await freeSlots(conv.clientId, opts.settings.agenda, 8);
   const slotLines = slots.map((s) => `- ${fmtSlot(s)} => ${s.toISOString()}`).join("\n");
-  const prospect = conv.prospectId ? await prisma.prospect.findUnique({ where: { id: conv.prospectId } }) : null;
 
   const system =
     opts.role === "clinica"
@@ -127,6 +130,8 @@ Responda SOMENTE JSON: {"acao":"responder|agendar|humano|aguardar","resposta":"m
     ],
     maxTokens: 600,
     temperature: 0.4,
+    // Nunca deixa a fila da IA presa: sem resposta em 60 s, desiste e tenta na próxima
+    signal: AbortSignal.timeout(60_000),
   });
   const json = res.content.match(/\{[\s\S]*\}/)?.[0];
   if (!json) return null;
