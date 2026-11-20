@@ -171,6 +171,13 @@ export function renderSite(content: SiteContent, ctx: RenderContext): { html: st
   const aboutPhoto = pick(sobre.foto, isMedium, "Foto do 'sobre'", false);
   const services = list(content.servicos, 8).filter((s) => has(s.titulo));
   const servicePhotos = services.map((s, i) => pick(s.foto, isMedium, `Foto do serviço ${i + 1}`, true));
+  // Fotos profissionais (IA ou banco) que sobraram completam os serviços: com foto, vira mosaico
+  const spare = ctx.assets.filter((a) => isStock(a) && isMedium(a) && a.file !== heroPhoto?.file && !servicePhotos.some((p) => p?.file === a.file));
+  if (services.length >= 2 && servicePhotos.filter(Boolean).length < Math.min(3, services.length) && servicePhotos.filter(Boolean).length + spare.length >= Math.min(3, services.length)) {
+    servicePhotos.forEach((p, i) => {
+      if (!p && spare.length) servicePhotos[i] = spare.shift()!;
+    });
+  }
   const usePhotoServices = services.length >= 2 && servicePhotos.filter(Boolean).length >= Math.min(3, services.length);
   const used = new Set([heroPhoto?.file, aboutPhoto?.file, ...servicePhotos.map((p) => p?.file)].filter(Boolean));
   const gallery = list(content.galeria, 8)
@@ -226,7 +233,9 @@ export function renderSite(content: SiteContent, ctx: RenderContext): { html: st
     const panel = heroPhoto
       ? `<div class="hero-side photo in i3">${photoImg(heroPhoto, "kb")}${numbers[0] ? `<div class="chip"><b>${esc(clean(numbers[0].valor))}</b><span>${esc(clean(numbers[0].rotulo))}</span></div>` : ""}</div>`
       : `<div class="hero-side panel in i3"><ul>${services.slice(0, 4).map((s) => `<li>${esc(clean(s.titulo))}</li>`).join("")}</ul></div>`;
-    hero = `<section class="hero"><div class="wrap hero-grid"><div class="hero-copy">${heroCopy}${facts && heroPhoto ? "" : facts ? `<div class="in i5">${facts}</div>` : ""}</div>${panel}</div>${heroPhoto && facts ? `<div class="wrap"><div class="in i5 facts-row">${facts}</div></div>` : ""}</section>`;
+    // Com foto, o primeiro número vai na etiqueta sobre a foto; os demais ficam abaixo (sem repetir)
+    const restFacts = numbers.length > 1 ? `<dl class="facts">${numbers.slice(1).map((n) => `<div><dt>${esc(clean(n.valor))}</dt><dd>${esc(clean(n.rotulo))}</dd></div>`).join("")}</dl>` : "";
+    hero = `<section class="hero"><div class="wrap hero-grid"><div class="hero-copy">${heroCopy}${heroPhoto ? (restFacts ? `<div class="in i5">${restFacts}</div>` : "") : facts ? `<div class="in i5">${facts}</div>` : ""}</div>${panel}</div></section>`;
   } else if (style === "editorial") {
     hero = `<section class="hero"><div class="wrap">${selo}<h1 class="in i2 ${tSize}">${title}</h1><div class="ed-row in i3"><div>${has(topo.subtitulo) ? `<p class="lead">${esc(clean(topo.subtitulo))}</p>` : ""}<div class="hero-btns">${btnMain}${btnSecond}</div></div>${facts}</div></div>${
       heroPhoto ? `<figure class="wide-photo in i4">${photoImg(heroPhoto, "kb")}</figure>` : ""
