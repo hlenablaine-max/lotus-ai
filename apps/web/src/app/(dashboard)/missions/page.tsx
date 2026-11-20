@@ -4,10 +4,11 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Target, Plus, X, Calendar, ChevronRight, AlertCircle, Search, Flag,
   Loader2, CheckCircle2, Clock, XCircle, FileText, Play, ChevronLeft,
-  User, Zap, ArrowRight, RotateCcw, Download,
+  User, Zap, ArrowRight, RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { RichText } from "@/components/ui/rich-text";
+import { ReportDownloadButton } from "@/components/reports/report-download";
 
 interface Mission {
   id: string;
@@ -21,6 +22,20 @@ interface Mission {
   client: { id: string; name: string; segment?: string };
   _count: { tasks: number };
 }
+
+const DOC_TYPE_LABEL: Record<string, string> = {
+  RESEARCH_REPORT: 'Dados coletados',
+  ANALYSIS: 'Análise',
+  STRATEGY: 'Estratégia',
+  DELIVERABLE: 'Entrega',
+  COPY: 'Textos',
+  CREATIVE_BRIEF: 'Criativos',
+  CAMPAIGN_STRUCTURE: 'Campanha',
+  PROPOSAL: 'Proposta',
+  AUDIT_REPORT: 'Auditoria',
+  MEETING_NOTES: 'Reunião',
+  OTHER: 'Documento',
+};
 
 interface Client {
   id: string;
@@ -60,7 +75,6 @@ interface Task {
 
 // Cache de módulo — sobrevive entre navegações, limpo só no reload
 let _pageCache: { missions: Mission[]; clients: Client[]; ts: number } | null = null;
-const CACHE_TTL = 60_000;
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   PENDING:          { label: 'Pendente',    color: 'text-zinc-400',    bg: 'bg-zinc-400/10 border-zinc-400/20' },
@@ -140,20 +154,25 @@ export default function MissionsPage() {
   const [retrying, setRetrying] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const fetchData = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [mRes, cRes] = await Promise.all([fetch('/api/missions'), fetch('/api/clients')]);
       const mData = await mRes.json();
       const cData = await cRes.json();
+      if (!mRes.ok) throw new Error(mData.error ?? 'erro ' + mRes.status);
+      if (!cRes.ok) throw new Error(cData.error ?? 'erro ' + cRes.status);
       const m = mData.missions ?? [];
       const c = cData.clients ?? [];
       setMissions(m);
       setClients(c);
+      setLoadError(null);
       _pageCache = { missions: m, clients: c, ts: Date.now() };
-    } catch {
-      setMissions([]);
-      setClients([]);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -188,11 +207,12 @@ export default function MissionsPage() {
   }, [tasks, selectedMission, fetchTasks]);
 
   useEffect(() => {
-    const now = Date.now();
-    if (_pageCache && now - _pageCache.ts < CACHE_TTL) {
+    // Mostra o que já tinha na hora e atualiza por trás (assim uma missão recém-criada também aparece)
+    if (_pageCache) {
       setMissions(_pageCache.missions);
       setClients(_pageCache.clients);
       setLoading(false);
+      fetchData(true);
       return;
     }
     fetchData();
@@ -205,9 +225,11 @@ export default function MissionsPage() {
     if (openedFromUrl.current || missions.length === 0) return;
     const openId = new URLSearchParams(window.location.search).get('open');
     if (!openId) return;
-    openedFromUrl.current = true;
     const target = missions.find((m) => m.id === openId);
-    if (target) openMission(target);
+    if (target) {
+      openedFromUrl.current = true;
+      openMission(target);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [missions]);
 
@@ -227,46 +249,41 @@ export default function MissionsPage() {
 
   const retryFailed = async () => {
     setRetrying(true);
+    setActionError(null);
     try {
       if (!selectedMission) return;
-      await fetch(`/api/retry-failed-tasks?missionId=${selectedMission.id}`, { method: 'POST' });
+      const res = await fetch(`/api/retry-failed-tasks?missionId=${selectedMission.id}`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? `erro ${res.status}`);
+      }
       setTimeout(() => fetchTasks(selectedMission.id), 1000);
-    } catch {} finally {
+    } catch (err) {
+      setActionError(`Não deu para reexecutar: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
       setRetrying(false);
     }
-  };
-
-  const exportDocuments = async () => {
-    if (!selectedMission) return;
-    try {
-      const res = await fetch(`/api/missions/${selectedMission.id}/documents`);
-      const data = await res.json();
-      if (!data.documents?.length) return;
-      const text = data.documents.map((d: { title: string; type: string; content: string }) =>
-        `# ${d.title}\nTipo: ${d.type}\n\n${d.content}`
-      ).join('\n\n---\n\n');
-      const blob = new Blob([text], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${selectedMission.title.replace(/\s+/g, '_')}_entregaveis.txt`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {}
   };
 
   const runTask = async (task: Task) => {
     if (!task.agent) return;
     setRunningTaskId(task.id);
+    setActionError(null);
     try {
-      await fetch('/api/agents/execute', {
+      const res = await fetch('/api/agents/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ taskId: task.id }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? `erro ${res.status}`);
+      }
       // Refresh tasks after short delay
       setTimeout(() => selectedMission && fetchTasks(selectedMission.id), 800);
-    } catch {} finally {
+    } catch (err) {
+      setActionError(`Não deu para executar "${task.title}": ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
       setRunningTaskId(null);
     }
   };
@@ -353,6 +370,13 @@ export default function MissionsPage() {
           </div>
         </div>
 
+        {loadError && (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300 flex items-center justify-between gap-3">
+            <span>{loadError}</span>
+            <button onClick={() => fetchData()} className="text-xs underline">Tentar de novo</button>
+          </div>
+        )}
+
         {/* List */}
         {loading ? (
           <div className="space-y-3">
@@ -372,7 +396,7 @@ export default function MissionsPage() {
           <div className="rounded-xl border border-dashed border-border bg-card/50 p-16 text-center">
             <Target className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-30" />
             <p className="text-muted-foreground mb-2">
-              {missions.length === 0 ? 'Nenhuma missão criada ainda' : 'Nenhuma missão encontrada'}
+              {loadError ? 'Não foi possível carregar as missões' : missions.length === 0 ? 'Nenhuma missão criada ainda' : 'Nenhuma missão encontrada'}
             </p>
             {missions.length === 0 && (
               <p className="text-xs text-muted-foreground/60 max-w-xs mx-auto mt-1">
@@ -422,7 +446,7 @@ export default function MissionsPage() {
                           <Flag className="w-3 h-3" /> {priorityCfg.label}
                         </span>
                         <span className="text-xs text-muted-foreground">
-                          {mission._count?.tasks ?? 0} task{(mission._count?.tasks ?? 0) !== 1 ? 's' : ''}
+                          {mission._count?.tasks ?? 0} tarefa{(mission._count?.tasks ?? 0) !== 1 ? 's' : ''}
                         </span>
                         {dueFormatted && (
                           <span className={cn("flex items-center gap-1 text-xs", isOverdue ? "text-red-400" : "text-muted-foreground")}>
@@ -463,19 +487,25 @@ export default function MissionsPage() {
               <p className="text-xs text-muted-foreground mt-0.5">{selectedMission.client.name}</p>
             </div>
             <button
-              onClick={exportDocuments}
-              className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 mt-0.5"
-              title="Exportar entregáveis"
-            >
-              <Download className="w-4 h-4" />
-            </button>
-            <button
               onClick={() => fetchTasks(selectedMission.id)}
               className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 mt-0.5"
               title="Atualizar tasks"
             >
               <RotateCcw className="w-4 h-4" />
             </button>
+          </div>
+
+          {actionError && (
+            <div className="mx-5 mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300 flex items-start justify-between gap-2">
+              <span>{actionError}</span>
+              <button onClick={() => setActionError(null)} className="flex-shrink-0"><X className="w-3.5 h-3.5" /></button>
+            </div>
+          )}
+
+          {/* Relatório do cliente em PDF */}
+          <div className="px-5 py-3 border-b border-border flex flex-wrap items-start gap-2">
+            <ReportDownloadButton missionId={selectedMission.id} />
+            <ReportDownloadButton missionId={selectedMission.id} internal />
           </div>
 
           {/* Retry button when there are FAILED tasks */}
@@ -487,7 +517,7 @@ export default function MissionsPage() {
                 className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-red-400/10 border border-red-400/20 text-red-400 text-xs font-medium hover:bg-red-400/20 disabled:opacity-50 transition-all"
               >
                 {retrying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
-                {retrying ? 'Reexecutando...' : `Retry ${tasks.filter(t => t.status === 'FAILED').length} task(s) FAILED`}
+                {retrying ? 'Reexecutando...' : `Reexecutar ${tasks.filter(t => t.status === 'FAILED').length} tarefa(s) com falha`}
               </button>
             </div>
           )}
@@ -760,7 +790,7 @@ function DocumentCard({ doc }: { doc: TaskDocument }) {
       >
         <FileText className="w-3.5 h-3.5 text-primary flex-shrink-0" />
         <span className="text-sm font-medium text-foreground flex-1 truncate">{doc.title || 'Documento'}</span>
-        {doc.type && <span className="text-xs text-muted-foreground px-1.5 py-0.5 rounded bg-muted">{doc.type}</span>}
+        {doc.type && <span className="text-xs text-muted-foreground px-1.5 py-0.5 rounded bg-muted">{DOC_TYPE_LABEL[doc.type] ?? 'Documento'}</span>}
         <ChevronRight className={cn("w-3.5 h-3.5 text-muted-foreground transition-transform flex-shrink-0", open && "rotate-90")} />
       </button>
       {open && doc.content && (

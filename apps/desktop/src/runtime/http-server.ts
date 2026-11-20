@@ -6,6 +6,7 @@ import * as path from 'path'
 import { spawn } from 'child_process'
 import { WebSocketServer, WebSocket } from 'ws'
 import { LocalRuntime } from './local-runtime'
+import { htmlFileToPdf } from './pdf'
 
 const PORT_START = 3777
 const PORT_FILE = path.join(os.homedir(), 'LOTUS_Workspace', '.runtime-port')
@@ -153,6 +154,8 @@ export class RuntimeHttpServer {
         return rt.research.whatsappQr()
       case '/runtime/research/whatsapp-qr-stop':
         return rt.research.whatsappQrStop()
+      case '/runtime/pdf':
+        return htmlFileToPdf(String(data.htmlPath ?? ''), String(data.outPath ?? ''))
       case '/runtime/research/whatsapp-send':
         return rt.research.whatsappSend(String(data.phone ?? ''), String(data.message ?? ''))
       case '/runtime/research/whatsapp-read':

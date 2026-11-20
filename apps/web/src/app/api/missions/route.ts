@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ missions })
   } catch (err) {
     console.error('[API /missions GET]', err)
-    return NextResponse.json({ missions: [] })
+    return NextResponse.json({ missions: [], error: 'Não foi possível ler as missões do banco de dados. Verifique a conexão em Integrações.' }, { status: 500 })
   }
 }
 

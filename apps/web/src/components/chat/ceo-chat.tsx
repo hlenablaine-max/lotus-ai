@@ -360,13 +360,16 @@ export function CeoChat({
   mini = false,
   initialClientId,
   initialClientName,
+  initialPrompt,
 }: {
   mini?: boolean;
   initialClientId?: string;
   initialClientName?: string;
+  /** Texto já escrito na caixa (ex.: "Propor solução X para o cliente"); o dono revisa e envia */
+  initialPrompt?: string;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(initialPrompt ?? "");
   const [isLoading, setIsLoading] = useState(false);
   const [ai, setAi] = useState<AIStatus | null>(null);
   const [historyLoaded, setHistoryLoaded] = useState(false);

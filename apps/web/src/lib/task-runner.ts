@@ -31,6 +31,7 @@ const HOST = os.hostname();
 const running = (globalRef.__lotusRunningTasks ??= new Set<string>());
 export const markRunning = (taskId: string): void => void running.add(taskId);
 export const unmarkRunning = (taskId: string): void => void running.delete(taskId);
+export const runningCount = (): number => running.size;
 
 async function acquireSlot(): Promise<void> {
   if (slots.active < MAX_CONCURRENT_TASKS) {

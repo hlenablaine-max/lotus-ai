@@ -15,7 +15,7 @@ export async function GET() {
     return NextResponse.json({ clients })
   } catch (err) {
     console.error('[API /clients GET]', err)
-    return NextResponse.json({ clients: [] })
+    return NextResponse.json({ clients: [], error: 'Não foi possível ler os clientes do banco de dados. Verifique a conexão em Integrações.' }, { status: 500 })
   }
 }
 

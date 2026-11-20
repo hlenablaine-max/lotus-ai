@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getToken } from 'next-auth/jwt'
 import { isValidPortalToken } from '@/lib/portal-token'
 
-const PUBLIC_ROUTES = ['/login', '/api/auth']
+// /api/internal/busy só diz se há agente trabalhando (sim/não): o app desktop usa para saber quando pode reiniciar o servidor
+const PUBLIC_ROUTES = ['/login', '/api/auth', '/api/internal/busy']
 
 async function hasValidSession(req: NextRequest): Promise<boolean> {
   const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET

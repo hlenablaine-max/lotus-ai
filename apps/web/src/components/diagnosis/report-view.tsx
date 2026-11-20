@@ -7,37 +7,9 @@ import { useState } from "react";
 import { AlertTriangle, ArrowRight, ChevronDown, ExternalLink, Globe, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { RichText } from "@/components/ui/rich-text";
+import { parseReport, type Gargalo, type Placar } from "@/lib/playbook";
 
-interface Gargalo {
-  titulo: string;
-  problema?: string;
-  prova?: string;
-  porQueCusta?: string;
-  oQueFazer?: string;
-  impacto?: string;
-  gravidade?: string;
-}
-
-interface Placar {
-  notaGeral?: number;
-  notas?: Array<{ area: string; nota: number; motivo?: string }>;
-  gargalos?: Gargalo[];
-  ganhoPotencial?: string;
-  proximosPassos?: string[];
-}
-
-export function parseReport(content: string): { placar: Placar | null; text: string } {
-  const blocks = [...content.matchAll(/```json\s*\n([\s\S]*?)```/gi)];
-  for (const block of blocks.reverse()) {
-    try {
-      const data = JSON.parse(block[1]) as Placar;
-      if (data && (data.notas || data.gargalos)) return { placar: data, text: content.replace(block[0], "").trim() };
-    } catch {
-      /* bloco inválido: tenta o anterior */
-    }
-  }
-  return { placar: null, text: content };
-}
+export { parseReport };
 
 const scoreColor = (n: number) => (n >= 7 ? "bg-emerald-400" : n >= 5 ? "bg-amber-400" : "bg-red-400");
 const scoreText = (n: number) => (n >= 7 ? "text-emerald-300" : n >= 5 ? "text-amber-300" : "text-red-300");

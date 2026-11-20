@@ -6,6 +6,7 @@ import {
   Building2, TrendingUp, ChevronRight, Search
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useRouter } from "next/navigation";
 
 interface Client {
   id: string;
@@ -22,7 +23,6 @@ interface Client {
 
 // Cache de módulo — navegação instantânea após primeira visita
 let _clientCache: { clients: Client[]; ts: number } | null = null;
-const CACHE_TTL = 60_000;
 
 const STATUS_COLOR: Record<string, string> = {
   ACTIVE:   'text-emerald-400 bg-emerald-400/10 border-emerald-400/20',
@@ -31,10 +31,11 @@ const STATUS_COLOR: Record<string, string> = {
   PROSPECT: 'text-blue-400 bg-blue-400/10 border-blue-400/20',
 };
 const STATUS_LABEL: Record<string, string> = {
-  ACTIVE: 'Ativo', PAUSED: 'Pausado', CHURNED: 'Churn', PROSPECT: 'Prospect',
+  ACTIVE: 'Ativo', PAUSED: 'Pausado', CHURNED: 'Perdido', PROSPECT: 'Em prospecção',
 };
 
 export default function ClientsPage() {
+  const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -43,26 +44,31 @@ export default function ClientsPage() {
   const [form, setForm] = useState({ name: '', segment: '', website: '', instagram: '', description: '' });
   const [error, setError] = useState('');
 
-  const fetchClients = async () => {
-    setLoading(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const fetchClients = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await fetch('/api/clients');
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'erro ' + res.status);
       const clients = data.clients ?? [];
       setClients(clients);
+      setLoadError(null);
       _clientCache = { clients, ts: Date.now() };
-    } catch {
-      setClients([]);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    const now = Date.now();
-    if (_clientCache && now - _clientCache.ts < CACHE_TTL) {
+    // Mostra o que já tinha na hora e atualiza por trás
+    if (_clientCache) {
       setClients(_clientCache.clients);
       setLoading(false);
+      fetchClients(true);
       return;
     }
     fetchClients();
@@ -125,6 +131,13 @@ export default function ClientsPage() {
         />
       </div>
 
+      {loadError && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300 flex items-center justify-between gap-3">
+          <span>{loadError}</span>
+          <button onClick={() => fetchClients()} className="text-xs underline">Tentar de novo</button>
+        </div>
+      )}
+
       {/* Client list */}
       {loading ? (
         <div className="space-y-3">
@@ -144,7 +157,7 @@ export default function ClientsPage() {
         <div className="rounded-xl border border-dashed border-border bg-card/50 p-16 text-center">
           <Building2 className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-30" />
           <p className="text-muted-foreground mb-2">
-            {clients.length === 0 ? 'Nenhum cliente ainda' : 'Nenhum cliente encontrado'}
+            {loadError ? 'Não foi possível carregar os clientes' : clients.length === 0 ? 'Nenhum cliente ainda' : 'Nenhum cliente encontrado'}
           </p>
           {clients.length === 0 && (
             <button
@@ -163,6 +176,10 @@ export default function ClientsPage() {
             return (
               <div
                 key={client.id}
+                role="link"
+                tabIndex={0}
+                onClick={() => router.push('/clients/' + client.id)}
+                onKeyDown={(e) => { if (e.key === 'Enter') router.push('/clients/' + client.id); }}
                 className="rounded-xl border border-border bg-card p-5 hover:border-primary/30 transition-all group cursor-pointer"
               >
                 <div className="flex items-center gap-4">

@@ -12,6 +12,7 @@ interface Approval {
   payload: Record<string, unknown>;
   status: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED";
   requestedBy: string;
+  requestedByName?: string;
   createdAt: string;
   decidedAt?: string;
   decisionNote?: string;
@@ -41,6 +42,51 @@ const TYPE_COLORS: Record<string, string> = {
   IMPLEMENT_IN_PRODUCTION: "text-red-400 bg-red-400/10 border-red-400/20",
   OTHER: "text-muted-foreground bg-muted/50 border-border",
 };
+
+// Nomes legíveis para os campos mais comuns dos pedidos de aprovação
+const FIELD_LABELS: Record<string, string> = {
+  phone: "Telefone", message: "Mensagem", to: "Para", url: "Link", amount: "Valor", budget: "Orçamento",
+  dailyBudget: "Orçamento diário", campaign: "Campanha", platform: "Plataforma", command: "Comando", path: "Arquivo",
+  reason: "Motivo", handle: "Perfil", business: "Negócio", businessName: "Negócio", clientName: "Cliente",
+  missionId: "Missão", taskId: "Tarefa", action: "Ação", title: "Título", description: "Descrição", text: "Texto",
+};
+
+function humanizeKey(key: string): string {
+  if (FIELD_LABELS[key]) return FIELD_LABELS[key];
+  const spaced = key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function PayloadValue({ value }: { value: unknown }) {
+  if (value === null || value === undefined || value === "") return <span className="text-muted-foreground/60">—</span>;
+  if (typeof value === "boolean") return <>{value ? "Sim" : "Não"}</>;
+  if (typeof value === "string" || typeof value === "number") return <span className="whitespace-pre-wrap break-words">{String(value)}</span>;
+  if (Array.isArray(value)) {
+    return (
+      <ul className="list-disc pl-4 space-y-0.5">
+        {value.map((v, i) => (
+          <li key={i}><PayloadValue value={v} /></li>
+        ))}
+      </ul>
+    );
+  }
+  return <PayloadView payload={value as Record<string, unknown>} nested />;
+}
+
+function PayloadView({ payload, nested = false }: { payload: Record<string, unknown> | null | undefined; nested?: boolean }) {
+  const entries = Object.entries(payload ?? {}).filter(([k]) => !/token|secret|password|apikey/i.test(k));
+  if (entries.length === 0) return <p className="text-xs text-muted-foreground">Sem detalhes adicionais.</p>;
+  return (
+    <dl className={cn("grid grid-cols-[minmax(90px,auto)_1fr] gap-x-4 gap-y-1.5 text-xs", !nested && "bg-muted/30 rounded-lg p-3")}>
+      {entries.map(([key, value]) => (
+        <div key={key} className="contents">
+          <dt className="text-muted-foreground">{humanizeKey(key)}</dt>
+          <dd className="text-foreground/90 min-w-0"><PayloadValue value={value} /></dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
 
 function ApprovalCard({ approval, onDecision }: {
   approval: Approval;
@@ -114,7 +160,8 @@ function ApprovalCard({ approval, onDecision }: {
           <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{approval.description}</p>
 
           <p className="text-[10px] text-muted-foreground mt-1">
-            Criado {new Date(approval.createdAt).toLocaleString("pt-BR")}
+            {approval.requestedByName ? `Pedido por ${approval.requestedByName} · ` : ""}
+            {new Date(approval.createdAt).toLocaleString("pt-BR")}
           </p>
         </div>
 
@@ -129,10 +176,8 @@ function ApprovalCard({ approval, onDecision }: {
       {/* Expanded payload */}
       {expanded && (
         <div className="px-5 pb-4 border-t border-border pt-4">
-          <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">Payload da ação</p>
-          <pre className="text-xs bg-muted/30 rounded-lg p-3 overflow-auto text-muted-foreground">
-            {JSON.stringify(approval.payload, null, 2)}
-          </pre>
+          <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">Detalhes do que será feito</p>
+          <PayloadView payload={approval.payload} />
         </div>
       )}
 
@@ -185,8 +230,11 @@ export default function ApprovalsPage() {
   const [filter, setFilter] = useState<"PENDING" | "ALL">("PENDING");
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const fetchApprovals = useCallback(async () => {
-    setLoading(true);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
+
+  // silent = atualização automática: não troca a lista por esqueleto (senão a observação digitada some)
+  const fetchApprovals = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await fetch(`/api/approvals?status=${filter}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -195,7 +243,7 @@ export default function ApprovalsPage() {
       setPendingCount(data.pendingCount ?? 0);
       setLoadError(null);
     } catch (err) {
-      setApprovals([]);
+      if (!silent) setApprovals([]);
       setLoadError(`Não foi possível carregar as aprovações (${err instanceof Error ? err.message : String(err)})`);
     } finally {
       setLoading(false);
@@ -204,12 +252,15 @@ export default function ApprovalsPage() {
 
   useEffect(() => {
     fetchApprovals();
-    // Auto-refresh every 10s for pending decisions
-    const interval = setInterval(fetchApprovals, 10_000);
+    // Atualiza a cada 10 s, só com a janela visível
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") fetchApprovals(true);
+    }, 10_000);
     return () => clearInterval(interval);
   }, [fetchApprovals]);
 
   async function handleDecision(id: string, action: "APPROVED" | "REJECTED", note?: string) {
+    setDecisionError(null);
     const res = await fetch(`/api/approvals/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -217,10 +268,10 @@ export default function ApprovalsPage() {
     });
     if (!res.ok) {
       const data = await res.json().catch(() => null);
-      setLoadError(`A decisão não foi registrada (${data?.error ?? `HTTP ${res.status}`})`);
+      setDecisionError(`A decisão não foi registrada (${data?.error ?? `HTTP ${res.status}`})`);
       return;
     }
-    await fetchApprovals();
+    await fetchApprovals(true);
   }
 
   const displayedApprovals = filter === "PENDING"
@@ -271,7 +322,7 @@ export default function ApprovalsPage() {
             </button>
           </div>
           <button
-            onClick={fetchApprovals}
+            onClick={() => fetchApprovals()}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-muted/50 hover:bg-muted border border-border text-sm text-muted-foreground hover:text-foreground transition-all"
           >
             <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
@@ -293,6 +344,12 @@ export default function ApprovalsPage() {
 
       {loadError && (
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">{loadError}</div>
+      )}
+      {decisionError && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300 flex items-start justify-between gap-3">
+          <span>{decisionError}</span>
+          <button onClick={() => setDecisionError(null)} className="text-xs underline flex-shrink-0">Fechar</button>
+        </div>
       )}
 
       {/* List */}

@@ -21,6 +21,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ solutions });
   } catch (err) {
     console.error('[API /solutions GET]', err);
-    return NextResponse.json({ solutions: [] });
+    return NextResponse.json({ solutions: [], error: 'Não foi possível ler as soluções do banco de dados.' }, { status: 500 });
   }
 }

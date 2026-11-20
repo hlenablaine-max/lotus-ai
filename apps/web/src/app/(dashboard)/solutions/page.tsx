@@ -1,8 +1,58 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Package, Search, Zap, TrendingUp, Clock, DollarSign, ChevronRight, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+// Escolhe o cliente e abre o chat da LOTUS com o pedido de proposta já escrito (o dono revisa e envia)
+function ProposeToClient({ solution }: { solution: { name: string; problemSolved: string } }) {
+  const router = useRouter();
+  const [clients, setClients] = useState<Array<{ id: string; name: string }>>([]);
+  const [clientId, setClientId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/clients")
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error ?? `erro ${r.status}`);
+        setClients(d.clients ?? []);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+  }, []);
+
+  const propose = () => {
+    const client = clients.find((c) => c.id === clientId);
+    if (!client) return;
+    const prompt = `Monte uma proposta da solução "${solution.name}" para o cliente ${client.name}: explique como ela resolve "${solution.problemSolved}" no caso dele, com escopo, prazo, investimento e próximos passos. Use os dados e diagnósticos que já temos desse cliente.`;
+    const params = new URLSearchParams({ clientId: client.id, clientName: client.name, prompt });
+    router.push(`/ceo?${params.toString()}`);
+  };
+
+  return (
+    <div className="space-y-2">
+      <select
+        value={clientId}
+        onChange={(e) => setClientId(e.target.value)}
+        className="w-full px-3 py-2.5 rounded-lg bg-muted/50 border border-border text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+      >
+        <option value="">{clients.length ? "Escolha o cliente…" : "Nenhum cliente cadastrado"}</option>
+        {clients.map((c) => (
+          <option key={c.id} value={c.id}>{c.name}</option>
+        ))}
+      </select>
+      {error && <p className="text-xs text-red-400">Não foi possível carregar os clientes ({error}).</p>}
+      <button
+        onClick={propose}
+        disabled={!clientId}
+        className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-all disabled:opacity-40"
+      >
+        Propor para este cliente
+      </button>
+    </div>
+  );
+}
 
 interface Solution {
   id: string;
@@ -22,15 +72,15 @@ interface Solution {
 }
 
 const COMPLEXITY_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  LOW:        { label: "Quick Win",  color: "text-emerald-400", bg: "bg-emerald-400/10 border-emerald-400/20" },
-  MEDIUM:     { label: "Standard",  color: "text-blue-400",    bg: "bg-blue-400/10 border-blue-400/20" },
-  HIGH:       { label: "Complexo",  color: "text-amber-400",   bg: "bg-amber-400/10 border-amber-400/20" },
-  ENTERPRISE: { label: "Enterprise",color: "text-violet-400",  bg: "bg-violet-400/10 border-violet-400/20" },
+  LOW:        { label: "Ganho rápido", color: "text-emerald-400", bg: "bg-emerald-400/10 border-emerald-400/20" },
+  MEDIUM:     { label: "Padrão",       color: "text-blue-400",    bg: "bg-blue-400/10 border-blue-400/20" },
+  HIGH:       { label: "Complexo",     color: "text-amber-400",   bg: "bg-amber-400/10 border-amber-400/20" },
+  ENTERPRISE: { label: "Grande porte", color: "text-violet-400",  bg: "bg-violet-400/10 border-violet-400/20" },
 };
 
 const MODEL_CONFIG: Record<string, { label: string; icon: React.ElementType }> = {
-  TURNKEY:          { label: "Turnkey",         icon: Zap },
-  CO_IMPLEMENTATION:{ label: "Co-impl.",        icon: TrendingUp },
+  TURNKEY:          { label: "Entregue pronto", icon: Zap },
+  CO_IMPLEMENTATION:{ label: "Feito junto",     icon: TrendingUp },
   MAINTENANCE:      { label: "Manutenção",      icon: Sparkles },
 };
 
@@ -54,10 +104,16 @@ export default function SolutionsPage() {
   const [filterComplexity, setFilterComplexity] = useState("all");
   const [selected, setSelected] = useState<Solution | null>(null);
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   useEffect(() => {
     fetch("/api/solutions")
-      .then((r) => r.json())
-      .then((d) => setSolutions(d.solutions ?? []))
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error ?? `erro ${r.status}`);
+        setSolutions(d.solutions ?? []);
+      })
+      .catch((err) => setLoadError(err instanceof Error ? err.message : String(err)))
       .finally(() => setLoading(false));
   }, []);
 
@@ -138,8 +194,8 @@ export default function SolutionsPage() {
       ) : solutions.length === 0 ? (
         <div className="text-center py-16">
           <Package className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-          <p className="text-muted-foreground">Nenhuma solução cadastrada ainda.</p>
-          <p className="text-xs text-muted-foreground/70 mt-1">Execute o seed do banco para popular o catálogo.</p>
+          <p className="text-muted-foreground">{loadError ? "Não foi possível carregar o catálogo de soluções." : "Nenhuma solução cadastrada ainda."}</p>
+          <p className="text-xs text-muted-foreground/70 mt-1">{loadError ? loadError : "O catálogo é preenchido pelo seed do banco (pnpm db:seed)."}</p>
         </div>
       ) : (
         Object.entries(grouped).map(([cat, items]) => (
@@ -269,12 +325,7 @@ export default function SolutionsPage() {
               </div>
             )}
 
-            <button
-              onClick={() => setSelected(null)}
-              className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-all"
-            >
-              Propor para Cliente
-            </button>
+            <ProposeToClient solution={selected} />
           </div>
         </div>
       )}

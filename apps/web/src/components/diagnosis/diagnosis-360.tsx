@@ -8,6 +8,7 @@ import {
 import { cn } from "@/lib/utils";
 import { RichText } from "@/components/ui/rich-text";
 import { ReportView } from "@/components/diagnosis/report-view";
+import { ReportDownloadButton } from "@/components/reports/report-download";
 
 interface Progress {
   mission: { id: string; title: string; status: string; client: { id: string; name: string; instagram: string | null } };
@@ -340,6 +341,8 @@ export function Diagnosis360() {
           })}
 
           <div className="flex flex-wrap items-center gap-2">
+            {progress.report && missionId && <ReportDownloadButton missionId={missionId} className="mr-1" />}
+            {progress.report && missionId && <ReportDownloadButton missionId={missionId} internal />}
             {progress.report && !progress.hasProduction && (
               <button onClick={() => missionAction("produce")} disabled={acting} className="px-3 py-2 rounded-lg bg-pink-500/15 border border-pink-500/40 text-pink-200 text-xs font-medium flex items-center gap-1.5 disabled:opacity-40">
                 <Hammer size={13} /> Produzir as soluções deste diagnóstico

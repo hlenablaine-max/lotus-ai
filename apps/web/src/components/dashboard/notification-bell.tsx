@@ -11,6 +11,7 @@ interface Notification {
   message: string;
   priority: "HIGH" | "MEDIUM" | "LOW";
   createdAt: string;
+  href?: string;
   read: boolean;
 }
 
@@ -60,7 +61,20 @@ export function NotificationBell() {
     try {
       const res = await fetch("/api/advisor/notifications");
       const data = await res.json();
-      setNotifications(data.notifications ?? []);
+      // A API manda { body, severity, ts, href }; o sino usa { message, priority, createdAt, href }
+      const PRIORITY: Record<string, Notification["priority"]> = { critical: "HIGH", warning: "MEDIUM", info: "LOW" };
+      const list = (data.notifications ?? []) as Array<{ id: string; title: string; body?: string; severity?: string; ts?: number; href?: string }>;
+      setNotifications(
+        list.map((n) => ({
+          id: n.id,
+          title: n.title,
+          message: n.body ?? "",
+          priority: PRIORITY[n.severity ?? "info"] ?? "LOW",
+          createdAt: new Date(n.ts ?? Date.now()).toISOString(),
+          href: n.href,
+          read: false,
+        }))
+      );
     } catch {}
     setLoading(false);
   };
@@ -88,7 +102,7 @@ export function NotificationBell() {
     markRead(notif.id);
     setReadIds(getReadIds());
     setOpen(false);
-    router.push(`/advisor?notificationId=${notif.id}&title=${encodeURIComponent(notif.title)}`);
+    router.push(notif.href || `/advisor?notificationId=${notif.id}&title=${encodeURIComponent(notif.title)}`);
   };
 
   return (

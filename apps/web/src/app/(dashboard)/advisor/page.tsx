@@ -5,6 +5,7 @@ import { RichText } from "@/components/ui/rich-text";
 import { Brain, Bell, AlertTriangle, Info, Zap, Loader2, Send, ChevronRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 interface Notification {
   id: string;
@@ -43,7 +44,8 @@ export default function AdvisorPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [polling, setPolling] = useState(true);
+  const [notifError, setNotifError] = useState<string | null>(null);
+  const router = useRouter();
   const msgCounter = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -52,14 +54,18 @@ export default function AdvisorPage() {
     const fetchNotifs = async () => {
       try {
         const res = await fetch("/api/advisor/notifications");
+        if (!res.ok) throw new Error(`erro ${res.status}`);
         const data = await res.json();
+        setNotifError(null);
         setNotifications((prev) => {
           const prevIds = new Set(prev.map((n) => n.id));
           const incoming = data.notifications as Notification[];
           // Mark existing reads
           return incoming.map((n) => ({ ...n, read: prevIds.has(n.id) ? (prev.find((p) => p.id === n.id)?.read ?? false) : false }));
         });
-      } catch { /* ignore */ }
+      } catch (err) {
+        setNotifError(`Não foi possível carregar os alertas (${err instanceof Error ? err.message : String(err)}).`);
+      }
     };
     fetchNotifs();
     const timer = setInterval(fetchNotifs, 30000);
@@ -167,14 +173,17 @@ export default function AdvisorPage() {
             )}
           </div>
           <div className="flex items-center gap-1.5 text-[10px] text-white/45">
-            <div className={cn("w-1.5 h-1.5 rounded-full", polling ? "bg-green-400 animate-pulse" : "bg-white/20")} />
-            {polling ? "Monitorando" : "Pausado"}
+            <div className={cn("w-1.5 h-1.5 rounded-full", notifError ? "bg-red-400" : "bg-green-400 animate-pulse")} />
+            {notifError ? "Sem conexão" : "Monitorando"}
           </div>
         </div>
 
         {/* Notification list */}
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          {notifications.length === 0 && (
+          {notifError && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-300">{notifError}</div>
+          )}
+          {notifications.length === 0 && !notifError && (
             <div className="text-center py-12">
               <Bell className="w-8 h-8 text-white/10 mx-auto mb-3" />
               <p className="text-xs text-white/45">Nenhum alerta no momento</p>
@@ -204,9 +213,19 @@ export default function AdvisorPage() {
                       <span className="text-[9px] text-white/45 flex-shrink-0 mt-0.5">{timeAgo(n.ts)}</span>
                     </div>
                     <p className="text-[11px] text-white/35 leading-snug line-clamp-2">{n.body}</p>
-                    <div className="flex items-center gap-1 mt-2 text-[10px] text-pink-400">
-                      {n.action} <ChevronRight size={10} />
-                    </div>
+                    {n.href ? (
+                      <span
+                        role="link"
+                        tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); router.push(n.href); }}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); router.push(n.href); } }}
+                        className="inline-flex items-center gap-1 mt-2 text-[10px] text-pink-400 hover:text-pink-300 hover:underline cursor-pointer"
+                      >
+                        {n.action} <ChevronRight size={10} />
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-1 mt-2 text-[10px] text-pink-400">{n.action}</div>
+                    )}
                   </div>
                 </div>
               </button>

@@ -116,14 +116,177 @@ function portInUse(): Promise<boolean> {
   return Promise.all([tryHost('127.0.0.1'), tryHost('::1')]).then((r) => r.some(Boolean))
 }
 
-function startServer(repoDir: string): void {
+// ---------------------------------------------------------------------------
+// Velocidade: o modo desenvolvedor ("next dev") compila cada tela na primeira visita, o que deixa
+// tudo lento. Sempre que existe uma versão compilada atualizada (.next-prod), o app usa ela ("next start"),
+// que abre as telas na hora. Quando o código muda (automodificação pela IA ou atualização), o app
+// recompila em segundo plano e troca o servidor quando nenhum agente estiver trabalhando.
+// ---------------------------------------------------------------------------
+// Duas pastas alternadas: uma servindo, a outra recebendo a compilação nova (não dá para recompilar por cima da que está no ar)
+const PROD_DISTS = ['.next-prod-a', '.next-prod-b']
+type ServerMode = 'dev' | 'prod'
+let servingDist: string | null = null
+let building = false
+let failedStamp: string | null = null
+let swapping = false
+
+function newestMtime(target: string): number {
+  let newest = 0
+  let stat: fs.Stats
+  try {
+    stat = fs.statSync(target)
+  } catch {
+    return 0
+  }
+  if (!stat.isDirectory()) return stat.mtimeMs
+  for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name.startsWith('.next')) continue
+    newest = Math.max(newest, newestMtime(path.join(target, entry.name)))
+  }
+  return newest
+}
+
+// "Carimbo" do código-fonte: muda sempre que algum arquivo que entra no site muda
+function sourceStamp(repoDir: string): string {
+  const web = path.join(repoDir, 'apps', 'web')
+  const targets = [
+    path.join(web, 'src'),
+    path.join(web, 'prisma', 'schema.prisma'),
+    path.join(web, 'next.config.ts'),
+    path.join(web, 'tailwind.config.ts'),
+    path.join(web, 'package.json'),
+    path.join(web, '.env.local'),
+    path.join(repoDir, 'packages', 'ai-engine', 'src'),
+  ]
+  return String(Math.round(Math.max(...targets.map(newestMtime))))
+}
+
+function stampFile(repoDir: string, dist: string): string {
+  return path.join(repoDir, 'apps', 'web', dist, 'lotus-source-stamp')
+}
+
+// Pasta compilada que corresponde ao código atual (ou null se nenhuma está em dia)
+function freshDist(repoDir: string): string | null {
+  const stamp = sourceStamp(repoDir)
+  return (
+    PROD_DISTS.find((dist) => {
+      try {
+        return fs.existsSync(path.join(repoDir, 'apps', 'web', dist, 'BUILD_ID')) && fs.readFileSync(stampFile(repoDir, dist), 'utf-8').trim() === stamp
+      } catch {
+        return false
+      }
+    }) ?? null
+  )
+}
+
+function prodIsFresh(repoDir: string): boolean {
+  return freshDist(repoDir) !== null
+}
+
+function startFastBuild(repoDir: string): void {
+  if (building) return
+  const stamp = sourceStamp(repoDir)
+  if (stamp === failedStamp) return
+  building = true
   const webDir = path.join(repoDir, 'apps', 'web')
-  serverLog = []
-  serverProcess = spawn('pnpm', ['exec', 'next', 'dev', '--port', String(SERVER_PORT), '-H', '127.0.0.1'], {
+  const logFile = path.join(WORKSPACE_DIR, 'logs', 'build.log')
+  fs.mkdirSync(path.dirname(logFile), { recursive: true })
+  const log = fs.createWriteStream(logFile, { flags: 'w' })
+  log.write(`===== compilação rápida iniciada em ${new Date().toISOString()} =====\n`)
+  const target = PROD_DISTS.find((d) => d !== servingDist) ?? PROD_DISTS[0]
+  const child = spawn('pnpm', ['exec', 'next', 'build'], {
     cwd: webDir,
     shell: true,
     windowsHide: true,
-    env: { ...process.env, LOTUS_DESKTOP: '1', LOTUS_REPO_DIR: repoDir, ELECTRON_RUN_AS_NODE: undefined },
+    env: { ...process.env, LOTUS_DIST_DIR: target, NEXT_TELEMETRY_DISABLED: '1', ELECTRON_RUN_AS_NODE: undefined },
+  })
+  // Prioridade baixa: o computador continua respondendo enquanto compila
+  try {
+    if (child.pid) require('os').setPriority(child.pid, require('os').constants.priority.PRIORITY_BELOW_NORMAL)
+  } catch {
+    /* ignore */
+  }
+  child.stdout?.on('data', (d) => log.write(d))
+  child.stderr?.on('data', (d) => log.write(d))
+  child.on('exit', (code) => {
+    building = false
+    log.end(`\n===== terminou com código ${code} =====\n`)
+    if (code === 0) {
+      fs.writeFileSync(stampFile(repoDir, target), stamp, 'utf-8')
+      failedStamp = null
+      void swapToProdWhenIdle(repoDir)
+    } else {
+      failedStamp = stamp // não tenta de novo o mesmo código quebrado; continua no modo desenvolvedor
+    }
+  })
+}
+
+async function agentsBusy(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port: SERVER_PORT, path: '/api/internal/busy', timeout: 10_000 }, (res) => {
+      let body = ''
+      res.on('data', (c) => (body += c))
+      res.on('end', () => {
+        try {
+          resolve(!!JSON.parse(body).busy)
+        } catch {
+          resolve(true)
+        }
+      })
+    })
+    req.on('error', () => resolve(false))
+    req.on('timeout', () => {
+      req.destroy()
+      resolve(true)
+    })
+  })
+}
+
+// Troca para a versão compilada assim que nenhum agente estiver no meio de uma tarefa
+async function swapToProdWhenIdle(repoDir: string): Promise<void> {
+  if (swapping || !serverProcess) return
+  swapping = true
+  try {
+    while (await agentsBusy()) await new Promise((r) => setTimeout(r, 20_000))
+    if (!prodIsFresh(repoDir)) return
+    const currentUrl = mainWindow?.webContents.getURL()
+    stopServer()
+    for (let i = 0; i < 20 && (await portInUse()); i++) await new Promise((r) => setTimeout(r, 500))
+    startServer(repoDir, 'prod')
+    const deadline = Date.now() + 120_000
+    while (Date.now() < deadline && !(await pingServer(5_000))) await new Promise((r) => setTimeout(r, 1000))
+    if (mainWindow && currentUrl?.startsWith('http')) mainWindow.loadURL(currentUrl)
+  } finally {
+    swapping = false
+  }
+}
+
+// De minuto em minuto: código mudou desde a última compilação? recompila em segundo plano
+function watchForCodeChanges(repoDir: string): void {
+  setInterval(() => {
+    if (!serverProcess || building || swapping) return
+    if (!prodIsFresh(repoDir)) startFastBuild(repoDir)
+  }, 60_000)
+}
+
+function startServer(repoDir: string, mode: ServerMode = prodIsFresh(repoDir) ? 'prod' : 'dev'): void {
+  const webDir = path.join(repoDir, 'apps', 'web')
+  serverLog = []
+  const dist = mode === 'prod' ? freshDist(repoDir) : null
+  if (mode === 'prod' && !dist) mode = 'dev'
+  servingDist = mode === 'prod' ? dist : null
+  const args = mode === 'prod' ? ['exec', 'next', 'start', '--port', String(SERVER_PORT), '-H', '127.0.0.1'] : ['exec', 'next', 'dev', '--port', String(SERVER_PORT), '-H', '127.0.0.1']
+  serverProcess = spawn('pnpm', args, {
+    cwd: webDir,
+    shell: true,
+    windowsHide: true,
+    env: {
+      ...process.env,
+      LOTUS_DESKTOP: '1',
+      LOTUS_REPO_DIR: repoDir,
+      ELECTRON_RUN_AS_NODE: undefined,
+      ...(mode === 'prod' && dist ? { LOTUS_DIST_DIR: dist, NODE_ENV: 'production' } : {}),
+    },
   })
   // A saída do servidor também vai para um arquivo, para o dono (ou a própria IA) diagnosticar erros
   const logDir = path.join(WORKSPACE_DIR, 'logs')
@@ -135,7 +298,7 @@ function startServer(repoDir: string): void {
     /* ignore */
   }
   const logStream = fs.createWriteStream(logFile, { flags: 'a' })
-  logStream.write(`\n===== servidor iniciado em ${new Date().toISOString()} =====\n`)
+  logStream.write(`\n===== servidor iniciado em ${new Date().toISOString()} (${mode === 'prod' ? 'versão rápida' : 'modo desenvolvedor'}) =====\n`)
   const capture = (data: Buffer) => {
     serverLog.push(data.toString())
     if (serverLog.length > 200) serverLog.shift()
@@ -158,9 +321,18 @@ function stopServer(): void {
   serverProcess = null
 }
 
+let watching = false
 async function ensureServer(repoDir: string): Promise<boolean> {
   const alreadyRunning = await portInUse()
   if (!alreadyRunning) startServer(repoDir)
+  if (!watching) {
+    watching = true
+    // Primeira verificação depois de 90 s, para não competir com a abertura do app
+    setTimeout(() => {
+      if (serverProcess && !prodIsFresh(repoDir)) startFastBuild(repoDir)
+      watchForCodeChanges(repoDir)
+    }, 90_000)
+  }
   const deadline = Date.now() + 240_000
   while (Date.now() < deadline) {
     if (await pingServer()) return true
