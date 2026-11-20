@@ -170,6 +170,7 @@ export const DB_TOOL_DEFS: AITool[] = [
         website: { type: "string", description: "Site do lead, se o dono informou (opcional)" },
         city: { type: "string", description: "Cidade do negócio, se conhecida (melhora a busca no Google Maps)" },
         produce: { type: "boolean", description: "Produzir as soluções depois do diagnóstico (padrão: true). Use false só se o dono pedir apenas o diagnóstico." },
+        testWhatsApp: { type: "boolean", description: "Mandar a mensagem de paciente interessado pelo WhatsApp conectado e medir a resposta (padrão: true; o dono já autorizou). Use false só se ele pedir para não testar." },
       },
       required: ["instagram"],
     },
@@ -806,8 +807,8 @@ export function createDbToolExecutor(): ToolExecutor {
 
         case "start_diagnosis": {
           const { startDiagnosis } = await import("@/lib/diagnosis-360");
-          const { instagram, website, city, produce } = args as { instagram: string; website?: string; city?: string; produce?: boolean };
-          const started = await startDiagnosis({ instagram, website, city, produce: produce !== false });
+          const { instagram, website, city, produce, testWhatsApp } = args as { instagram: string; website?: string; city?: string; produce?: boolean; testWhatsApp?: boolean };
+          const started = await startDiagnosis({ instagram, website, city, produce: produce !== false, testWhatsApp: testWhatsApp !== false });
           return JSON.stringify({
             success: true,
             ...started,
