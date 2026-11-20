@@ -39,6 +39,7 @@ sys.exit(1)
 export interface InstagramPost {
   url: string
   type: 'reel' | 'post'
+  pinned?: boolean
   likes: number | null
   comments: number | null
   publishedAt: string | null
@@ -218,13 +219,15 @@ export class ResearchBrowser {
           }
         })
         const anchors = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[]
-        const posts: Array<{ href: string; alt: string }> = []
+        const posts: Array<{ href: string; alt: string; pinned: boolean }> = []
         const seen = new Set<string>()
         for (const a of anchors) {
           const href = a.getAttribute('href') ?? ''
           if (!/\/(p|reel)\/[^/]+\/?$/.test(href) || seen.has(href)) continue
           seen.add(href)
-          posts.push({ href, alt: (a.querySelector('img')?.getAttribute('alt') ?? '').slice(0, 300) })
+          // O Instagram marca os fixados com um ícone de alfinete ("Publicação fixada" / "Pinned post")
+          const pinned = !!a.querySelector('svg[aria-label*="ixad" i], svg[aria-label*="inned" i]')
+          posts.push({ href, alt: (a.querySelector('img')?.getAttribute('alt') ?? '').slice(0, 300), pinned })
         }
         const external = anchors
           .map((a) => a.href)
@@ -297,6 +300,7 @@ export class ResearchBrowser {
             publishedAt: info.time,
             caption: (d.match(/:\s*["“]([\s\S]*)["”]\.?\s*$/)?.[1] ?? '').trim().slice(0, 1500),
             thumbnailAlt: item.alt,
+            ...(item.pinned ? { pinned: true } : {}),
           })
         } catch {
           posts.push({ url: postUrl, type: /\/reel\//.test(postUrl) ? 'reel' : 'post', likes: null, comments: null, publishedAt: null, caption: '', thumbnailAlt: item.alt })
@@ -430,7 +434,8 @@ export class ResearchBrowser {
         fs.writeFileSync(script, TRANSCRIBE_SCRIPT, 'utf-8')
         // Modelo de transcrição conforme a memória livre agora (o maior precisa de ~2 GB)
         const freeGb = os.freemem() / 1024 ** 3
-        const models = freeGb >= 3 ? 'small,base,tiny' : freeGb >= 1.6 ? 'base,tiny' : 'tiny'
+        // small ~1 GB, base ~400 MB, tiny ~200 MB de memória: usa o melhor que cabe agora
+        const models = freeGb >= 2.5 ? 'small,base,tiny' : freeGb >= 0.8 ? 'base,tiny' : 'tiny'
         const threads = Math.max(1, Math.min(4, Math.floor(os.cpus().length / 2)))
         const { stdout } = await execFileAsync('python', [script, audioFile, models, String(threads)], {
           timeout: 600_000,

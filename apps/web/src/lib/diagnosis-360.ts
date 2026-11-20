@@ -29,6 +29,8 @@ interface InstagramPost {
   publishedAt: string | null;
   caption: string;
   thumbnailAlt: string;
+  // Post fixado no topo do perfil (o Instagram mostra primeiro, mesmo sendo antigo)
+  pinned?: boolean;
 }
 
 interface InstagramProfile {
@@ -74,8 +76,30 @@ function businessNameFromTitle(title: string, handle: string): string {
 }
 
 // Indicadores calculados direto dos dados (sem IA), para os agentes partirem de números reais.
+// Os primeiros posts do perfil podem ser FIXADOS (antigos, escolhidos pelo dono). Eles entram na análise
+// de conteúdo, mas não podem entrar na frequência nem na média de engajamento: um viral fixado de meses
+// atrás faria a clínica parecer que posta pouco e engaja muito.
+function markPinned(posts: InstagramPost[]): InstagramPost[] {
+  const time = (p: InstagramPost) => (p.publishedAt ? new Date(p.publishedAt).getTime() : 0);
+  return posts.map((post, i) => {
+    if (post.pinned !== undefined || i > 2) return post;
+    const newerLater = posts.slice(i + 1).some((other) => time(other) > time(post) + 86_400_000);
+    return { ...post, pinned: newerLater };
+  });
+}
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// Indicadores calculados direto dos dados (sem IA), para os agentes partirem de números reais.
 function computeMetrics(profile: InstagramProfile) {
-  const posts = profile.posts;
+  const all = profile.posts;
+  const pinned = all.filter((p) => p.pinned);
+  const posts = all.filter((p) => !p.pinned);
   const withLikes = posts.filter((p) => p.likes !== null);
   const followers = profile.followers ?? 0;
   const engagement = (p: InstagramPost) => (followers > 0 && p.likes !== null ? ((p.likes + (p.comments ?? 0)) / followers) * 100 : null);
@@ -83,22 +107,28 @@ function computeMetrics(profile: InstagramProfile) {
   const dates = posts.map((p) => (p.publishedAt ? new Date(p.publishedAt).getTime() : null)).filter((d): d is number => d !== null).sort((a, b) => b - a);
   const spanDays = dates.length > 1 ? (dates[0] - dates[dates.length - 1]) / 86_400_000 : null;
   const ctaRegex = /agend|link na bio|whats|chame|clique|direct|\bdm\b|marque|garanta|saiba mais|fale conosco|ligue/i;
+  const likes = withLikes.map((p) => p.likes ?? 0);
   return {
     seguidores: profile.followers,
     seguindo: profile.following,
     totalDePosts: profile.postsCount,
-    postsAnalisados: posts.length,
-    reelsEntreOsAnalisados: posts.filter((p) => p.type === "reel").length,
+    postsAnalisados: all.length,
+    postsFixadosNoTopo: pinned.map((p) => ({ data: p.publishedAt, curtidas: p.likes, tipo: p.type })),
+    postsRecentesUsadosNasContas: posts.length,
+    reelsEntreOsRecentes: posts.filter((p) => p.type === "reel").length,
+    taxaDeEngajamentoMedianaPct: rates.length ? Number(median(rates)!.toFixed(2)) : null,
     taxaDeEngajamentoMediaPct: rates.length ? Number((rates.reduce((a, b) => a + b, 0) / rates.length).toFixed(2)) : null,
-    mediaDeCurtidas: withLikes.length ? Math.round(withLikes.reduce((a, p) => a + (p.likes ?? 0), 0) / withLikes.length) : null,
+    medianaDeCurtidas: likes.length ? Math.round(median(likes)!) : null,
+    mediaDeCurtidas: likes.length ? Math.round(likes.reduce((a, b) => a + b, 0) / likes.length) : null,
     mediaDeComentarios: withLikes.length ? Math.round(withLikes.reduce((a, p) => a + (p.comments ?? 0), 0) / withLikes.length) : null,
     diasDesdeOUltimoPost: dates.length ? Math.floor((Date.now() - dates[0]) / 86_400_000) : null,
     postsPorSemana: spanDays && spanDays > 0 ? Number(((dates.length - 1) / (spanDays / 7)).toFixed(1)) : null,
-    legendasComChamadaParaAcao: posts.filter((p) => ctaRegex.test(p.caption)).length,
+    legendasComChamadaParaAcao: `${posts.filter((p) => ctaRegex.test(p.caption)).length} de ${posts.length}`,
     tamanhoMedioDaLegenda: posts.length ? Math.round(posts.reduce((a, p) => a + p.caption.length, 0) / posts.length) : 0,
     quantidadeDeDestaques: profile.highlights.length,
     temLinkNaBio: profile.externalLinks.length > 0,
-    observacao: "Curtidas ocultas pelo perfil aparecem como nulas. A taxa de engajamento usa (curtidas + comentários) ÷ seguidores dos posts analisados.",
+    observacao:
+      "Frequência e engajamento usam só os posts recentes (os fixados no topo ficam de fora). Prefira a MEDIANA: um post viral distorce a média. Engajamento = (curtidas + comentários) ÷ seguidores. Curtidas ocultas aparecem como nulas.",
   };
 }
 
@@ -215,7 +245,8 @@ async function collectAndAnalyze(ctx: {
   const { input, handle, clientId, missionId, collectTaskId, runtime } = ctx;
 
   // 1) Instagram
-  const profile = (await runtime.call("/runtime/research/instagram", { handle, maxPosts: 9 }, 240_000)) as InstagramProfile;
+  const rawProfile = (await runtime.call("/runtime/research/instagram", { handle, maxPosts: 12 }, 300_000)) as InstagramProfile;
+  const profile: InstagramProfile = { ...rawProfile, posts: markPinned(rawProfile.posts ?? []) };
   if (!profile.found) {
     const reason = profile.loginWall
       ? "O Instagram pediu login para mostrar este perfil. Conecte uma conta em Diagnóstico > Contas conectadas e rode de novo."
@@ -286,7 +317,9 @@ async function collectAndAnalyze(ctx: {
   const company = cnpjs.length > 0 ? await lookupCnpj(cnpjs[0]) : { observacao: "Nenhum CNPJ publicado no site; dá para pedir na reunião ou procurar pelo nome na Receita." };
 
   // 5) Vídeos: transcrição da fala e quadros dos 3 reels mais recentes
-  const reels = profile.posts.filter((p) => p.type === "reel").slice(0, 3);
+  const recentReels = profile.posts.filter((p) => p.type === "reel" && !p.pinned).slice(0, 2);
+  const topPinned = profile.posts.filter((p) => p.type === "reel" && p.pinned).sort((a, b) => (b.likes ?? 0) - (a.likes ?? 0))[0];
+  const reels = [...recentReels, ...(topPinned ? [topPinned] : profile.posts.filter((p) => p.type === "reel" && !p.pinned).slice(2, 3))];
   // Primeiro baixa tudo com o navegador, depois fecha o navegador e só então transcreve:
   // navegador + transcrição ao mesmo tempo estouram a memória em computadores com 8 GB.
   const downloads: Array<{ reel: (typeof reels)[number]; files: string[]; erro?: string }> = [];
@@ -356,7 +389,7 @@ async function collectAndAnalyze(ctx: {
     `# Dados coletados — ${businessName} (@${handle})`,
     ``,
     `- Seguidores: ${metrics.seguidores ?? "não visível"} · Posts: ${metrics.totalDePosts ?? "?"} · Destaques: ${metrics.quantidadeDeDestaques}`,
-    `- Engajamento médio: ${metrics.taxaDeEngajamentoMediaPct ?? "n/d"}% · Posts por semana: ${metrics.postsPorSemana ?? "n/d"} · Último post há ${metrics.diasDesdeOUltimoPost ?? "?"} dia(s)`,
+    `- Engajamento (mediana dos posts recentes): ${metrics.taxaDeEngajamentoMedianaPct ?? "n/d"}% · Posts por semana: ${metrics.postsPorSemana ?? "n/d"} · Último post há ${metrics.diasDesdeOUltimoPost ?? "?"} dia(s) · Fixados no topo: ${metrics.postsFixadosNoTopo.length}`,
     `- Link na bio: ${candidateSite ?? "nenhum"}`,
     `- Anúncios ativos do próprio negócio na Meta: ${hasError(ads) ? "não foi possível verificar" : matchingAds.length}`,
     `- WhatsApp encontrado: ${whatsapp.join(", ") || "nenhum"}`,
@@ -431,7 +464,7 @@ async function collectPeople(runtime: RuntimeClient, handle: string, profile: In
   sites.forEach((s) => (s && !("erro" in s) ? ((s.instagramsCitados as string[] | undefined) ?? []) : []).forEach((h) => bump(h, 6)));
   profile.posts.forEach((p) => mentions(p.caption).forEach((h) => bump(h, 1)));
   const candidates = [...counts.entries()]
-    .filter(([h, n]) => h !== handle && n >= 2)
+    .filter(([h]) => h !== handle && !["instagram", "reels"].includes(h))
     .sort((a, b) => b[1] - a[1])
     .slice(0, 2)
     .map(([h]) => h);
@@ -501,7 +534,7 @@ async function createAnalysisTasks(c: AnalysisContext): Promise<void> {
     linksNaBio: c.profile.externalLinks,
     destaques: c.profile.highlights,
   };
-  const postsSlim = c.profile.posts.map((p) => ({ tipo: p.type, data: p.publishedAt, curtidas: p.likes, comentarios: p.comments, legenda: p.caption, descricaoDaImagem: p.thumbnailAlt, url: p.url }));
+  const postsSlim = c.profile.posts.map((p) => ({ tipo: p.type, fixadoNoTopo: !!p.pinned, data: p.publishedAt, curtidas: p.likes, comentarios: p.comments, legenda: p.caption, descricaoDaImagem: p.thumbnailAlt, url: p.url }));
   const siteShots = [c.mainSite, c.site].flatMap((s) => (s && !hasError(s) ? ((s.screenshots as string[] | undefined) ?? []) : []));
   const videoFrames = c.videos.flatMap((v) => ((v.frames as string[] | undefined) ?? []).slice(0, 2));
   const stripShots = (s: Json | { erro: string } | null) => {
@@ -671,7 +704,8 @@ async function createAnalysisTasks(c: AnalysisContext): Promise<void> {
       "2. O dono e os profissionais: identifique nos `pessoasLigadas`, nos profissionais e registros citados no site quem parece ser o dono ou o profissional principal. Como ele se posiciona no Instagram pessoal (autoridade, rosto da marca, frequência, tom)? Ele aparece no perfil da clínica?",
       "3. Coerência: o posicionamento do dono e o da clínica contam a mesma história? O que um paciente percebe?",
       "4. Abordagem: o que esse perfil indica sobre como vender para ele (o que valoriza, objeções prováveis, por onde começar a conversa). Nada de suposição sobre vida pessoal: só o que é profissional e público.",
-      "Se não der para identificar o dono com segurança, diga isso claramente e liste as perguntas para descobrir na reunião.",
+      "Se `pessoasLigadas` vier vazio ou não mostrar o dono, PROCURE: use search_web com buscas como \"Dr <nome da clínica> dentista <cidade>\", \"<nome da clínica> CRO responsável técnico\", \"<nome da clínica> fundador\" e \"<nome> instagram\"; abra com fetch_url o que parecer certo (site, Doctoralia, matérias, perfil). Confirme cruzando duas fontes antes de afirmar.",
+      "Se mesmo assim não der para identificar o dono com segurança, diga isso claramente e liste as perguntas para descobrir na reunião.",
       RULES,
     ].join("\n"),
     input: {
