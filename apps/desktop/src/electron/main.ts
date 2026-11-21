@@ -39,7 +39,7 @@ function createTray(): void {
   if (tray) return
   const icon = nativeImage.createFromPath(path.join(__dirname, '../../assets/icon.png'))
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon.resize({ width: 16, height: 16 }))
-  tray.setToolTip('LOTUS AI — agentes ativos')
+  tray.setToolTip('LOTUS — agentes ativos')
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Abrir LOTUS', click: showWindow },
@@ -406,10 +406,10 @@ async function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: 'LOTUS AI',
+    title: 'LOTUS',
     backgroundColor: '#0a0a0a',
     autoHideMenuBar: true,
-    icon: path.join(__dirname, '../../assets/icon.png'),
+    icon: process.platform === 'win32' ? ICON_ICO : path.join(__dirname, '../../assets/icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -498,12 +498,43 @@ ipcMain.handle('runtime:terminal-open', (_event, cmd: string, cwd?: string) => {
 
 // === APP LIFECYCLE ===
 
+// Para o Windows, este processo é "LOTUS" (nome e ícone roxo na barra de tarefas), não "Electron".
+const APP_ID = 'ai.lotus.desktop'
+const ICON_ICO = path.join(__dirname, '../../assets/icon.ico')
+if (process.platform === 'win32') app.setAppUserModelId(APP_ID)
+
+// Atalhos "LOTUS" na Área de Trabalho e no Menu Iniciar, sempre apontando para este app
+function ensureShortcuts(): void {
+  if (process.platform !== 'win32' || app.isPackaged) return
+  const appDir = app.getAppPath()
+  const places = [
+    path.join(app.getPath('desktop'), 'LOTUS.lnk'),
+    path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'LOTUS.lnk'),
+  ]
+  for (const lnk of places) {
+    try {
+      shell.writeShortcutLink(lnk, fs.existsSync(lnk) ? 'replace' : 'create', {
+        target: process.execPath,
+        args: `"${appDir}"`,
+        cwd: appDir,
+        icon: ICON_ICO,
+        iconIndex: 0,
+        appUserModelId: APP_ID,
+        description: 'LOTUS — agência autônoma',
+      })
+    } catch (err) {
+      console.error('[LOTUS] Não consegui criar o atalho', lnk, err)
+    }
+  }
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', showWindow)
 
   app.whenReady().then(() => {
+    ensureShortcuts()
     createTray()
     createWindow()
     app.on('activate', () => {
