@@ -169,6 +169,11 @@ export class RuntimeHttpServer {
         return { shield: rt.whatsapp.shieldStatus(String(data.clientId ?? '')) }
       case '/runtime/wa/check':
         return rt.whatsapp.checkNumber(String(data.clientId ?? ''), String(data.phone ?? ''))
+      case '/runtime/transcribe': {
+        const audio = Buffer.from(String(data.base64 ?? ''), 'base64')
+        if (!audio.length) throw new Error('Áudio vazio')
+        return rt.transcriber.transcribeBuffer(audio, String(data.ext ?? 'webm'), Number(data.timeoutMs ?? 120000))
+      }
       case '/runtime/qr':
         return { image: await qrDataUrl(String(data.text ?? '')) }
 

@@ -7,6 +7,7 @@ import * as path from 'path'
 import QRCode from 'qrcode'
 import pino from 'pino'
 import { WaShield } from './wa-shield'
+import type { Transcriber } from './transcriber'
 import { WORKSPACE_DIR } from './paths'
 
 // A biblioteca é ESM; o app de PC é CommonJS. Este import dinâmico não é reescrito pelo TypeScript.
@@ -112,7 +113,10 @@ export class WhatsAppHub {
   private saveTimer: NodeJS.Timeout | null = null
   private flushTimer: NodeJS.Timeout
 
-  constructor(private log: (level: 'info' | 'warn' | 'error' | 'success', message: string) => void) {
+  constructor(
+    private log: (level: 'info' | 'warn' | 'error' | 'success', message: string) => void,
+    private transcriber: Transcriber | null = null
+  ) {
     fs.mkdirSync(WA_DIR, { recursive: true })
     try {
       if (fs.existsSync(QUEUE_FILE)) this.queue = JSON.parse(fs.readFileSync(QUEUE_FILE, 'utf-8'))
@@ -324,6 +328,22 @@ export class WhatsAppHub {
     const name = fromMe ? session.names.get(who.jid) ?? null : msg.pushName || session.names.get(who.jid) || null
     // O escudo aprende com quem o número já conversa (contato conhecido não conta como "novo")
     session.shield.seen(who.jid, !fromMe, ts)
+    // Áudio recebido agora: transcreve aqui no PC para a IA e a recepção lerem (até 3 minutos)
+    if (info.kind === 'audio' && !fromMe && !history && this.transcriber) {
+      const audio = unwrap(msg.message)?.audioMessage
+      const seconds = Number(audio?.seconds ?? 0)
+      if (seconds > 0 && seconds <= 180) {
+        try {
+          const data: Buffer = await this.lib.downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }), reuploadRequest: session.sock?.updateMediaMessage })
+          const { text } = await this.transcriber.transcribeBuffer(data, 'ogg', 90_000)
+          if (text) info.text = `🎤 (áudio de ${seconds}s, transcrito) ${text}`
+        } catch (err) {
+          this.log('warn', `Não consegui transcrever um áudio: ${String(err).slice(0, 160)}`)
+        }
+      } else if (seconds > 180) {
+        info.text = `[áudio de voz de ${Math.round(seconds / 60)} min, longo demais para transcrever: ouça no celular]`
+      }
+    }
     this.push({
       type: 'message',
       clientId: session.clientId,

@@ -158,6 +158,18 @@ const navItems: Array<{
     description: "APIs e serviços",
   },
   {
+    label: "Memória",
+    href: "/memoria",
+    icon: Brain,
+    description: "O que os agentes sabem",
+  },
+  {
+    label: "Equipe",
+    href: "/team",
+    icon: Users,
+    description: "Logins e permissões",
+  },
+  {
     label: "Atividade",
     href: "/activity",
     icon: Activity,

@@ -4,6 +4,7 @@
 import * as crypto from "crypto";
 import type { LeadSource } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { handleGoogleOAuth } from "@/lib/clinic-calendar";
 import { createRuntimeClient } from "@/lib/runtime-client";
 import { defaultAi, type AiSettings } from "@/lib/ai-attendant";
 import { notify } from "@/lib/notify";
@@ -815,6 +816,9 @@ export async function processInboundEvents(): Promise<number> {
         if (ev.source === "manychat") {
           const r = await ingestManychat(ev.token, (ev.payload ?? {}) as Record<string, unknown>);
           if (!r.ok) error = r.reason ?? "não processada";
+        } else if (ev.source === "google_oauth") {
+          const r = await handleGoogleOAuth((ev.payload ?? {}) as Record<string, unknown>);
+          if (!r.ok) error = r.reason ?? "não conectada";
         } else error = "origem desconhecida";
       } catch (err) {
         error = err instanceof Error ? err.message.slice(0, 300) : String(err);

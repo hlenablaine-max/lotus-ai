@@ -4,6 +4,7 @@
 // - planWeeklyReports (a cada minuto): no dia e hora escolhidos, manda o resumo da semana para o dono da clínica
 //   pelo número da LOTUS.
 import { prisma } from "@/lib/prisma";
+import { bookAppointment } from "@/lib/clinic-calendar";
 import { decideReply } from "@/lib/ai-attendant";
 import { applyLeadUpdate } from "@/lib/lead-update";
 import { notify } from "@/lib/notify";
@@ -75,6 +76,7 @@ export async function runAiQueue(): Promise<void> {
         if (d.acao === "agendar" && d.horario) {
           if (conv.leadId) await applyLeadUpdate(conv.leadId, { appointmentAt: d.horario });
           if (conv.prospectId) await prisma.prospect.update({ where: { id: conv.prospectId }, data: { status: "CALL_MARCADA", callAt: new Date(d.horario), notes: `Call: ${d.horario}` } });
+          else await bookAppointment(job.clientId, conv, d.horario).catch((err) => console.error("[agenda]", err instanceof Error ? err.message : err));
           const when = new Intl.DateTimeFormat("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: TZ }).format(new Date(d.horario));
           await notify({ kind: "agendou", title: role === "lotus" ? `Call marcada com ${who}` : `IA agendou ${who} na ${conv.client.name}`, body: `Para ${when}.`, href, clientId: job.clientId });
         }

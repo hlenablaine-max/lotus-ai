@@ -60,8 +60,8 @@ export interface ExecutorDB {
   };
   memory?: {
     findMany(args: {
-      where: { scope: string; clientId: string };
-      select: { key: boolean; content: boolean };
+      where: { scope: string; clientId?: string; agentId?: string; key?: { startsWith: string } };
+      select: { key?: boolean; content: boolean };
       orderBy: { updatedAt: "asc" | "desc" };
       take: number;
     }): Promise<Array<{ key: string; content: string }>>;
@@ -338,6 +338,8 @@ export async function executeTask(taskId: string, db: ExecutorDB, opts: ExecuteT
 
     // Memória do cliente: aprendizados de missões anteriores do MESMO cliente
     let clientMemories: Array<{ key: string; content: string }> = [];
+    // Memória da empresa: regras e aprendizados da agência inteira, do departamento e do próprio agente
+    let companyMemories: { global: string[]; department: string[]; agent: string[] } = { global: [], department: [], agent: [] };
     if (db.memory) {
       try {
         clientMemories = await db.memory.findMany({
@@ -346,12 +348,19 @@ export async function executeTask(taskId: string, db: ExecutorDB, opts: ExecuteT
           orderBy: { updatedAt: "desc" },
           take: 8,
         });
+        const dept = String((task.agent as { department?: string }).department ?? "");
+        const [g, d, a] = await Promise.all([
+          db.memory.findMany({ where: { scope: "GLOBAL" }, select: { content: true }, orderBy: { updatedAt: "desc" }, take: 12 }),
+          dept ? db.memory.findMany({ where: { scope: "DEPARTMENT", key: { startsWith: `dept:${dept}:` } }, select: { content: true }, orderBy: { updatedAt: "desc" }, take: 6 }) : Promise.resolve([]),
+          task.agentId ? db.memory.findMany({ where: { scope: "AGENT", agentId: task.agentId }, select: { content: true }, orderBy: { updatedAt: "desc" }, take: 6 }) : Promise.resolve([]),
+        ]);
+        companyMemories = { global: g.map((m: { content: string }) => m.content), department: d.map((m: { content: string }) => m.content), agent: a.map((m: { content: string }) => m.content) };
       } catch {
         // non-critical
       }
     }
 
-    const userPrompt = buildUserPrompt(task, prevDocs, clientMemories);
+    const userPrompt = buildUserPrompt(task, prevDocs, clientMemories, companyMemories);
 
     const provider = opts.provider ?? registry.getDefault();
 
@@ -722,6 +731,23 @@ export async function executeTask(taskId: string, db: ExecutorDB, opts: ExecuteT
       },
     });
 
+    // Memória do agente: o que ele entregou por último (mantém o estilo e não repete trabalho)
+    if (db.memory && result.content && task.agentId) {
+      try {
+        await db.memory.create({
+          data: {
+            scope: "AGENT",
+            agentId: task.agentId,
+            key: `entrega:${task.id}`,
+            content: `${task.title} (${task.mission.client.name}): ${result.content.replace(/\s+/g, " ").slice(0, 300)}`,
+            metadata: { missionId: task.missionId },
+          },
+        });
+      } catch {
+        // non-critical
+      }
+    }
+
     // Memória do cliente: resumo do que foi entregue, para as próximas missões
     if (db.memory && result.content) {
       try {
@@ -797,7 +823,8 @@ type PrevDoc = { title: string; content: string; type: string; taskId?: string |
 function buildUserPrompt(
   task: TaskWithRelations,
   prevDocs: PrevDoc[] = [],
-  clientMemories: Array<{ key: string; content: string }> = []
+  clientMemories: Array<{ key: string; content: string }> = [],
+  companyMemories: { global: string[]; department: string[]; agent: string[] } = { global: [], department: [], agent: [] }
 ): string {
   const client = task.mission.client;
   const clientProfile = [
@@ -839,6 +866,18 @@ function buildUserPrompt(
     `- Não comece com "Relatório salvo", "Segue" ou "Claro": comece pelo conteúdo.`,
   ];
 
+  if (companyMemories.global.length > 0) {
+    parts.push(``, `## Regras e aprendizados da LOTUS (valem para todo trabalho)`);
+    for (const m of companyMemories.global) parts.push(`- ${m}`);
+  }
+  if (companyMemories.department.length > 0) {
+    parts.push(``, `## Orientações do seu departamento`);
+    for (const m of companyMemories.department) parts.push(`- ${m}`);
+  }
+  if (companyMemories.agent.length > 0) {
+    parts.push(``, `## Suas últimas entregas (mantenha a qualidade e não repita o que já foi feito)`);
+    for (const m of companyMemories.agent) parts.push(`- ${m}`);
+  }
   if (clientMemories.length > 0) {
     parts.push(``, `## Memória deste Cliente (trabalhos anteriores)`);
     for (const mem of clientMemories) parts.push(`- ${mem.content}`);

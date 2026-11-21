@@ -4,6 +4,7 @@
 // SDR: conversa com a clínica prospectada e tenta marcar uma call com o Ícaro.
 import { registry } from "@lotus/ai-engine";
 import { prisma } from "@/lib/prisma";
+import { calendarBusy, type Busy } from "@/lib/clinic-calendar";
 
 const TZ = "America/Sao_Paulo";
 
@@ -43,6 +44,8 @@ export async function freeSlots(clientId: string, ag: AiSettings["agenda"], max 
   const until = new Date(now.getTime() + 8 * 86_400_000);
   const taken = await prisma.lead.findMany({ where: { clientId, appointmentAt: { gte: now, lte: until }, stage: { in: ["AGENDADO", "COMPARECEU"] } }, select: { appointmentAt: true } });
   const busy = taken.map((t) => t.appointmentAt!.getTime());
+  // Agenda real da clínica (Google Agenda ou link iCal), quando conectada
+  const realBusy = await calendarBusy(clientId, now.getTime(), until.getTime()).catch(() => [] as Busy[]);
   const [lunchA, lunchB] = (ag.almoco || "").split("-").map((x) => (x ? toMin(x.trim()) : -1));
   const out: Date[] = [];
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(now).split("-").map(Number);
@@ -54,6 +57,8 @@ export async function freeSlots(clientId: string, ag: AiSettings["agenda"], max 
       if (lunchA >= 0 && m < lunchB && m + ag.duracaoMin > lunchA) continue;
       const slot = brDate(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), m);
       if (busy.some((b) => Math.abs(b - slot.getTime()) < ag.duracaoMin * 60_000)) continue;
+      const slotEnd = slot.getTime() + ag.duracaoMin * 60_000;
+      if (realBusy.some((b) => b.start < slotEnd && b.end > slot.getTime())) continue;
       out.push(slot);
     }
   }

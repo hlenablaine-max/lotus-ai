@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, Menu, dialog, Tray, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, Menu, dialog, Tray, nativeImage, desktopCapturer } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as http from 'http'
@@ -424,6 +424,14 @@ async function createWindow() {
 
   mainWindow.webContents.session.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === 'media' || permission === 'display-capture')
+  })
+
+  // Sales Copilot: ouvir o áudio que sai do PC (a voz do cliente na call do Meet/Zoom), sem janela de escolha
+  mainWindow.webContents.session.setDisplayMediaRequestHandler((_request, callback) => {
+    desktopCapturer
+      .getSources({ types: ['screen'] })
+      .then((sources) => callback(sources[0] ? { video: sources[0], audio: 'loopback' } : {}))
+      .catch(() => callback({}))
   })
 
   // Links externos abrem no navegador do sistema

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { initializeProviders, registry } from '@lotus/ai-engine'
+import { prisma } from '@/lib/prisma'
+import { requireOwner } from '@/lib/require-owner'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,12 +24,16 @@ Responda SEMPRE em JSON puro, sem markdown:
 }`
 
 export async function POST(req: NextRequest) {
+  const owner = await requireOwner()
+  if (owner instanceof Response) return owner
   let clientSaid = ''
   let context: string | undefined
+  let callId: string | undefined
   try {
-    const body = await req.json() as { clientSaid?: string; context?: string }
+    const body = await req.json() as { clientSaid?: string; context?: string; callId?: string }
     clientSaid = body.clientSaid ?? ''
     context = body.context
+    callId = body.callId
   } catch {
     return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
   }
@@ -55,6 +61,14 @@ export async function POST(req: NextRequest) {
     if (!jsonMatch) throw new Error('A IA não retornou uma sugestão em formato válido')
     const parsed = JSON.parse(jsonMatch[0]) as { suggestion?: string; tactic?: string; confidence?: number }
     if (!parsed.suggestion) throw new Error('A IA retornou uma sugestão vazia')
+
+    // Guarda a sugestão na call em andamento (histórico e aprendizado do que funciona)
+    if (callId) {
+      await prisma.callSuggestion
+        .create({ data: { callId, triggerText: clientSaid.slice(0, 2000), suggestion: parsed.suggestion.slice(0, 2000), suggestionType: parsed.tactic ?? 'Descoberta', confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.8 } })
+        .then(() => prisma.salesCall.update({ where: { id: callId }, data: { suggestionsCount: { increment: 1 } } }))
+        .catch((e) => console.warn('[copilot] sugestão não salva:', e instanceof Error ? e.message : e))
+    }
 
     return NextResponse.json({
       suggestion: parsed.suggestion,

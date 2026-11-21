@@ -3,7 +3,7 @@
 // CRM do cliente: leads que chegaram, em que etapa estão, quantos fecharam e quanto isso faturou.
 import { FunnelHealthCard } from "@/components/crm/funnel-health";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Loader2, Plus, Upload } from "lucide-react";
+import { AlertTriangle, FileText, Loader2, Plus, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChannelBadge, ChannelFilter } from "@/components/whatsapp/ui";
 
@@ -104,6 +104,8 @@ export function ClientCrm({ clientId, clientName }: { clientId: string; clientNa
   const [numbers, setNumbers] = useState({ patientBase: "", adSpend: "", revenue: "" });
   const [info, setInfo] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [showReport, setShowReport] = useState(false);
+  const reportFrame = useRef<HTMLIFrameElement>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -186,6 +188,9 @@ export function ClientCrm({ clientId, clientName }: { clientId: string; clientNa
         <button onClick={() => fileRef.current?.click()} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/40 border border-border text-sm text-foreground hover:bg-muted">
           <Upload className="w-4 h-4" /> Importar planilha
         </button>
+        <button onClick={() => setShowReport(true)} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/40 border border-border text-sm text-foreground hover:bg-muted">
+          <FileText className="w-4 h-4" /> Relatório do mês (PDF)
+        </button>
         <input
           ref={fileRef}
           type="file"
@@ -204,6 +209,21 @@ export function ClientCrm({ clientId, clientName }: { clientId: string; clientNa
       {info && <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-300">{info}</div>}
 
       <FunnelHealthCard clientId={clientId} />
+
+      {showReport && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setShowReport(false)}>
+          <div className="w-full max-w-4xl h-[90vh] rounded-xl overflow-hidden bg-white flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-2 bg-zinc-900 text-white text-sm">
+              <span>Relatório de {month} — {clientName.split("|")[0].trim()}</span>
+              <div className="flex gap-2">
+                <button onClick={() => reportFrame.current?.contentWindow?.print()} className="px-3 py-1 rounded bg-primary text-primary-foreground text-xs">Imprimir / salvar PDF</button>
+                <button onClick={() => setShowReport(false)} className="px-2 py-1 rounded hover:bg-white/10 text-xs">Fechar</button>
+              </div>
+            </div>
+            <iframe ref={reportFrame} src={`/api/clients/${clientId}/report/monthly?month=${month}`} className="flex-1 w-full bg-white" title="Relatório do mês" />
+          </div>
+        </div>
+      )}
 
       {showAdd && (
         <div className="rounded-xl border border-border bg-card p-4 grid grid-cols-1 md:grid-cols-6 gap-3">

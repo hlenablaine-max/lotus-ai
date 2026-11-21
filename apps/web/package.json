@@ -37,6 +37,7 @@
     "marked": "15.0.12",
     "next": "^15.1.0",
     "next-auth": "^5.0.0-beta.25",
+    "node-ical": "0.20.1",
     "openai": "^4.77.3",
     "playwright": "^1.65.1",
     "react": "^19.0.0",

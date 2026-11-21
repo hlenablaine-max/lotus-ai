@@ -115,6 +115,20 @@ export const INTEGRATIONS: IntegrationDef[] = [
     whereToGet: "analytics.google.com > Administrador > Detalhes da propriedade",
   },
   {
+    id: "google-calendar",
+    name: "Google Agenda das clínicas",
+    category: "communication",
+    description:
+      "Credencial da LOTUS no Google para as clínicas conectarem a agenda com um clique (a IA vê os horários ocupados e marca as consultas). Sem ela, a clínica ainda pode colar o link secreto iCal da agenda (só leitura).",
+    usedBy: "IA de atendimento (horários livres e marcação)",
+    fields: [
+      { key: "clientId", label: "ID do cliente OAuth", secret: false, placeholder: "123456-abc.apps.googleusercontent.com", env: "GOOGLE_OAUTH_CLIENT_ID" },
+      { key: "clientSecret", label: "Segredo do cliente OAuth", secret: true, placeholder: "GOCSPX-...", env: "GOOGLE_OAUTH_CLIENT_SECRET" },
+    ],
+    whereToGet:
+      "console.cloud.google.com > crie um projeto > APIs e serviços > ative a Google Calendar API > Tela de consentimento OAuth (Externo) > Credenciais > Criar ID do cliente OAuth (Aplicativo da Web) com o URI de redirecionamento https://lotus-recebedor.vercel.app/api/google/callback",
+  },
+  {
     id: "vercel",
     name: "Vercel (sites)",
     category: "infrastructure",

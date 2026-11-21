@@ -98,6 +98,16 @@ export function Patients({ clientId, clientName }: { clientId: string; clientNam
     return () => clearTimeout(t);
   }, [load, q]);
 
+  // LGPD: a pessoa pediu para apagar os dados dela
+  const erase = async (patientId: string, name: string) => {
+    const typed = window.prompt(`Apagar TODOS os dados de ${name} nesta clínica (cadastro, compras, conversas, leads e mensagens agendadas)? Não dá para desfazer.\n\nDigite APAGAR para confirmar:`, "");
+    if (typed !== "APAGAR") return;
+    const r = await fetch(`/api/clients/${clientId}/patients/${patientId}/lgpd`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmar: "APAGAR" }) });
+    const d = (await r.json().catch(() => ({}))) as { error?: string; apagado?: Record<string, number> };
+    setMsg(r.ok ? { kind: "ok", text: `Dados de ${name} apagados (${d.apagado?.conversas ?? 0} conversa(s), ${d.apagado?.leads ?? 0} lead(s)). Ficou só o registro de que o pedido foi atendido, sem dados pessoais.` } : { kind: "error", text: d.error ?? "Não foi possível apagar." });
+    void load();
+  };
+
   const importFile = async (file: File) => {
     setImporting(true);
     setMsg(null);
@@ -321,6 +331,7 @@ export function Patients({ clientId, clientName }: { clientId: string; clientNam
                       <th className="pb-2 font-medium">Última visita</th>
                       <th className="pb-2 font-medium">Procedimento</th>
                       <th className="pb-2 font-medium">Origem</th>
+                      <th className="pb-2 font-medium text-right" title="Direitos do paciente (LGPD)">LGPD</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -338,6 +349,10 @@ export function Patients({ clientId, clientName }: { clientId: string; clientNam
                           <td className={cn("py-2", stale ? "text-amber-300" : "text-muted-foreground")}>{p.lastVisitAt ? fmtDate(p.lastVisitAt) : "—"}</td>
                           <td className="py-2 text-muted-foreground truncate max-w-[160px]">{p.lastProcedure ?? "—"}</td>
                           <td className="py-2">{p.origin === "lotus" ? <span className="text-primary">LOTUS</span> : <span className="text-muted-foreground">base</span>}</td>
+                          <td className="py-2 text-right whitespace-nowrap">
+                            <a href={`/api/clients/${clientId}/patients/${p.id}/lgpd`} className="text-[10px] text-muted-foreground hover:text-foreground" title="Baixar tudo o que a LOTUS guarda sobre esta pessoa">exportar</a>
+                            <button onClick={() => void erase(p.id, p.name)} className="ml-2 text-[10px] text-muted-foreground hover:text-red-300" title="Apagar todos os dados desta pessoa (pedido do paciente)">apagar</button>
+                          </td>
                         </tr>
                       );
                     })}

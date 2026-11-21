@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { bookAppointment } from "@/lib/clinic-calendar";
 import { requireOwner } from "@/lib/require-owner";
 import { applyLeadUpdate } from "@/lib/lead-update";
 import { referralLink, sendNow } from "@/lib/whatsapp";
@@ -60,6 +61,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         const when = action.slice(8);
         if (conv.leadId) await applyLeadUpdate(conv.leadId, { appointmentAt: when });
         if (conv.prospectId) await prisma.prospect.update({ where: { id: conv.prospectId }, data: { status: "CALL_MARCADA", callAt: new Date(when), notes: `Call: ${when}` } });
+        else await bookAppointment(conv.clientId, conv, when).catch(() => undefined);
       } else if (action.startsWith("humano:")) {
         await prisma.conversation.update({ where: { id }, data: { aiPausedUntil: new Date(Date.now() + 24 * 3_600_000) } });
       }

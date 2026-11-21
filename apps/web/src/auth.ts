@@ -1,6 +1,7 @@
 import NextAuth from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import { prisma } from '@/lib/prisma'
+import { authenticateMember } from '@/lib/team'
 
 interface LocalUser {
   email: string
@@ -39,14 +40,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         const email = String(credentials.email).trim().toLowerCase()
         const user = configuredUsers().find((u) => u.email.toLowerCase() === email && u.password === credentials.password)
-        if (!user) return null
+        if (!user) {
+          // Equipe: login próprio cadastrado pelo dono (senha guardada só como hash)
+          const member = process.env.DATABASE_URL ? await authenticateMember(email, String(credentials.password)).catch(() => null) : null
+          return member ? { id: member.id, email: member.email, name: member.name, role: member.role } : null
+        }
 
         // Registra o usuário no banco (é o que identifica quem aprovou cada ação), sem bloquear o login
         if (process.env.DATABASE_URL) {
           prisma.user
             .upsert({
               where: { email: user.email },
-              update: { name: user.name },
+              update: { name: user.name, lastLoginAt: new Date() },
               create: { email: user.email, name: user.name, role: 'OWNER' },
             })
             .catch(() => {/* silencioso */})

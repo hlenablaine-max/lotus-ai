@@ -6,16 +6,24 @@ import { isValidPortalToken } from '@/lib/portal-token'
 // /api/internal/whatsapp/events recebe as mensagens do app desktop e confere o token secreto do runtime na própria rota
 const PUBLIC_ROUTES = ['/login', '/api/auth', '/api/internal/busy', '/api/internal/whatsapp/events', '/api/integrations/manychat/inbound']
 
-async function hasValidSession(req: NextRequest): Promise<boolean> {
+async function sessionRole(req: NextRequest): Promise<string | null> {
   const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET
-  if (!secret) return false
+  if (!secret) return null
   const secureCookie = req.nextUrl.protocol === 'https:'
   try {
     const token = await getToken({ req, secret, secureCookie })
-    return !!token
+    return token ? String((token as { role?: string }).role ?? 'OWNER') : null
   } catch {
-    return false
+    return null
   }
+}
+
+// Repassa o método e o caminho para as rotas conferirem o papel de quem pediu (requireOwner)
+function withRequestInfo(req: NextRequest): NextResponse {
+  const h = new Headers(req.headers)
+  h.set('x-lotus-method', req.method)
+  h.set('x-lotus-path', req.nextUrl.pathname)
+  return NextResponse.next({ request: { headers: h } })
 }
 
 // Portal do cliente: acesso por link assinado (?t=...), que vira cookie para as chamadas da página.
@@ -46,7 +54,15 @@ export async function middleware(req: NextRequest) {
   const isPublic = PUBLIC_ROUTES.some((r) => nextUrl.pathname.startsWith(r))
   if (isPublic) return NextResponse.next()
 
-  if (await hasValidSession(req)) return NextResponse.next()
+  const role = await sessionRole(req)
+  if (role) {
+    const write = !['GET', 'HEAD', 'OPTIONS'].includes(req.method)
+    if (nextUrl.pathname.startsWith('/api/') && write && role === 'VIEWER') {
+      return NextResponse.json({ error: 'Seu acesso é só de visualização.' }, { status: 403 })
+    }
+    if (nextUrl.pathname.startsWith('/team') && role !== 'OWNER') return NextResponse.redirect(new URL('/', nextUrl.origin))
+    return withRequestInfo(req)
+  }
 
   const portal = await portalAccess(req)
   if (portal) return portal

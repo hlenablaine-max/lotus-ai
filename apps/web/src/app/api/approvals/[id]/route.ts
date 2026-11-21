@@ -64,6 +64,13 @@ export async function PATCH(
     },
   });
 
+  // Recusa com motivo vira aprendizado da empresa: os agentes leem isso antes de cada trabalho
+  if (action === "REJECTED" && decisionNote && decisionNote.trim().length >= 5) {
+    await prisma.memory
+      .create({ data: { scope: "GLOBAL", key: `recusa:${id}`, content: `O dono recusou "${approval.title}": ${decisionNote.trim().slice(0, 400)}`, metadata: { approvalId: id, type: approval.type } } })
+      .catch(() => undefined);
+  }
+
   const outcome = await handleApprovalDecision(approval);
 
   return Response.json({ approval, outcome });

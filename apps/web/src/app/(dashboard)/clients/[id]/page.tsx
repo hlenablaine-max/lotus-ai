@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { ClientAvatar } from "@/components/ui/client-avatar";
 import { ClientCrm } from "@/components/crm/client-crm";
 import { AgencyCrm } from "@/components/crm/agency-crm";
+import { LegalCard } from "@/components/clients/legal-card";
 import { Attendance } from "@/components/whatsapp/attendance";
 import { Patients } from "@/components/patients/patients";
 
@@ -260,6 +261,11 @@ export default function ClientDetailPage({ params }: { params: Promise<{ id: str
       {tab === "patients" && <Patients clientId={client.id} clientName={client.name} />}
 
       {/* Tab content */}
+      {tab === "overview" && client.slug !== "lotus-interno" && (
+        <div className="mb-6">
+          <LegalCard clientId={client.id} />
+        </div>
+      )}
       {tab === "overview" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="p-5 rounded-xl bg-card border border-border">

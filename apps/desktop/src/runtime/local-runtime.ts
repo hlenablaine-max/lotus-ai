@@ -1,3 +1,4 @@
+import { Transcriber } from './transcriber'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -71,13 +72,15 @@ export class LocalRuntime {
   readonly research: ResearchBrowser
   // WhatsApp de cada clínica (aparelho conectado por QR code)
   readonly whatsapp: WhatsAppHub
+  readonly transcriber: Transcriber
 
   constructor(mainWindow: BrowserWindow, repoDir: string) {
     this.mainWindow = mainWindow
     this.repoDir = repoDir
     this.research = new ResearchBrowser((level, message) => this.log(level, message, 'pesquisa'))
     if (!fs.existsSync(WORKSPACE_DIR)) fs.mkdirSync(WORKSPACE_DIR, { recursive: true })
-    this.whatsapp = new WhatsAppHub((level, message) => this.log(level, message, 'whatsapp'))
+    this.transcriber = new Transcriber((level, message) => this.log(level, message, 'audio'))
+    this.whatsapp = new WhatsAppHub((level, message) => this.log(level, message, 'whatsapp'), this.transcriber)
     // Religa os WhatsApps já conectados assim que o app abre
     setTimeout(() => void this.whatsapp.resumeAll().catch(() => undefined), 8000)
   }
@@ -500,5 +503,6 @@ export class LocalRuntime {
     await this.browserClose()
     await this.research.close()
     await this.whatsapp.close()
+    this.transcriber.stop()
   }
 }

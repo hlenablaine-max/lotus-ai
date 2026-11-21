@@ -10,6 +10,7 @@ import { AttendancePanel } from "./panel";
 import { TrackedLinks, type LinkItem } from "./links";
 import { Automations } from "./automations";
 import { InstagramConnect, LotusInstagram } from "./instagram-connect";
+import { CalendarConnect } from "./calendar-connect";
 import { Notice, btnGhost, btnPrimary, formatPhone } from "./ui";
 
 interface State {
@@ -145,6 +146,7 @@ export function Attendance({ clientId, clientName, isLotus = false }: { clientId
       </div>
       {error && <Notice kind="error">{error}</Notice>}
       {isLotus ? <LotusInstagram /> : <InstagramConnect clientId={clientId} />}
+      {!isLotus && <CalendarConnect clientId={clientId} clientName={clientName} />}
 
       {/* Subabas */}
       <div className="flex gap-1 border-b border-border">

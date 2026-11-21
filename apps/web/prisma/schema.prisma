@@ -24,6 +24,9 @@ model User {
   emailVerified DateTime?
   image         String?
   role          UserRole  @default(OWNER)
+  passwordHash  String?   // equipe: senha guardada só como hash (scrypt)
+  active        Boolean   @default(true)
+  lastLoginAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -101,6 +104,8 @@ model Client {
   contractStart   DateTime?
   onboardingStage String?   // KICKOFF | ACESSOS | SITE | CAMPANHAS | RODANDO
   churnedAt       DateTime?
+  contractSignedAt DateTime? // contrato de prestação de serviços assinado
+  dpaSignedAt      DateTime? // termo de tratamento de dados (LGPD) assinado
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
@@ -120,6 +125,7 @@ model Client {
   patients         Patient[]
 
   @@map("clients")
+  calendar        ClientCalendar?
 }
 
 // ============================================================
@@ -270,6 +276,8 @@ model Patient {
   tags         String?
   notes        String?
   optOut       Boolean    @default(false) // pediu para não receber mensagens
+  consentAt    DateTime?  // LGPD: quando a clínica registrou o consentimento
+  consentSource String?   // como veio o consentimento (planilha da clínica, conversa, formulário)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -1036,5 +1044,22 @@ enum SalesCallStatus {
   CANCELLED
 }
 
+// Agenda da clínica: link secreto (iCal, só leitura) ou conexão Google (lê os horários ocupados e marca consultas)
+model ClientCalendar {
+  id              String    @id @default(cuid())
+  clientId        String    @unique
+  kind            String    // ics | google
+  icsUrlEnc       String?   // endereço secreto iCal, criptografado
+  googleEmail     String?
+  refreshTokenEnc String?   // token do Google, criptografado
+  calendarId      String    @default("primary")
+  status          String    @default("desconectado") // conectado | erro | desconectado
+  lastSyncAt      DateTime?
+  lastError       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
+  @@map("client_calendars")
+}
