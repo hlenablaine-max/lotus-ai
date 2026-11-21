@@ -1,6 +1,7 @@
 "use client";
 
 // CRM do cliente: leads que chegaram, em que etapa estão, quantos fecharam e quanto isso faturou.
+import { FunnelHealthCard } from "@/components/crm/funnel-health";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Loader2, Plus, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -201,6 +202,8 @@ export function ClientCrm({ clientId, clientName }: { clientId: string; clientNa
 
       {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{error}</div>}
       {info && <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-300">{info}</div>}
+
+      <FunnelHealthCard clientId={clientId} />
 
       {showAdd && (
         <div className="rounded-xl border border-border bg-card p-4 grid grid-cols-1 md:grid-cols-6 gap-3">

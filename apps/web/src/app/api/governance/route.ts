@@ -4,9 +4,64 @@ import { requireOwner } from "@/lib/require-owner";
 import { createRuntimeClient } from "@/lib/runtime-client";
 import { integrationsView } from "@/lib/integrations-catalog";
 import { vercelUser, whatsappSessionSaved, workspaceFolders } from "@/lib/local-accounts";
+import { lotusWhatsappReady } from "@/lib/lotus-whatsapp";
+import { registry } from "@lotus/ai-engine";
+import { LOTUS_SLUG } from "@/lib/whatsapp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// Uma falha já está resolvida quando uma tentativa nova da mesma tarefa terminou depois dela
+// ("Produção: site" falhou e "Produção: site (tentativa 2)" concluiu), ou quando a missão inteira
+// foi refeita depois e a nova não falhou.
+type FailedTask = { title: string; missionId: string; createdAt: Date; mission: { title: string; clientId: string; createdAt: Date } };
+const baseTitle = (t: string) => t.replace(/\s*\(tentativa \d+\)\s*$/i, "").trim();
+async function unresolvedFailures(failed: FailedTask[]): Promise<FailedTask[]> {
+  const out: FailedTask[] = [];
+  for (const t of failed) {
+    const retried = await prisma.task.findFirst({
+      where: { missionId: t.missionId, status: "COMPLETED", createdAt: { gt: t.createdAt }, title: { startsWith: baseTitle(t.title) } },
+      select: { id: true },
+    });
+    if (retried) continue;
+    const redone = await prisma.mission.findFirst({
+      where: { title: t.mission.title, clientId: t.mission.clientId, createdAt: { gt: t.mission.createdAt }, status: { not: "FAILED" } },
+      select: { id: true },
+    });
+    if (redone) continue;
+    out.push(t);
+  }
+  return out;
+}
+
+// Teste real de cada IA (uma pergunta de uma palavra), guardado por 10 minutos para não gastar a cada abertura
+const AI_LABEL: Record<string, string> = { drael: "Drael", openai: "ChatGPT (OpenAI)", anthropic: "Claude (chave)", "claude-code": "Claude (assinatura)" };
+const aiCache = globalThis as unknown as { __lotusAiTest?: { at: number; result: Array<{ label: string; ok: boolean; error?: string }> } };
+async function testAiProviders(): Promise<Array<{ label: string; ok: boolean; error?: string }>> {
+  if (aiCache.__lotusAiTest && Date.now() - aiCache.__lotusAiTest.at < 10 * 60_000) return aiCache.__lotusAiTest.result;
+  const names = registry.listAvailable();
+  const result = await Promise.all(
+    names.map(async (n) => {
+      try {
+        await Promise.race([
+          registry.get(n).complete({ messages: [{ role: "user", content: "Responda só: ok" }], maxTokens: 5 } as never),
+          new Promise((_, rej) => setTimeout(() => rej(new Error("não respondeu em 30 s")), 30_000)),
+        ]);
+        return { label: AI_LABEL[n] ?? n, ok: true };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const error = /401|incorrect api key|invalid.*key|unauthorized/i.test(msg)
+          ? "a chave foi recusada (está errada ou foi cancelada). Cole uma chave nova em Integrações."
+          : /429|quota|insufficient|billing|limit/i.test(msg)
+            ? "sem crédito ou no limite de uso."
+            : msg.slice(0, 120);
+        return { label: AI_LABEL[n] ?? n, ok: false, error };
+      }
+    })
+  );
+  aiCache.__lotusAiTest = { at: Date.now(), result };
+  return result;
+}
 
 type CheckStatus = "ok" | "warn" | "fail";
 interface Check {
@@ -65,19 +120,55 @@ export async function GET() {
   // IA
   const integrations = integrationsView();
   const aiReady = integrations.filter((i) => i.aiProvider && i.configured).map((i) => i.name);
+  const aiTest = aiReady.length ? await testAiProviders() : [];
+  const aiOk = aiTest.filter((t) => t.ok).map((t) => t.label);
+  const aiBad = aiTest.filter((t) => !t.ok);
   add({
-    id: "ai", area: "Integrações", label: "Provedor de IA", status: aiReady.length ? "ok" : "fail",
-    detail: aiReady.length ? `Com chave: ${aiReady.join(", ")}.` : "Nenhuma chave de IA configurada: os agentes não conseguem trabalhar.",
-    fix: aiReady.length ? undefined : { label: "Colar chave em Integrações", href: "/integrations" },
+    id: "ai", area: "Integrações", label: "Provedor de IA (testado de verdade)", status: !aiReady.length || (aiTest.length && !aiOk.length) ? "fail" : aiBad.length ? "warn" : "ok",
+    detail: !aiReady.length
+      ? "Nenhuma chave de IA configurada: os agentes não conseguem trabalhar."
+      : [aiOk.length ? `Respondendo: ${aiOk.join(", ")}.` : "Nenhuma IA respondeu ao teste.", ...aiBad.map((b) => `${b.label}: ${b.error}`)].join(" "),
+    fix: aiReady.length && !aiBad.length ? undefined : { label: "Abrir Integrações", href: "/integrations" },
   });
 
   // WhatsApp e Vercel
-  const whatsapp = whatsappSessionSaved();
+  // WhatsApp da LOTUS (QR que ouve): prospecção, teste de atendimento e relatórios
+  const lotusWa = dbOk ? await lotusWhatsappReady().catch(() => null) : null;
+  const browserWa = whatsappSessionSaved();
   add({
-    id: "whatsapp", area: "Integrações", label: "WhatsApp conectado", status: whatsapp ? "ok" : "warn",
-    detail: whatsapp ? "Sessão do WhatsApp Web salva: o teste de atendimento das clínicas pode rodar." : "Sem sessão: o teste de atendimento no WhatsApp das clínicas fica de fora.",
-    fix: whatsapp ? undefined : { label: "Conectar pelo QR Code", href: "/integrations" },
+    id: "whatsapp", area: "Integrações", label: "WhatsApp da LOTUS", status: lotusWa ? "ok" : "warn",
+    detail: lotusWa
+      ? "Conectado e ouvindo, com o escudo anti-ban: prospecção, teste de atendimento das clínicas e relatórios saem por ele."
+      : browserWa
+        ? "Desconectado. Só a sessão antiga do navegador está salva: o teste de atendimento roda, mas a prospecção e as respostas da IA ficam paradas."
+        : "Desconectado: prospecção, teste de atendimento e respostas da IA ficam paradas.",
+    fix: lotusWa ? undefined : { label: "Conectar pelo QR Code", href: "/integrations" },
   });
+  if (dbOk) {
+    const [clinicWa, igAccounts] = await Promise.all([
+      prisma.whatsappChannel.findMany({ where: { client: { slug: { not: LOTUS_SLUG } } }, select: { status: true, client: { select: { name: true, status: true } } } }),
+      prisma.manychatAccount.findMany({ select: { status: true, client: { select: { name: true, slug: true } } } }),
+    ]);
+    const off = clinicWa.filter((c) => c.client.status === "ACTIVE" && c.status !== "conectado");
+    add({
+      id: "clinic-wa", area: "Integrações", label: "WhatsApp das clínicas", status: off.length ? "warn" : "ok",
+      detail: !clinicWa.length
+        ? "Nenhuma clínica com WhatsApp conectado ainda (conecta no perfil de cada clínica, na aba Atendimento, depois de fechar)."
+        : off.length
+          ? `${off.length} clínica(s) ativa(s) com o WhatsApp desconectado: ${off.slice(0, 3).map((c) => c.client.name.split("|")[0].trim()).join(", ")}. Os leads delas não entram enquanto isso.`
+          : `${clinicWa.length} clínica(s) com o WhatsApp conectado.`,
+      fix: off.length ? { label: "Ver clientes", href: "/clients" } : undefined,
+    });
+    const igOff = igAccounts.filter((a) => a.status !== "conectado");
+    const lotusIg = igAccounts.some((a) => a.client.slug === LOTUS_SLUG && a.status === "conectado");
+    add({
+      id: "instagram", area: "Integrações", label: "Instagram (ManyChat)", status: igOff.length || !lotusIg ? "warn" : "ok",
+      detail: igOff.length
+        ? `${igOff.length} conta(s) do ManyChat com problema: ${igOff.map((a) => a.client.name.split("|")[0].trim()).join(", ")}.`
+        : `${lotusIg ? "Instagram da LOTUS conectado. " : "Instagram da LOTUS ainda não conectado. "}${igAccounts.filter((a) => a.client.slug !== LOTUS_SLUG).length} clínica(s) com Instagram conectado.`,
+      fix: igOff.length || !lotusIg ? { label: "Conectar em Integrações", href: "/integrations" } : undefined,
+    });
+  }
   const vercel = await vercelUser();
   add({
     id: "vercel", area: "Integrações", label: "Vercel (publicação dos sites)", status: vercel ? "ok" : "warn",
@@ -104,9 +195,9 @@ export async function GET() {
       prisma.approval.count({ where: { status: "PENDING" } }),
       prisma.task.findMany({
         where: { status: "FAILED", updatedAt: { gte: new Date(now - 7 * DAY) }, mission: { status: { notIn: ["CANCELLED", "COMPLETED"] } } },
-        select: { title: true, mission: { select: { title: true } } },
+        select: { title: true, missionId: true, createdAt: true, mission: { select: { title: true, clientId: true, createdAt: true } } },
         take: 50,
-      }),
+      }).then(unresolvedFailures),
       prisma.task.findMany({
         where: { status: "IN_PROGRESS", startedAt: { lt: new Date(now - STUCK_MS) } },
         select: { title: true, mission: { select: { title: true } } },

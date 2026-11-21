@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { createRuntimeClient } from "@/lib/runtime-client";
 import { fillTemplate, getSettings, normalizePhone, processInboundEvents, referralLink, sendNow, type AutomationSettings } from "@/lib/whatsapp";
 import { planWeeklyReports, runAiQueue } from "@/lib/whatsapp-ai-queue";
+import { runWeeklyOptimization } from "@/lib/funnel-health";
 import { ownerMessageSent, prospectSent } from "@/lib/prospecting";
 
 const TZ = "America/Sao_Paulo";
@@ -202,6 +203,7 @@ export async function runWhatsappAutomations(): Promise<void> {
     // Mensagens presas em "ENVIANDO" por um reinício voltam para a fila
     await prisma.outboundMessage.updateMany({ where: { status: "ENVIANDO", createdAt: { lt: new Date(Date.now() - 10 * 60_000) } }, data: { status: "PENDENTE" } });
     await planWeeklyReports().catch((err) => console.error("[whatsapp] relatório semanal:", err instanceof Error ? err.message : err));
+    await runWeeklyOptimization().catch((err) => console.error("[otimização semanal]:", err instanceof Error ? err.message : err));
     const channels = await prisma.whatsappChannel.findMany({ where: { status: "conectado" }, select: { clientId: true, client: { select: { name: true } } } });
     if (channels.length === 0) return;
     const runtime = createRuntimeClient();
